@@ -1,0 +1,53 @@
+name: Naber build
+
+on:
+  push:
+    branches: ["**"]
+  workflow_dispatch:
+
+jobs:
+  plugin-tests:
+    name: WordPress eklentisi testleri
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: PHP kur
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+
+      - name: Sozdizimi kontrolu (php -l)
+        run: find wordpress-plugin -name "*.php" -print0 | xargs -0 -n1 php -l
+
+      - name: Backblaze bucket testleri
+        run: php wordpress-plugin/naber-chat/tests/test-b2-settings.php
+
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: JDK 21 kur
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Android SDK kur
+        uses: android-actions/setup-android@v3
+
+      - name: Gradle kur
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Debug APK derle
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon --console=plain --stacktrace
+
+      - name: APK'yi yukle
+        uses: actions/upload-artifact@v4
+        with:
+          name: naber-debug-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
