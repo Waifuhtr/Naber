@@ -35,8 +35,9 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - name: Android SDK kur
-        uses: android-actions/setup-android@v3
+      # ubuntu-latest imajinda Android SDK zaten kurulu geliyor.
+      - name: SDK yolunu bildir
+        run: echo "sdk.dir=$ANDROID_SDK_ROOT" > android/local.properties
 
       - name: Gradle kur
         uses: gradle/actions/setup-gradle@v4
