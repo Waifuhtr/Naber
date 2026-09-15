@@ -358,6 +358,7 @@ class Naber_Chat_Repo {
 			'updated_at'   => self::ts( $row['updated_at'] ),
 			'last_message' => $last,
 			'read_watermark' => self::read_watermark( (int) $row['id'], $user_id ),
+			'delivered_watermark' => self::delivered_watermark( (int) $row['id'], $user_id ),
 		);
 
 		if ( $with_members ) {
@@ -404,26 +405,32 @@ class Naber_Chat_Repo {
 
 	public static function messages( $conversation_id, $args = array() ) {
 		global $wpdb;
-		$table   = Naber_DB::table( 'messages' );
-		$limit   = isset( $args['limit'] ) ? max( 1, min( 100, (int) $args['limit'] ) ) : 50;
-		$after   = isset( $args['after'] ) ? (int) $args['after'] : 0;
+		$table    = Naber_DB::table( 'messages' );
+		$limit    = isset( $args['limit'] ) ? max( 1, min( 100, (int) $args['limit'] ) ) : 50;
+		$after    = isset( $args['after'] ) ? (int) $args['after'] : 0;
 		$is_group = ! empty( $args['is_group'] );
+		$user_id  = isset( $args['user_id'] ) ? (int) $args['user_id'] : 0;
+
+		// Kullanicinin "kendimden sil" dedigi mesajlar listede gorunmez.
+		$hidden = $user_id > 0
+			? $wpdb->prepare( ' AND NOT FIND_IN_SET(%d, hidden_for)', $user_id )
+			: '';
 
 		if ( $after > 0 ) {
 			$rows = $wpdb->get_results(
-				$wpdb->prepare( "SELECT * FROM {$table} WHERE conversation_id = %d AND id > %d ORDER BY id ASC LIMIT %d", $conversation_id, $after, $limit ),
+				$wpdb->prepare( "SELECT * FROM {$table} WHERE conversation_id = %d AND id > %d{$hidden} ORDER BY id ASC LIMIT %d", $conversation_id, $after, $limit ),
 				ARRAY_A
 			);
 		} else {
 			$before = isset( $args['before'] ) ? (int) $args['before'] : 0;
 			if ( $before > 0 ) {
 				$rows = $wpdb->get_results(
-					$wpdb->prepare( "SELECT * FROM {$table} WHERE conversation_id = %d AND id < %d ORDER BY id DESC LIMIT %d", $conversation_id, $before, $limit ),
+					$wpdb->prepare( "SELECT * FROM {$table} WHERE conversation_id = %d AND id < %d{$hidden} ORDER BY id DESC LIMIT %d", $conversation_id, $before, $limit ),
 					ARRAY_A
 				);
 			} else {
 				$rows = $wpdb->get_results(
-					$wpdb->prepare( "SELECT * FROM {$table} WHERE conversation_id = %d ORDER BY id DESC LIMIT %d", $conversation_id, $limit ),
+					$wpdb->prepare( "SELECT * FROM {$table} WHERE conversation_id = %d{$hidden} ORDER BY id DESC LIMIT %d", $conversation_id, $limit ),
 					ARRAY_A
 				);
 			}
@@ -541,6 +548,16 @@ class Naber_Chat_Repo {
 		return null === $value ? 0 : (int) $value;
 	}
 
+	/** Diger uyelerin hepsinin cihazina ulasan en yuksek mesaj kimligi. */
+	public static function delivered_watermark( $conversation_id, $user_id ) {
+		global $wpdb;
+		$table = Naber_DB::table( 'members' );
+		$value = $wpdb->get_var(
+			$wpdb->prepare( "SELECT MIN(delivered_id) FROM {$table} WHERE conversation_id = %d AND user_id <> %d", (int) $conversation_id, (int) $user_id )
+		);
+		return null === $value ? 0 : (int) $value;
+	}
+
 	/** Kullanicinin sohbetlerindeki diger herkes (tek sorgu). */
 	public static function peer_ids( $user_id ) {
 		global $wpdb;
@@ -638,7 +655,7 @@ class Naber_Chat_Repo {
 				"SELECT m.*, c.type AS conversation_type FROM {$messages} m
 				 INNER JOIN {$members} me ON me.conversation_id = m.conversation_id AND me.user_id = %d
 				 INNER JOIN " . Naber_DB::table( 'conversations' ) . " c ON c.id = m.conversation_id
-				 WHERE m.id > %d
+				 WHERE m.id > %d AND NOT FIND_IN_SET(me.user_id, m.hidden_for)
 				 ORDER BY m.id ASC
 				 LIMIT %d",
 				(int) $user_id,
@@ -655,13 +672,18 @@ class Naber_Chat_Repo {
 		return $out;
 	}
 
-	/** Her sohbet icin karsi tarafin okuma seviyesi (tik guncellemesi). */
+	/**
+	 * Her sohbet icin karsi tarafin teslim ve okuma seviyesi.
+	 * Tek tik = sunucuda, gri cift tik = cihaza ulasti, mavi cift tik = okundu.
+	 */
 	public static function read_states( $user_id ) {
 		global $wpdb;
 		$members = Naber_DB::table( 'members' );
 		$rows    = $wpdb->get_results(
 			$wpdb->prepare(
-				"SELECT mine.conversation_id, COALESCE(MIN(others.last_read_id), 0) AS watermark
+				"SELECT mine.conversation_id,
+					COALESCE(MIN(others.last_read_id), 0) AS watermark,
+					COALESCE(MIN(others.delivered_id), 0) AS delivered
 				 FROM {$members} mine
 				 LEFT JOIN {$members} others ON others.conversation_id = mine.conversation_id AND others.user_id <> mine.user_id
 				 WHERE mine.user_id = %d
@@ -677,9 +699,140 @@ class Naber_Chat_Repo {
 			$out[] = array(
 				'conversation_id' => (int) $row['conversation_id'],
 				'watermark'       => (int) $row['watermark'],
+				'delivered'       => (int) $row['delivered'],
 			);
 		}
 		return $out;
+	}
+
+	/**
+	 * Kullaniciya ulasan mesajlari "iletildi" olarak isaretler.
+	 * Olay akisi mesajlari teslim ettiginde cagrilir.
+	 */
+	public static function mark_delivered( $user_id, array $messages ) {
+		if ( ! $messages ) {
+			return;
+		}
+
+		global $wpdb;
+		$by_conversation = array();
+		foreach ( $messages as $message ) {
+			if ( (int) $message['sender_id'] === (int) $user_id ) {
+				continue;
+			}
+			$conversation_id = (int) $message['conversation_id'];
+			$id              = (int) $message['id'];
+			if ( ! isset( $by_conversation[ $conversation_id ] ) || $by_conversation[ $conversation_id ] < $id ) {
+				$by_conversation[ $conversation_id ] = $id;
+			}
+		}
+		if ( ! $by_conversation ) {
+			return;
+		}
+
+		$members  = Naber_DB::table( 'members' );
+		$messages_table = Naber_DB::table( 'messages' );
+		$now      = Naber_DB::now();
+
+		foreach ( $by_conversation as $conversation_id => $max_id ) {
+			$wpdb->query(
+				$wpdb->prepare(
+					"UPDATE {$members} SET delivered_id = %d
+					 WHERE conversation_id = %d AND user_id = %d AND delivered_id < %d",
+					$max_id,
+					$conversation_id,
+					(int) $user_id,
+					$max_id
+				)
+			);
+			$wpdb->query(
+				$wpdb->prepare(
+					"UPDATE {$messages_table} SET delivered_at = %s
+					 WHERE conversation_id = %d AND id <= %d AND sender_id <> %d AND delivered_at IS NULL",
+					$now,
+					$conversation_id,
+					$max_id,
+					(int) $user_id
+				)
+			);
+		}
+	}
+
+	/** "Kendimden sil": mesaj yalnizca bu kullanicidan gizlenir. */
+	public static function hide_message( $message_id, $user_id ) {
+		global $wpdb;
+		$table   = Naber_DB::table( 'messages' );
+		$message = self::get_message( $message_id );
+		if ( ! $message ) {
+			return false;
+		}
+
+		$hidden = array_filter( array_map( 'intval', explode( ',', (string) $message['hidden_for'] ) ) );
+		if ( ! in_array( (int) $user_id, $hidden, true ) ) {
+			$hidden[] = (int) $user_id;
+		}
+
+		$wpdb->update(
+			$table,
+			array( 'hidden_for' => implode( ',', $hidden ) ),
+			array( 'id' => (int) $message_id ),
+			array( '%s' ),
+			array( '%d' )
+		);
+		return true;
+	}
+
+	/** Mesaj bilgisi ekrani: kime ne zaman ulasti, kim okudu. */
+	public static function message_info( $message_id, $user_id ) {
+		global $wpdb;
+		$message = self::get_message( $message_id );
+		if ( ! $message ) {
+			return null;
+		}
+
+		$conversation_id = (int) $message['conversation_id'];
+		$members         = Naber_DB::table( 'members' );
+		$rows            = $wpdb->get_results(
+			$wpdb->prepare( "SELECT user_id, delivered_id, last_read_id FROM {$members} WHERE conversation_id = %d", $conversation_id ),
+			ARRAY_A
+		);
+
+		$recipients = array();
+		foreach ( (array) $rows as $row ) {
+			if ( (int) $row['user_id'] === (int) $message['sender_id'] ) {
+				continue;
+			}
+			$user = Naber_Auth::user_payload( (int) $row['user_id'] );
+			if ( ! $user ) {
+				continue;
+			}
+			$recipients[] = array(
+				'id'        => (int) $row['user_id'],
+				'name'      => $user['display_name'],
+				'delivered' => (int) $row['delivered_id'] >= (int) $message['id'],
+				'read'      => (int) $row['last_read_id'] >= (int) $message['id'],
+			);
+		}
+
+		$media = (int) $message['media_id'] > 0 ? Naber_Media::get( (int) $message['media_id'] ) : null;
+
+		return array(
+			'id'           => (int) $message['id'],
+			'type'         => (string) $message['message_type'],
+			'sender'       => Naber_Auth::user_payload( (int) $message['sender_id'] ),
+			'created_at'   => self::ts( $message['created_at'] ),
+			'delivered_at' => self::ts( $message['delivered_at'] ),
+			'read_at'      => self::ts( $message['read_at'] ),
+			'deleted'      => (bool) (int) $message['deleted'],
+			'recipients'   => $recipients,
+			'media'        => $media ? array(
+				'size'   => (int) $media['size'],
+				'width'  => (int) $media['width'],
+				'height' => (int) $media['height'],
+				'mime'   => (string) $media['mime'],
+			) : null,
+			'own'          => (int) $message['sender_id'] === (int) $user_id,
+		);
 	}
 
 	/**

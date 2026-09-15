@@ -9,7 +9,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class Naber_DB {
 
-	const DB_VERSION = '1.3.0';
+	const DB_VERSION = '1.4.0';
 
 	public static function table( $name ) {
 		global $wpdb;
@@ -62,6 +62,7 @@ class Naber_DB {
 			chat_muted tinyint(1) NOT NULL DEFAULT 0,
 			notify_muted tinyint(1) NOT NULL DEFAULT 0,
 			last_read_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			delivered_id bigint(20) unsigned NOT NULL DEFAULT 0,
 			joined_at datetime NOT NULL DEFAULT '0000-00-00 00:00:00',
 			PRIMARY KEY  (id),
 			UNIQUE KEY member (conversation_id,user_id),
@@ -79,7 +80,9 @@ class Naber_DB {
 			client_id varchar(64) NOT NULL DEFAULT '',
 			is_read tinyint(1) NOT NULL DEFAULT 0,
 			read_at datetime NULL,
+			delivered_at datetime NULL,
 			deleted tinyint(1) NOT NULL DEFAULT 0,
+			hidden_for varchar(255) NOT NULL DEFAULT '',
 			created_at datetime NOT NULL DEFAULT '0000-00-00 00:00:00',
 			PRIMARY KEY  (id),
 			KEY conversation_id (conversation_id,id),

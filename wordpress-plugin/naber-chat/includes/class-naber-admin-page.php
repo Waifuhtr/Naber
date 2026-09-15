@@ -28,6 +28,7 @@ class Naber_Admin_Page {
 		add_action( 'admin_post_naber_save_settings', array( $this, 'save' ) );
 		add_action( 'wp_ajax_naber_test_b2', array( $this, 'ajax_test_b2' ) );
 		add_action( 'wp_ajax_naber_test_turn', array( $this, 'ajax_test_turn' ) );
+		add_action( 'wp_ajax_naber_test_push', array( $this, 'ajax_test_push' ) );
 	}
 
 	public function menu() {
@@ -90,7 +91,10 @@ class Naber_Admin_Page {
 				.naber-field-error input { border-color: #b32d2e; }
 				#naber-test-result { margin-top: 12px; max-width: 760px; }
 				#naber-test-result li, #naber-turn-result li { margin: 4px 0; list-style: none; }
-				#naber-turn-result { margin-top: 12px; max-width: 760px; }
+				#naber-turn-result, #naber-push-result { margin-top: 12px; max-width: 760px; }
+				#naber-push-result li { margin: 4px 0; list-style: none; }
+				#naber-push-result .ok::before { content: "\2714"; color: #1a7f37; margin-right: 6px; }
+				#naber-push-result .fail::before { content: "\2718"; color: #b32d2e; margin-right: 6px; }
 				#naber-turn-result .ok::before { content: "\2714"; color: #1a7f37; margin-right: 6px; }
 				#naber-turn-result .fail::before { content: "\2718"; color: #b32d2e; margin-right: 6px; }
 				#naber-test-result .ok::before { content: "\2714"; color: #1a7f37; margin-right: 6px; }
@@ -113,6 +117,25 @@ class Naber_Admin_Page {
 					$this->field( 'b2_path_prefix', 'Klasor oneki', $settings['b2_path_prefix'], 'text', 'Bucket icinde dosyalarin yazilacagi klasor. Ornek: <code>naber/</code>', $errors );
 					$this->field( 'b2_public_base_url', 'Genel erisim adresi (istege bagli)', $settings['b2_public_base_url'], 'text', 'Bucket <em>public</em> ise veya bir CDN kullaniyorsaniz: <code>https://f003.backblazeb2.com/file/bucket-adi</code>. Bos birakilirsa ozel bucket kabul edilip kisa omurlu imzali adres uretilir.', $errors );
 					$this->field( 'b2_link_ttl', 'Imzali adres suresi (saniye)', $settings['b2_link_ttl'], 'number', '60 - 604800 arasi.', $errors );
+					?>
+					<tr>
+						<th scope="row"><label for="media_url_mode">Gorsel adres bicimi</label></th>
+						<td>
+							<select name="media_url_mode" id="media_url_mode">
+								<?php foreach ( array(
+									'auto'     => 'Otomatik (S3 imzali, olmazsa friendly)',
+									's3'       => 'Yalnizca S3 imzali',
+									'friendly' => 'Yalnizca Backblaze friendly adres',
+								) as $value => $label ) : ?>
+									<option value="<?php echo esc_attr( $value ); ?>" <?php selected( $settings['media_url_mode'], $value ); ?>>
+										<?php echo esc_html( $label ); ?>
+									</option>
+								<?php endforeach; ?>
+							</select>
+							<p class="description">Gorseller acilmiyorsa S3 imzali adres daha guvenilirdir (varsayilan).</p>
+						</td>
+					</tr>
+					<?php
 					$this->field( 'b2_max_upload_mb', 'Azami dosya boyutu (MB)', $settings['b2_max_upload_mb'], 'number', '1 - 200 arasi.', $errors );
 					?>
 					<tr>
@@ -160,6 +183,14 @@ class Naber_Admin_Page {
 					$this->field( 'poll_wait', 'Canli baglanti suresi (saniye)', $settings['poll_wait'], 'number', 'Tek bir istegin sunucuda bekleyecegi azami sure. Hosting "cok fazla es zamanli istek" diyorsa dusurun (0 - 30).', $errors );
 					$this->field( 'poll_interval_ms', 'Kontrol araligi (ms)', $settings['poll_interval_ms'], 'number', 'Yeni mesaj kontrolu sikligi. Dusuk deger = daha hizli teslim (100 - 2000).', $errors );
 					?>
+					<tr>
+						<th scope="row">Bildirim testi</th>
+						<td>
+							<button type="button" class="button button-secondary" id="naber-test-push">Kendime deneme bildirimi gonder</button>
+							<p class="description">Once ayarlari kaydedin. Uygulamada giris yapmis olmaniz ve bildirim izni vermis olmaniz gerekir.</p>
+							<div id="naber-push-result"></div>
+						</td>
+					</tr>
 					<tr>
 						<th scope="row">Yeni kayitlar</th>
 						<td>
@@ -213,6 +244,34 @@ class Naber_Admin_Page {
 							box.innerHTML = '<div class="notice notice-error inline"><p>Test istegi basarisiz: ' + err + '</p></div>';
 						});
 				});
+
+				var pushButton = document.getElementById('naber-test-push');
+				var pushBox = document.getElementById('naber-push-result');
+				if (pushButton) {
+					pushButton.addEventListener('click', function () {
+						pushButton.disabled = true;
+						pushBox.innerHTML = '<p>Gonderiliyor...</p>';
+						var pushData = new FormData();
+						pushData.append('action', 'naber_test_push');
+						pushData.append('_ajax_nonce', '<?php echo esc_js( wp_create_nonce( 'naber_test_push' ) ); ?>');
+						fetch(ajaxurl, { method: 'POST', body: pushData, credentials: 'same-origin' })
+							.then(function (r) { return r.json(); })
+							.then(function (res) {
+								pushButton.disabled = false;
+								var payload = res.data || res;
+								var html = '<ul>';
+								(payload.steps || []).forEach(function (step) {
+									html += '<li class="' + (step.ok ? 'ok' : 'fail') + '"><strong>' + step.label + ':</strong> ' + step.message + '</li>';
+								});
+								html += '</ul><div class="notice notice-' + (payload.ok ? 'success' : 'error') + ' inline"><p>' + (payload.message || '') + '</p></div>';
+								pushBox.innerHTML = html;
+							})
+							.catch(function (err) {
+								pushButton.disabled = false;
+								pushBox.innerHTML = '<div class="notice notice-error inline"><p>Test istegi basarisiz: ' + err + '</p></div>';
+							});
+					});
+				}
 
 				var turnButton = document.getElementById('naber-test-turn');
 				var turnBox = document.getElementById('naber-turn-result');
@@ -297,6 +356,8 @@ class Naber_Admin_Page {
 		$values['metered_ttl']        = isset( $_POST['metered_ttl'] ) ? max( 300, min( 43200, (int) $_POST['metered_ttl'] ) ) : 1800;
 		$values['fcm_project_id']     = isset( $_POST['fcm_project_id'] ) ? sanitize_text_field( wp_unslash( $_POST['fcm_project_id'] ) ) : '';
 		$values['fcm_service_account'] = $service_account;
+		$mode                         = isset( $_POST['media_url_mode'] ) ? sanitize_key( wp_unslash( $_POST['media_url_mode'] ) ) : 'auto';
+		$values['media_url_mode']     = in_array( $mode, array( 'auto', 's3', 'friendly' ), true ) ? $mode : 'auto';
 		$values['allow_registration'] = isset( $_POST['allow_registration'] ) ? 1 : 0;
 		$values['poll_wait']          = isset( $_POST['poll_wait'] ) ? max( 0, min( 30, (int) $_POST['poll_wait'] ) ) : 25;
 		$values['poll_interval_ms']   = isset( $_POST['poll_interval_ms'] ) ? max( 100, min( 2000, (int) $_POST['poll_interval_ms'] ) ) : 250;
@@ -307,6 +368,16 @@ class Naber_Admin_Page {
 
 		wp_safe_redirect( add_query_arg( array( 'page' => self::PAGE, 'naber_saved' => 1 ), admin_url( 'admin.php' ) ) );
 		exit;
+	}
+
+	/** Yonetim ekranindaki "Kendime deneme bildirimi gonder" dugmesi. */
+	public function ajax_test_push() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'ok' => false, 'steps' => array(), 'message' => 'Yetkiniz yok.' ), 403 );
+		}
+		check_ajax_referer( 'naber_test_push' );
+
+		wp_send_json_success( Naber_Push::send_test( get_current_user_id() ) );
 	}
 
 	/** Yonetim ekranindaki "TURN yapilandirmasini test et" dugmesi. */

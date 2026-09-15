@@ -1,6 +1,9 @@
 package com.naber.app.ui.screens
 
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -36,6 +39,10 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.MoreVert
@@ -53,6 +60,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -76,15 +84,21 @@ import com.naber.app.data.LocalFiles
 import com.naber.app.data.LocalMedia
 import com.naber.app.data.Message
 import com.naber.app.data.SendState
+import com.naber.app.data.MessageInfo
+import com.naber.app.data.TickState
 import com.naber.app.data.TypingUser
 import com.naber.app.ui.SenderAvatar
 import com.naber.app.ui.ChatAvatar
 import com.naber.app.ui.EmptyState
 import com.naber.app.ui.MessageImage
 import com.naber.app.ui.OnlineDot
+import com.naber.app.ui.formatBytes
+import com.naber.app.ui.formatChatTime
 import com.naber.app.ui.formatClock
 import com.naber.app.ui.formatPresence
 import com.naber.app.ui.prepareImage
+import com.naber.app.push.Notifications
+import com.naber.app.push.SoundPlayer
 import com.naber.app.ui.theme.NaberColors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -110,7 +124,9 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
     val revisions by Naber.events.revisions.collectAsState()
     var fullScreen by remember { mutableStateOf<Any?>(null) }
     var menuOpen by remember { mutableStateOf(false) }
-    var deleteTarget by remember { mutableStateOf<Message?>(null) }
+    var actionTarget by remember { mutableStateOf<Message?>(null) }
+    var infoTarget by remember { mutableStateOf<MessageInfo?>(null) }
+    val retriedImages = remember { mutableStateListOf<Int>() }
     // "Yaziyor" bilgisi her tusa basista degil, en fazla 3 saniyede bir gonderilir.
     val lastTypingSent = remember { longArrayOf(0L) }
 
@@ -153,6 +169,7 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
 
     LaunchedEffect(conversationId) {
         Naber.events.activeConversationId = conversationId
+        Notifications.cancelConversation(context, conversationId)
         load()
     }
 
@@ -169,7 +186,7 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
     LaunchedEffect(conversationId) {
         Naber.events.readStates.collect { states ->
             val state = states.firstOrNull { it.conversationId == conversationId } ?: return@collect
-            chat = chat?.copy(readWatermark = state.watermark)
+            chat = chat?.copy(readWatermark = state.watermark, deliveredWatermark = state.delivered)
         }
     }
 
@@ -225,6 +242,7 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
             try {
                 val sent = Naber.api.sendText(conversationId, body, clientId)
                 messages = messages.map { if (it.clientId == clientId) sent else it }
+                SoundPlayer.playSent(context)
             } catch (e: Exception) {
                 messages = messages.map { if (it.clientId == clientId) it.copy(sendState = SendState.FAILED) else it }
             }
@@ -270,6 +288,7 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
                 messages = messages.map {
                     if (it.clientId == clientId) sent.copy(localImageUri = localCopy) else it
                 }
+                SoundPlayer.playSent(context)
             } catch (e: Exception) {
                 messages = messages.map { if (it.clientId == clientId) it.copy(sendState = SendState.FAILED) else it }
                 error = e.message
@@ -426,9 +445,23 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
                             message = message,
                             mine = message.senderId == myId,
                             isGroup = current?.isGroup == true,
-                            seen = (chat?.readWatermark ?: 0) >= message.id && message.id > 0,
+                            tick = tickFor(message, chat?.deliveredWatermark ?: 0, chat?.readWatermark ?: 0),
                             onImageClick = { fullScreen = it },
-                            onLongPress = { deleteTarget = message }
+                            onLongPress = { actionTarget = message },
+                            onImageError = {
+                                // Imzali adres eskimis olabilir; tazeleyip bir kez daha dene.
+                                val mediaId = message.media?.id ?: 0
+                                if (mediaId > 0 && !retriedImages.contains(mediaId)) {
+                                    retriedImages.add(mediaId)
+                                    scope.launch {
+                                        runCatching { Naber.api.mediaUrl(mediaId) }.onSuccess { fresh ->
+                                            messages = messages.map {
+                                                if (it.media?.id == mediaId) it.copy(media = fresh) else it
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         )
                     }
                 }
@@ -553,34 +586,146 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
         }
     }
 
-    deleteTarget?.let { message ->
-        val canDelete = message.senderId == myId || chat?.amAdmin == true
+    actionTarget?.let { message ->
+        val canDeleteForAll = (message.senderId == myId || chat?.amAdmin == true) && !message.deleted
         AlertDialog(
             containerColor = NaberColors.Surface,
-            onDismissRequest = { deleteTarget = null },
-            title = { Text(if (canDelete) "Mesaj silinsin mi?" else "Mesaj") },
-            text = { Text(if (canDelete) "Mesaj herkesten silinecek." else "Bu mesaji silme yetkiniz yok.") },
-            confirmButton = {
-                if (canDelete) {
-                    TextButton(onClick = {
+            onDismissRequest = { actionTarget = null },
+            title = { Text("Mesaj") },
+            text = {
+                Column {
+                    if (message.body.isNotBlank() && !message.deleted) {
+                        MessageAction("Kopyala", Icons.Filled.ContentCopy) {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                            clipboard?.setPrimaryClip(ClipData.newPlainText("Naber", message.body))
+                            actionTarget = null
+                            error = "Mesaj kopyalandi."
+                        }
+                    }
+                    MessageAction("Bilgi", Icons.Filled.Info) {
                         val target = message
-                        deleteTarget = null
+                        actionTarget = null
                         scope.launch {
-                            runCatching { Naber.api.deleteMessage(target.id) }
-                                .onSuccess {
-                                    messages = messages.map {
-                                        if (it.id == target.id) it.copy(deleted = true, body = "", media = null) else it
-                                    }
-                                }
+                            runCatching { Naber.api.messageInfo(target.id) }
+                                .onSuccess { infoTarget = it }
                                 .onFailure { error = it.message }
                         }
-                    }) { Text("Sil", color = NaberColors.Danger) }
+                    }
+                    MessageAction("Kendimden sil", Icons.Filled.DeleteOutline) {
+                        val target = message
+                        actionTarget = null
+                        scope.launch {
+                            runCatching { Naber.api.deleteMessage(target.id, "me") }
+                                .onSuccess { messages = messages.filterNot { it.id == target.id } }
+                                .onFailure { error = it.message }
+                        }
+                    }
+                    if (canDeleteForAll) {
+                        MessageAction("Herkesten sil", Icons.Filled.Delete, NaberColors.Danger) {
+                            val target = message
+                            actionTarget = null
+                            scope.launch {
+                                runCatching { Naber.api.deleteMessage(target.id, "all") }
+                                    .onSuccess {
+                                        messages = messages.map {
+                                            if (it.id == target.id) it.copy(deleted = true, body = "", media = null) else it
+                                        }
+                                    }
+                                    .onFailure { error = it.message }
+                            }
+                        }
+                    }
                 }
             },
-            dismissButton = {
-                TextButton(onClick = { deleteTarget = null }) { Text("Kapat", color = NaberColors.TextSecondary) }
+            confirmButton = {
+                TextButton(onClick = { actionTarget = null }) { Text("Kapat", color = NaberColors.TextSecondary) }
             }
         )
+    }
+
+    infoTarget?.let { info ->
+        AlertDialog(
+            containerColor = NaberColors.Surface,
+            onDismissRequest = { infoTarget = null },
+            title = { Text("Mesaj bilgisi") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    InfoRow("Gonderen", info.senderName)
+                    InfoRow("Gonderildi", "${formatChatTime(info.createdAt)} ${formatClock(info.createdAt)}")
+                    InfoRow(
+                        "Iletildi",
+                        if (info.deliveredAt > 0) "${formatChatTime(info.deliveredAt)} ${formatClock(info.deliveredAt)}" else "Henuz ulasmadi"
+                    )
+                    InfoRow(
+                        "Okundu",
+                        if (info.readAt > 0) "${formatChatTime(info.readAt)} ${formatClock(info.readAt)}" else "Henuz okunmadi"
+                    )
+                    if (info.mediaSize > 0) {
+                        InfoRow("Gorsel", "${info.mediaWidth}x${info.mediaHeight} - ${formatBytes(info.mediaSize)}")
+                    }
+                    if (info.recipients.size > 1) {
+                        Text(
+                            "Alicilar",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = NaberColors.TextSecondary,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
+                        info.recipients.forEach { recipient ->
+                            InfoRow(
+                                recipient.name,
+                                when {
+                                    recipient.read -> "okudu"
+                                    recipient.delivered -> "ulasti"
+                                    else -> "bekliyor"
+                                }
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { infoTarget = null }) { Text("Kapat", color = NaberColors.Accent) }
+            }
+        )
+    }
+}
+
+/** Mesaj durumundan tik gorunumunu belirler. */
+private fun tickFor(message: Message, deliveredWatermark: Int, readWatermark: Int): TickState = when {
+    message.sendState == SendState.SENDING -> TickState.SENDING
+    message.sendState == SendState.FAILED -> TickState.FAILED
+    message.id <= 0 -> TickState.SENT
+    readWatermark >= message.id -> TickState.READ
+    deliveredWatermark >= message.id -> TickState.DELIVERED
+    else -> TickState.SENT
+}
+
+@Composable
+private fun MessageAction(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    color: Color = NaberColors.TextPrimary,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(14.dp))
+        Text(label, color = color, fontSize = 15.sp)
+    }
+}
+
+@Composable
+private fun InfoRow(label: String, value: String) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, fontSize = 13.sp, color = NaberColors.TextSecondary, modifier = Modifier.weight(1f))
+        Text(value, fontSize = 13.sp, color = NaberColors.TextPrimary)
     }
 }
 
@@ -590,9 +735,10 @@ private fun MessageRow(
     message: Message,
     mine: Boolean,
     isGroup: Boolean,
-    seen: Boolean,
+    tick: TickState,
     onImageClick: (Any) -> Unit,
-    onLongPress: () -> Unit
+    onLongPress: () -> Unit,
+    onImageError: () -> Unit
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -650,7 +796,8 @@ private fun MessageRow(
                         MessageImage(
                             media = message.media,
                             localUri = message.localImageUri ?: com.naber.app.data.LocalMedia.uriFor(message.media?.id ?: 0, message.clientId),
-                            modifier = Modifier.widthIn(max = 280.dp).heightIn(max = 330.dp)
+                            modifier = Modifier.widthIn(max = 280.dp).heightIn(max = 330.dp),
+                            onError = onImageError
                         )
                         if (message.sendState == SendState.SENDING) {
                             Box(
@@ -701,25 +848,42 @@ private fun MessageRow(
                     color = if (mine) Color.White.copy(alpha = 0.75f) else NaberColors.TextSecondary
                 )
                 if (mine) {
-                    when (message.sendState) {
-                        SendState.SENDING -> CircularProgressIndicator(
+                    when (tick) {
+                        TickState.SENDING -> CircularProgressIndicator(
                             modifier = Modifier.size(10.dp),
                             strokeWidth = 1.dp,
                             color = Color.White.copy(alpha = 0.8f)
                         )
 
-                        SendState.FAILED -> Icon(
+                        TickState.FAILED -> Icon(
                             Icons.Filled.Refresh,
                             contentDescription = "Gonderilemedi",
                             tint = Color.White,
                             modifier = Modifier.size(12.dp)
                         )
 
-                        else -> Icon(
-                            if (seen) Icons.Filled.DoneAll else Icons.Filled.Done,
-                            contentDescription = if (seen) "Okundu" else "Gonderildi",
-                            tint = Color.White.copy(alpha = 0.85f),
+                        // Tek tik: sunucuya ulasti, karsi tarafin cihazina inmedi.
+                        TickState.SENT -> Icon(
+                            Icons.Filled.Done,
+                            contentDescription = "Gonderildi",
+                            tint = Color.White.copy(alpha = 0.7f),
                             modifier = Modifier.size(13.dp)
+                        )
+
+                        // Gri cift tik: cihazina ulasti, henuz okunmadi.
+                        TickState.DELIVERED -> Icon(
+                            Icons.Filled.DoneAll,
+                            contentDescription = "Iletildi",
+                            tint = Color.White.copy(alpha = 0.7f),
+                            modifier = Modifier.size(14.dp)
+                        )
+
+                        // Mavi cift tik: okundu.
+                        TickState.READ -> Icon(
+                            Icons.Filled.DoneAll,
+                            contentDescription = "Okundu",
+                            tint = Color(0xFF6FD3FF),
+                            modifier = Modifier.size(14.dp)
                         )
                     }
                 }

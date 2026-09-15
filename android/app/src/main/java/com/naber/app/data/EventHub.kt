@@ -1,5 +1,7 @@
 package com.naber.app.data
 
+import android.content.Context
+import com.naber.app.push.SoundPlayer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -21,7 +23,11 @@ import kotlinx.coroutines.launch
  * kullanilir: tek istek sunucuda en fazla 25 saniye bekler, yeni bir sey
  * olunca hemen doner.
  */
-class EventHub(private val api: ApiClient) {
+class EventHub(
+    private val context: Context,
+    private val api: ApiClient,
+    private val session: Session
+) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var job: Job? = null
@@ -84,7 +90,12 @@ class EventHub(private val api: ApiClient) {
                     presenceSignature = batch.presenceSignature
                     revisionSignature = batch.revisionSignature
                     _unreadTotal.value = batch.unreadTotal
-                    batch.messages.forEach { _messages.emit(it) }
+                    val myId = session.user?.id ?: 0
+                    batch.messages.forEach { message ->
+                        // Uygulama acikken gelen mesaj sesi.
+                        if (message.senderId != myId) SoundPlayer.playReceived(context)
+                        _messages.emit(message)
+                    }
                     batch.signals.forEach { _signals.emit(it) }
                     if (batch.readStates.isNotEmpty()) _readStates.emit(batch.readStates)
                     _typing.value = TypingState(

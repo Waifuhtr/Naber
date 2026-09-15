@@ -12,6 +12,8 @@ import com.naber.app.data.IceServer
 import com.naber.app.data.Session
 import com.naber.app.data.Signal
 import com.naber.app.data.User
+import com.naber.app.push.Notifications
+import com.naber.app.push.SoundPlayer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -142,6 +144,7 @@ class CallManager(
                 iceServers = servers
                 applyCall(call)
                 prepareAudio()
+                CallService.start(context, _state.value.title.ifBlank { "Naber" })
                 joinedPeers.forEach { maybeOffer(it) }
                 if (call.isGroup && joinedPeers.isEmpty()) {
                     _state.value = _state.value.copy(statusText = "Katilimcilar bekleniyor...")
@@ -170,12 +173,19 @@ class CallManager(
             isCaller = false,
             statusText = if (call.isGroup) "Grup aramasi" else "Gelen arama"
         )
+
+        if (SoundPlayer.ringtoneAllowed(context)) {
+            SoundPlayer.startRingtone(context)
+        }
     }
 
     fun accept() {
         val current = _state.value
         if (current.stage != CallStage.INCOMING) return
+        SoundPlayer.stopRingtone()
+        Notifications.cancelCall(context)
         _state.value = current.copy(stage = CallStage.CONNECTING, statusText = "Baglaniyor...")
+        CallService.start(context, current.title.ifBlank { "Naber" })
 
         scope.launch {
             try {
@@ -196,6 +206,7 @@ class CallManager(
     fun reject() {
         val callId = _state.value.callId
         // Ekran hemen kapanir, sunucu bildirimi arkada gider.
+        SoundPlayer.stopRingtone()
         cleanup("Arama reddedildi")
         events.clearIncomingCall()
         scope.launch { runCatching { api.callAction(callId, "reject") } }
@@ -672,6 +683,9 @@ class CallManager(
     }
 
     private fun releaseResources() {
+        SoundPlayer.stopRingtone()
+        Notifications.cancelCall(context)
+        CallService.stop(context)
         watchJob?.cancel()
         watchJob = null
         peers.values.forEach { runCatching { it.connection?.close() } }

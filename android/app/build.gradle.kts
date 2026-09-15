@@ -25,7 +25,8 @@ android {
 
 	buildTypes {
 		debug {
-			applicationIdSuffix = ".debug"
+			// Firebase yapilandirmasi com.naber.app icin tanimli; debug surumu de
+			// ayni kimligi kullanir, boylece bildirimler test surumunde de calisir.
 			isMinifyEnabled = false
 		}
 		release {

@@ -49,6 +49,7 @@ class Naber_REST {
 		// --- Mesajlar ---
 		$this->route( $ns, '/messages', 'POST', 'send_message', $user );
 		$this->route( $ns, '/messages/(?P<id>\d+)', 'DELETE', 'delete_message', $user );
+		$this->route( $ns, '/messages/(?P<id>\d+)/info', 'GET', 'message_info', $user );
 
 		// --- Medya ---
 		$this->route( $ns, '/media/upload-url', 'POST', 'media_upload_url', $user );
@@ -81,6 +82,7 @@ class Naber_REST {
 		$this->route( $ns, '/admin/chats', 'GET', 'admin_chats', $admin );
 		$this->route( $ns, '/admin/chats/(?P<id>\d+)', 'DELETE', 'admin_delete_chat', $admin );
 		$this->route( $ns, '/admin/storage/test', 'POST', 'admin_storage_test', $admin );
+		$this->route( $ns, '/admin/push/test', 'POST', 'admin_push_test', $admin );
 		$this->route( $ns, '/admin/turn/test', 'POST', 'admin_turn_test', $admin );
 		$this->route( $ns, '/admin/settings', 'GET', 'admin_settings', $admin );
 	}
@@ -623,7 +625,10 @@ class Naber_REST {
 			'before'   => (int) $request->get_param( 'before' ),
 			'after'    => (int) $request->get_param( 'after' ),
 			'is_group' => $is_group,
+			'user_id'  => $user_id,
 		) );
+
+		Naber_Chat_Repo::mark_delivered( $user_id, $messages );
 
 		return rest_ensure_response( array(
 			'messages' => $messages,
@@ -721,6 +726,11 @@ class Naber_REST {
 		return rest_ensure_response( array( 'message' => $message ) );
 	}
 
+	/**
+	 * Mesaj silme.
+	 * scope=me  -> yalnizca bu kullanicidan gizlenir
+	 * scope=all -> herkesten silinir (kendi mesajin ya da grup yoneticisiysen)
+	 */
 	public function delete_message( WP_REST_Request $request ) {
 		$message = Naber_Chat_Repo::get_message( (int) $request['id'] );
 		if ( ! $message ) {
@@ -729,15 +739,40 @@ class Naber_REST {
 
 		$user_id      = get_current_user_id();
 		$conversation = Naber_Chat_Repo::get_conversation( (int) $message['conversation_id'] );
+
+		if ( ! $conversation || ! Naber_Chat_Repo::member( (int) $conversation['id'], $user_id ) ) {
+			return new WP_Error( 'naber_forbidden', 'Bu sohbete erisim yetkiniz yok.', array( 'status' => 403 ) );
+		}
+
+		$scope = sanitize_key( (string) $request->get_param( 'scope' ) );
+		if ( 'me' === $scope ) {
+			Naber_Chat_Repo::hide_message( (int) $message['id'], $user_id );
+			return rest_ensure_response( array( 'ok' => true, 'scope' => 'me' ) );
+		}
+
 		$is_own       = (int) $message['sender_id'] === $user_id;
-		$is_moderator = $conversation && Naber_Chat_Repo::is_group_admin( (int) $conversation['id'], $user_id );
+		$is_moderator = Naber_Chat_Repo::is_group_admin( (int) $conversation['id'], $user_id );
 
 		if ( ! $is_own && ! $is_moderator && ! Naber_Auth::is_admin_user( $user_id ) ) {
-			return new WP_Error( 'naber_forbidden', 'Bu mesaji silemezsiniz.', array( 'status' => 403 ) );
+			return new WP_Error( 'naber_forbidden', 'Bu mesaji herkesten silemezsiniz.', array( 'status' => 403 ) );
 		}
 
 		Naber_Chat_Repo::delete_message( (int) $message['id'] );
-		return rest_ensure_response( array( 'ok' => true ) );
+		return rest_ensure_response( array( 'ok' => true, 'scope' => 'all' ) );
+	}
+
+	public function message_info( WP_REST_Request $request ) {
+		$message = Naber_Chat_Repo::get_message( (int) $request['id'] );
+		if ( ! $message ) {
+			return new WP_Error( 'naber_message_not_found', 'Mesaj bulunamadi.', array( 'status' => 404 ) );
+		}
+
+		$user_id = get_current_user_id();
+		if ( ! Naber_Chat_Repo::member( (int) $message['conversation_id'], $user_id ) ) {
+			return new WP_Error( 'naber_forbidden', 'Bu mesaja erisim yetkiniz yok.', array( 'status' => 403 ) );
+		}
+
+		return rest_ensure_response( array( 'info' => Naber_Chat_Repo::message_info( (int) $message['id'], $user_id ) ) );
 	}
 
 	public function mark_read( WP_REST_Request $request ) {
@@ -1001,6 +1036,9 @@ class Naber_REST {
 		$messages = Naber_Chat_Repo::messages_since( $user_id, $since_msg );
 		$signals  = Naber_Calls::signals_for( $user_id, $since_sig );
 		$incoming = Naber_Calls::active_incoming( $user_id );
+
+		// Mesajlar cihaza ulasti: gonderen gri cift tiki gorsun.
+		Naber_Chat_Repo::mark_delivered( $user_id, $messages );
 
 		$typing = array();
 		if ( $conv_id > 0 && Naber_Chat_Repo::member( $conv_id, $user_id ) ) {
@@ -1361,6 +1399,8 @@ class Naber_REST {
 			'recent_users'    => $recent,
 			'storage_ready'   => Naber_Settings::b2_ready(),
 			'push_ready'      => Naber_Push::is_configured(),
+			'devices'         => Naber_Push::device_count(),
+			'push_last_error' => Naber_Push::last_error(),
 			'turn_configured' => '' !== (string) Naber_Settings::get( 'turn_urls' ),
 			'server'          => home_url(),
 			'plugin_version'  => NABER_CHAT_VERSION,
@@ -1528,6 +1568,13 @@ class Naber_REST {
 		$turn   = new Naber_Turn();
 		$result = $turn->test();
 		unset( $result['servers'] );
+		return rest_ensure_response( $result );
+	}
+
+	/** Yoneticinin kendi cihazina deneme bildirimi gonderir, FCM hatasini aynen gosterir. */
+	public function admin_push_test() {
+		$user_id = get_current_user_id();
+		$result  = Naber_Push::send_test( $user_id );
 		return rest_ensure_response( $result );
 	}
 

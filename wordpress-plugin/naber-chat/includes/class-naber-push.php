@@ -37,6 +37,24 @@ class Naber_Push {
 		return (bool) $wpdb->delete( Naber_DB::table( 'devices' ), array( 'token' => (string) $token ), array( '%s' ) );
 	}
 
+	public static function device_count( $user_id = 0 ) {
+		global $wpdb;
+		$table = Naber_DB::table( 'devices' );
+		if ( $user_id ) {
+			return (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$table} WHERE user_id = %d", (int) $user_id ) );
+		}
+		return (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table}" );
+	}
+
+	public static function last_error() {
+		$error = get_option( 'naber_push_last_error' );
+		return is_array( $error ) ? $error : array();
+	}
+
+	private static function remember_error( $message ) {
+		update_option( 'naber_push_last_error', array( 'message' => (string) $message, 'at' => time() ), false );
+	}
+
 	public static function tokens_for_user( $user_id ) {
 		global $wpdb;
 		$table = Naber_DB::table( 'devices' );
@@ -111,6 +129,7 @@ class Naber_Push {
 		}
 		$access = self::access_token();
 		if ( is_wp_error( $access ) ) {
+			self::remember_error( $access->get_error_message() );
 			return false;
 		}
 
@@ -143,17 +162,147 @@ class Naber_Push {
 				'body'    => wp_json_encode( $message ),
 			) );
 
-			if ( ! is_wp_error( $res ) ) {
-				$code = (int) wp_remote_retrieve_response_code( $res );
-				if ( $code >= 200 && $code < 300 ) {
-					$sent++;
-				} elseif ( 404 === $code || 400 === $code ) {
-					self::unregister_device( $token );
-				}
+			if ( is_wp_error( $res ) ) {
+				self::remember_error( $res->get_error_message() );
+				continue;
+			}
+
+			$code = (int) wp_remote_retrieve_response_code( $res );
+			if ( $code >= 200 && $code < 300 ) {
+				$sent++;
+				continue;
+			}
+
+			$body = wp_remote_retrieve_body( $res );
+			self::remember_error( 'FCM ' . $code . ': ' . substr( (string) $body, 0, 300 ) );
+
+			// Gecersiz veya silinmis cihaz jetonlari temizlenir.
+			if ( 404 === $code || ( 400 === $code && false !== stripos( (string) $body, 'not a valid FCM registration token' ) ) ) {
+				self::unregister_device( $token );
 			}
 		}
 
 		return $sent > 0;
+	}
+
+	/**
+	 * Yonetim panelinden calistirilan deneme bildirimi.
+	 * FCM'in dondurdugu hata aynen gosterilir; sessiz basarisizlik olmaz.
+	 *
+	 * @return array{ok:bool,steps:array,message:string}
+	 */
+	public static function send_test( $user_id ) {
+		$steps = array();
+
+		$project = (string) Naber_Settings::get( 'fcm_project_id' );
+		$json    = (string) Naber_Settings::get( 'fcm_service_account' );
+		$creds   = json_decode( $json, true );
+
+		$steps[] = array(
+			'key'     => 'config',
+			'ok'      => '' !== $project && is_array( $creds ) && ! empty( $creds['client_email'] ),
+			'label'   => 'Yapilandirma',
+			'message' => '' === $project
+				? 'Firebase proje kimligi girilmemis.'
+				: ( is_array( $creds ) && ! empty( $creds['client_email'] )
+					? 'Proje: ' . $project . ' / servis hesabi: ' . $creds['client_email']
+					: 'Servis hesabi JSON gecersiz veya girilmemis.' ),
+		);
+
+		if ( ! $steps[0]['ok'] ) {
+			return array( 'ok' => false, 'steps' => $steps, 'message' => 'Firebase ayarlari eksik.' );
+		}
+
+		if ( is_array( $creds ) && ! empty( $creds['project_id'] ) && $creds['project_id'] !== $project ) {
+			$steps[] = array(
+				'key'     => 'project_match',
+				'ok'      => false,
+				'label'   => 'Proje eslesmesi',
+				'message' => 'Servis hesabi "' . $creds['project_id'] . '" projesine ait, ayarlarda "' . $project . '" yaziyor.',
+			);
+			return array( 'ok' => false, 'steps' => $steps, 'message' => 'Proje kimligi servis hesabiyla uyusmuyor.' );
+		}
+
+		$tokens  = self::tokens_for_user( $user_id );
+		$steps[] = array(
+			'key'     => 'devices',
+			'ok'      => ! empty( $tokens ),
+			'label'   => 'Kayitli cihaz',
+			'message' => $tokens
+				? count( $tokens ) . ' cihaz kayitli.'
+				: 'Bu hesap icin kayitli cihaz yok. Uygulamayi acip giris yapin (bildirim izni verilmeli).',
+		);
+
+		if ( ! $tokens ) {
+			return array( 'ok' => false, 'steps' => $steps, 'message' => 'Gonderilecek cihaz bulunamadi.' );
+		}
+
+		$access = self::access_token();
+		if ( is_wp_error( $access ) ) {
+			$steps[] = array( 'key' => 'token', 'ok' => false, 'label' => 'Google yetkilendirmesi', 'message' => $access->get_error_message() );
+			return array( 'ok' => false, 'steps' => $steps, 'message' => 'Google erisim jetonu alinamadi.' );
+		}
+		$steps[] = array( 'key' => 'token', 'ok' => true, 'label' => 'Google yetkilendirmesi', 'message' => 'Erisim jetonu alindi.' );
+
+		$url     = 'https://fcm.googleapis.com/v1/projects/' . rawurlencode( $project ) . '/messages:send';
+		$ok      = 0;
+		$details = array();
+
+		foreach ( $tokens as $token ) {
+			$res = wp_remote_post( $url, array(
+				'timeout' => 15,
+				'headers' => array(
+					'Authorization' => 'Bearer ' . $access,
+					'Content-Type'  => 'application/json',
+				),
+				'body'    => wp_json_encode( array(
+					'message' => array(
+						'token'        => $token,
+						'notification' => array( 'title' => 'Naber', 'body' => 'Bildirim testi basarili.' ),
+						'data'         => array( 'type' => 'test' ),
+						'android'      => array( 'priority' => 'HIGH' ),
+					),
+				) ),
+			) );
+
+			if ( is_wp_error( $res ) ) {
+				$details[] = 'Baglanti hatasi: ' . $res->get_error_message();
+				continue;
+			}
+
+			$code = (int) wp_remote_retrieve_response_code( $res );
+			if ( $code >= 200 && $code < 300 ) {
+				$ok++;
+				continue;
+			}
+
+			$body      = json_decode( wp_remote_retrieve_body( $res ), true );
+			$message   = isset( $body['error']['message'] ) ? $body['error']['message'] : wp_remote_retrieve_body( $res );
+			$details[] = 'HTTP ' . $code . ': ' . substr( (string) $message, 0, 200 );
+
+			if ( 404 === $code ) {
+				self::unregister_device( $token );
+			}
+		}
+
+		$steps[] = array(
+			'key'     => 'send',
+			'ok'      => $ok > 0,
+			'label'   => 'Gonderim',
+			'message' => $ok > 0
+				? $ok . ' cihaza gonderildi. Telefonunuzda bildirimi gormelisiniz.'
+				: implode( ' | ', $details ),
+		);
+
+		if ( $ok < 1 && $details ) {
+			self::remember_error( implode( ' | ', $details ) );
+		}
+
+		return array(
+			'ok'      => $ok > 0,
+			'steps'   => $steps,
+			'message' => $ok > 0 ? 'Deneme bildirimi gonderildi.' : 'Bildirim gonderilemedi.',
+		);
 	}
 
 	private static function b64( $value ) {

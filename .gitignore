@@ -4,7 +4,6 @@ android/build/
 android/app/build/
 android/local.properties
 android/.idea/
-android/app/google-services.json
 *.iml
 *.apk
 *.aab

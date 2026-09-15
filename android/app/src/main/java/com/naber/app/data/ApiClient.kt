@@ -236,9 +236,43 @@ class ApiClient(private val session: Session) {
             ).optJSONObject("message")
         ) ?: throw ApiException("Gorsel gonderilemedi.")
 
-    suspend fun deleteMessage(messageId: Int) {
-        call("/messages/$messageId", "DELETE")
+    /** scope = "all" (herkesten sil) veya "me" (yalnizca bende gizle). */
+    suspend fun deleteMessage(messageId: Int, scope: String = "all") {
+        call("/messages/$messageId", "DELETE", JSONObject().put("scope", scope), query = mapOf("scope" to scope))
     }
+
+    suspend fun messageInfo(messageId: Int): MessageInfo {
+        val json = call("/messages/$messageId/info").optJSONObject("info")
+            ?: throw ApiException("Mesaj bilgisi alinamadi.")
+        val media = json.optJSONObject("media")
+        return MessageInfo(
+            id = json.optInt("id"),
+            type = json.optString("type"),
+            senderName = json.optJSONObject("sender")?.optString("display_name").orEmpty(),
+            createdAt = json.optLong("created_at"),
+            deliveredAt = json.optLong("delivered_at"),
+            readAt = json.optLong("read_at"),
+            deleted = json.optBoolean("deleted"),
+            own = json.optBoolean("own"),
+            recipients = json.optJSONArray("recipients").mapObjects {
+                MessageRecipient(
+                    id = it.optInt("id"),
+                    name = it.optString("name"),
+                    delivered = it.optBoolean("delivered"),
+                    read = it.optBoolean("read")
+                )
+            },
+            mediaSize = media?.optLong("size") ?: 0L,
+            mediaWidth = media?.optInt("width") ?: 0,
+            mediaHeight = media?.optInt("height") ?: 0,
+            mediaMime = media?.optString("mime").orEmpty()
+        )
+    }
+
+    /** Gorsel acilmazsa tazelenmis adres almak icin. */
+    suspend fun mediaUrl(mediaId: Int): Media =
+        Media.from(call("/media/$mediaId/url").optJSONObject("media"))
+            ?: throw ApiException("Medya adresi alinamadi.")
 
     suspend fun markRead(conversationId: Int) {
         runCatching { call("/chats/$conversationId/read", "POST") }
@@ -352,7 +386,7 @@ class ApiClient(private val session: Session) {
             },
             incomingCall = CallInfo.from(json.optJSONObject("incoming_call")),
             readStates = json.optJSONArray("read_states").mapObjects {
-                ReadState(it.optInt("conversation_id"), it.optInt("watermark"))
+                ReadState(it.optInt("conversation_id"), it.optInt("watermark"), it.optInt("delivered"))
             },
             typing = json.optJSONArray("typing").mapObjects { TypingUser(it.optInt("id"), it.optString("name")) },
             typingConversationId = json.optInt("typing_conversation_id"),

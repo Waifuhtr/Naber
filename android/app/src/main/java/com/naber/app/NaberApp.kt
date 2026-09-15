@@ -4,12 +4,14 @@ import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
+import android.media.AudioAttributes
 import android.os.Build
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import com.naber.app.data.LocalFiles
+import com.naber.app.push.SoundPlayer
 import com.naber.app.call.CallManager
 import com.naber.app.data.ApiClient
 import com.naber.app.data.EventHub
@@ -50,22 +52,54 @@ class NaberApp : Application(), ImageLoaderFactory {
     private fun createNotificationChannels() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+        val notificationAttributes = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .build()
+
         manager.createNotificationChannel(
             NotificationChannel(CHANNEL_MESSAGES, "Mesajlar", NotificationManager.IMPORTANCE_HIGH).apply {
                 description = "Yeni mesaj bildirimleri"
+                enableVibration(true)
+                SoundPlayer.uriFor(this@NaberApp, SoundPlayer.RECEIVED)?.let {
+                    setSound(it, notificationAttributes)
+                }
             }
         )
+
+        val ringtoneAttributes = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+            .build()
+
         manager.createNotificationChannel(
             NotificationChannel(CHANNEL_CALLS, "Aramalar", NotificationManager.IMPORTANCE_HIGH).apply {
                 description = "Gelen sesli arama bildirimleri"
                 setBypassDnd(true)
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 700, 900)
+                SoundPlayer.uriFor(this@NaberApp, SoundPlayer.RINGTONE)?.let {
+                    setSound(it, ringtoneAttributes)
+                }
+            }
+        )
+
+        manager.createNotificationChannel(
+            NotificationChannel(CHANNEL_ONGOING, "Devam eden arama", NotificationManager.IMPORTANCE_LOW).apply {
+                description = "Arama surerken gorunen kalici bildirim"
+                setSound(null, null)
+                enableVibration(false)
             }
         )
     }
 
     companion object {
-        const val CHANNEL_MESSAGES = "naber_messages"
-        const val CHANNEL_CALLS = "naber_calls"
+        // Kanal sesleri olusturuldugu anda sabitlenir; ses eklendiginde
+        // yeni kanal kimlikleri kullanilmali, yoksa eski kanal sessiz kalir.
+        const val CHANNEL_MESSAGES = "naber_messages_v2"
+        const val CHANNEL_CALLS = "naber_calls_v2"
+        const val CHANNEL_ONGOING = "naber_call_ongoing"
     }
 }
 
@@ -86,7 +120,7 @@ object Naber {
         if (started) return
         session = Session(context.applicationContext)
         api = ApiClient(session)
-        events = EventHub(api)
+        events = EventHub(context.applicationContext, api, session)
         calls = CallManager(context.applicationContext, api, events, session)
         started = true
     }

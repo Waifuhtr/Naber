@@ -11,6 +11,8 @@ import com.naber.app.R
 
 object Notifications {
 
+    const val CALL_NOTIFICATION_ID = 42
+
     fun showMessage(context: Context, senderName: String, preview: String, conversationId: Int) {
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -32,40 +34,80 @@ object Notifications {
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setAutoCancel(true)
             .setContentIntent(pending)
+            .apply {
+                // Android 8 oncesinde ses kanaldan degil bildirimden gelir.
+                SoundPlayer.uriFor(context, SoundPlayer.RECEIVED)?.let { setSound(it) }
+            }
             .build()
 
         notify(context, conversationId + 1000, notification)
     }
 
-    fun showIncomingCall(context: Context, callerName: String, callId: Int) {
-        val intent = Intent(context, MainActivity::class.java).apply {
+    /**
+     * Gelen arama bildirimi.
+     * Tam ekran niyet (full-screen intent) sayesinde uygulama kapaliyken ve
+     * ekran kilitliyken de arama ekrani acilir.
+     */
+    fun showIncomingCall(context: Context, callerName: String, callId: Int, isGroup: Boolean) {
+        val openIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra(MainActivity.EXTRA_CALL_ID, callId)
         }
-        val pending = PendingIntent.getActivity(
+        val open = PendingIntent.getActivity(
             context,
             callId,
-            intent,
+            openIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val acceptIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(MainActivity.EXTRA_CALL_ID, callId)
+            putExtra(MainActivity.EXTRA_CALL_ACCEPT, true)
+        }
+        val accept = PendingIntent.getActivity(
+            context,
+            callId + 1,
+            acceptIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val reject = PendingIntent.getBroadcast(
+            context,
+            callId + 2,
+            Intent(context, CallActionReceiver::class.java).apply {
+                action = CallActionReceiver.ACTION_REJECT
+                putExtra(CallActionReceiver.EXTRA_CALL_ID, callId)
+            },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
         val notification = NotificationCompat.Builder(context, NaberApp.CHANNEL_CALLS)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(callerName)
-            .setContentText("Gelen sesli arama")
+            .setContentText(if (isGroup) "Grup aramasi" else "Gelen sesli arama")
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setOngoing(true)
             .setAutoCancel(true)
-            .setFullScreenIntent(pending, true)
-            .setContentIntent(pending)
+            .setFullScreenIntent(open, true)
+            .setContentIntent(open)
+            .addAction(0, "Reddet", reject)
+            .addAction(0, "Kabul et", accept)
+            .apply {
+                SoundPlayer.uriFor(context, SoundPlayer.RINGTONE)?.let { setSound(it) }
+            }
             .build()
 
         notify(context, CALL_NOTIFICATION_ID, notification)
     }
 
     fun cancelCall(context: Context) {
-        manager(context).cancel(CALL_NOTIFICATION_ID)
+        runCatching { manager(context).cancel(CALL_NOTIFICATION_ID) }
+    }
+
+    fun cancelConversation(context: Context, conversationId: Int) {
+        runCatching { manager(context).cancel(conversationId + 1000) }
     }
 
     private fun notify(context: Context, id: Int, notification: android.app.Notification) {
@@ -74,6 +116,4 @@ object Notifications {
 
     private fun manager(context: Context) =
         context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-
-    private const val CALL_NOTIFICATION_ID = 42
 }

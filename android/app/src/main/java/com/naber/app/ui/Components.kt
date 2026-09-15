@@ -163,14 +163,16 @@ fun MessageImage(
     media: Media?,
     localUri: Any?,
     modifier: Modifier = Modifier,
-    contentScale: ContentScale = ContentScale.Crop
+    contentScale: ContentScale = ContentScale.Crop,
+    onError: (() -> Unit)? = null
 ) {
     val model = localUri ?: media?.url?.takeIf { it.isNotBlank() } ?: return
     AsyncImage(
         model = stableImageRequest(model, "media-${media?.id ?: model.hashCode()}"),
         contentDescription = "Gorsel",
         modifier = modifier,
-        contentScale = contentScale
+        contentScale = contentScale,
+        onError = { onError?.invoke() }
     )
 }
 

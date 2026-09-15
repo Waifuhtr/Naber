@@ -155,6 +155,7 @@ data class Chat(
     val updatedAt: Long,
     val lastMessage: Message?,
     val readWatermark: Int,
+    val deliveredWatermark: Int,
     val members: List<User> = emptyList()
 ) {
     val isGroup: Boolean get() = type == "group"
@@ -180,6 +181,7 @@ data class Chat(
                 updatedAt = json.optLong("updated_at"),
                 lastMessage = Message.from(json.optJSONObject("last_message")),
                 readWatermark = json.optInt("read_watermark"),
+                deliveredWatermark = json.optInt("delivered_watermark"),
                 members = User.listFrom(json.optJSONArray("members"))
             )
         }
@@ -255,7 +257,30 @@ data class IceServer(val urls: List<String>, val username: String, val credentia
 data class Signal(val id: Int, val callId: Int, val senderId: Int, val type: String, val payload: String)
 
 @Immutable
-data class ReadState(val conversationId: Int, val watermark: Int)
+data class ReadState(val conversationId: Int, val watermark: Int, val delivered: Int)
+
+/** Mesaj durumu: tek tik, gri cift tik, mavi cift tik. */
+enum class TickState { SENDING, SENT, DELIVERED, READ, FAILED }
+
+@Immutable
+data class MessageRecipient(val id: Int, val name: String, val delivered: Boolean, val read: Boolean)
+
+@Immutable
+data class MessageInfo(
+    val id: Int,
+    val type: String,
+    val senderName: String,
+    val createdAt: Long,
+    val deliveredAt: Long,
+    val readAt: Long,
+    val deleted: Boolean,
+    val own: Boolean,
+    val recipients: List<MessageRecipient>,
+    val mediaSize: Long,
+    val mediaWidth: Int,
+    val mediaHeight: Int,
+    val mediaMime: String
+)
 
 @Immutable
 data class Presence(val id: Int, val online: Boolean, val lastSeen: Long)

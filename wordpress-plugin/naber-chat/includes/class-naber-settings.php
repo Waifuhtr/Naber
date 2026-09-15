@@ -33,6 +33,7 @@ class Naber_Settings {
 			'b2_link_ttl'        => 3600,
 			'b2_max_upload_mb'   => 25,
 			'b2_path_prefix'     => 'naber/',
+			'media_url_mode'     => 'auto',
 			'turn_urls'          => '',
 			'metered_api_key'    => '',
 			'metered_subdomain'  => '',

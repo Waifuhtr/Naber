@@ -40,17 +40,22 @@ import kotlinx.coroutines.withContext
 class MainActivity : ComponentActivity() {
 
     private var pendingConversationId = 0
+    private var pendingAccept = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         Naber.init(applicationContext)
         pendingConversationId = intent?.getIntExtra(EXTRA_CONVERSATION_ID, 0) ?: 0
+        pendingAccept = intent?.getBooleanExtra(EXTRA_CALL_ACCEPT, false) ?: false
 
         setContent {
             NaberTheme {
                 Box(modifier = Modifier.fillMaxSize().background(NaberColors.Background)) {
-                    NaberRoot(startConversationId = pendingConversationId)
+                    NaberRoot(
+                        startConversationId = pendingConversationId,
+                        autoAcceptCall = pendingAccept
+                    )
                 }
             }
         }
@@ -62,6 +67,9 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        if (intent.getBooleanExtra(EXTRA_CALL_ACCEPT, false)) {
+            pendingAccept = true
+        }
     }
 
     override fun onResume() {
@@ -106,11 +114,12 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val EXTRA_CONVERSATION_ID = "conversation_id"
         const val EXTRA_CALL_ID = "call_id"
+        const val EXTRA_CALL_ACCEPT = "call_accept"
     }
 }
 
 @Composable
-private fun NaberRoot(startConversationId: Int) {
+private fun NaberRoot(startConversationId: Int, autoAcceptCall: Boolean) {
     val navController = rememberNavController()
     var loggedIn by remember { mutableStateOf(Naber.session.isLoggedIn) }
     val callState by Naber.calls.state.collectAsState()
@@ -132,6 +141,10 @@ private fun NaberRoot(startConversationId: Int) {
         val call = incomingCall
         if (call != null && (call.status == "ringing" || call.status == "active")) {
             Naber.calls.onIncoming(call)
+            // Bildirimdeki "Kabul et" ile acildiysa dogrudan baglan.
+            if (autoAcceptCall) {
+                Naber.calls.accept()
+            }
         }
     }
 

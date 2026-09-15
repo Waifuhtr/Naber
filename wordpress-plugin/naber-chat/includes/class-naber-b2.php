@@ -116,6 +116,7 @@ class Naber_B2 {
 			'token'          => isset( $body['authorizationToken'] ) ? (string) $body['authorizationToken'] : '',
 			'api_url'        => isset( $storage['apiUrl'] ) ? (string) $storage['apiUrl'] : '',
 			'download_url'   => isset( $storage['downloadUrl'] ) ? (string) $storage['downloadUrl'] : '',
+			's3_url'         => isset( $storage['s3ApiUrl'] ) ? (string) $storage['s3ApiUrl'] : '',
 			'bucket_id'      => isset( $storage['bucketId'] ) ? (string) $storage['bucketId'] : '',
 			'bucket_name'    => isset( $storage['bucketName'] ) ? (string) $storage['bucketName'] : '',
 			'capabilities'   => isset( $storage['capabilities'] ) ? (array) $storage['capabilities'] : array(),
@@ -318,6 +319,109 @@ class Naber_B2 {
 			return new WP_Error( 'naber_b2_delete_failed', 'Dosya silinemedi: ' . $res['error'] );
 		}
 		return true;
+	}
+
+	/**
+	 * AWS Signature V4 ile imzalanmis GET adresi uretir.
+	 * Backblaze'in S3 uyumlu ucu bu imzayi kabul eder; "friendly" adreslerin
+	 * aksine bazi aglarda/onbelleklerde takilmaz.
+	 *
+	 * @param string $host    Ornek: s3.us-west-004.backblazeb2.com
+	 * @param string $path    Bas tarafi / ile, kodlanmamis: /bucket/klasor/dosya.jpg
+	 * @param int    $expires Saniye (en fazla 604800).
+	 * @param int    $now     Test edilebilirlik icin zaman damgasi.
+	 */
+	public static function presign_url( $host, $path, $key_id, $app_key, $region, $expires = 3600, $now = 0 ) {
+		$now      = $now ? (int) $now : time();
+		$expires  = max( 60, min( 604800, (int) $expires ) );
+		$amz_date = gmdate( 'Ymd\THis\Z', $now );
+		$date     = gmdate( 'Ymd', $now );
+		$scope    = $date . '/' . $region . '/s3/aws4_request';
+
+		$canonical_uri = self::encode_path( $path );
+
+		$params = array(
+			'X-Amz-Algorithm'     => 'AWS4-HMAC-SHA256',
+			'X-Amz-Credential'    => $key_id . '/' . $scope,
+			'X-Amz-Date'          => $amz_date,
+			'X-Amz-Expires'       => (string) $expires,
+			'X-Amz-SignedHeaders' => 'host',
+		);
+		ksort( $params );
+
+		$pairs = array();
+		foreach ( $params as $key => $value ) {
+			$pairs[] = rawurlencode( $key ) . '=' . rawurlencode( $value );
+		}
+		$canonical_query = implode( '&', $pairs );
+
+		$canonical_request = implode( "\n", array(
+			'GET',
+			$canonical_uri,
+			$canonical_query,
+			'host:' . $host,
+			'',
+			'host',
+			'UNSIGNED-PAYLOAD',
+		) );
+
+		$string_to_sign = implode( "\n", array(
+			'AWS4-HMAC-SHA256',
+			$amz_date,
+			$scope,
+			hash( 'sha256', $canonical_request ),
+		) );
+
+		$k_date    = hash_hmac( 'sha256', $date, 'AWS4' . $app_key, true );
+		$k_region  = hash_hmac( 'sha256', $region, $k_date, true );
+		$k_service = hash_hmac( 'sha256', 's3', $k_region, true );
+		$k_signing = hash_hmac( 'sha256', 'aws4_request', $k_service, true );
+		$signature = hash_hmac( 'sha256', $string_to_sign, $k_signing );
+
+		return 'https://' . $host . $canonical_uri . '?' . $canonical_query . '&X-Amz-Signature=' . $signature;
+	}
+
+	/** s3.us-west-004.backblazeb2.com -> us-west-004 */
+	public static function region_from_host( $host ) {
+		$host = preg_replace( '#^https?://#', '', (string) $host );
+		$parts = explode( '.', (string) $host );
+		return isset( $parts[1] ) ? $parts[1] : 'us-west-004';
+	}
+
+	private static function encode_path( $path ) {
+		$segments = explode( '/', (string) $path );
+		foreach ( $segments as $index => $segment ) {
+			$segments[ $index ] = rawurlencode( $segment );
+		}
+		return implode( '/', $segments );
+	}
+
+	/**
+	 * Bucket icindeki bir dosya icin S3 imzali adres.
+	 *
+	 * @return string|WP_Error
+	 */
+	public function s3_url( $file_name, $expires = 3600 ) {
+		$auth = $this->authorize();
+		if ( is_wp_error( $auth ) ) {
+			return $auth;
+		}
+		if ( empty( $auth['s3_url'] ) ) {
+			return new WP_Error( 'naber_b2_no_s3', 'Backblaze hesabi S3 uyumlu uc bildirmedi.' );
+		}
+
+		$host   = preg_replace( '#^https?://#', '', $auth['s3_url'] );
+		$host   = rtrim( $host, '/' );
+		$bucket = (string) $this->settings['b2_bucket_name'];
+
+		return self::presign_url(
+			$host,
+			'/' . $bucket . '/' . ltrim( (string) $file_name, '/' ),
+			(string) $this->settings['b2_key_id'],
+			(string) $this->settings['b2_app_key'],
+			self::region_from_host( $host ),
+			$expires
+		);
 	}
 
 	/**

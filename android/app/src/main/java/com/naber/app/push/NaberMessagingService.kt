@@ -34,11 +34,17 @@ class NaberMessagingService : FirebaseMessagingService() {
         when (data["type"]) {
             "call" -> {
                 val callId = data["call_id"]?.toIntOrNull() ?: return
+                val isGroup = data["call_type"] == "group"
                 Notifications.showIncomingCall(
-                    this,
-                    data["caller_name"] ?: "Bilinmeyen",
-                    callId
+                    context = this,
+                    callerName = if (isGroup) (data["group_title"] ?: "Grup aramasi") else (data["caller_name"] ?: "Bilinmeyen"),
+                    callId = callId,
+                    isGroup = isGroup
                 )
+            }
+
+            "test" -> {
+                Notifications.showMessage(this, "Naber", "Bildirim testi basarili.", 0)
             }
 
             else -> {

@@ -92,9 +92,12 @@ class Naber_Media {
 	}
 
 	/**
-	 * Indirilebilir URL uretir.
-	 * Genel (public) bucket veya CDN adresi tanimliysa dogrudan adres,
-	 * aksi halde kisa omurlu imzali adres doner.
+	 * Indirilebilir adres uretir.
+	 *
+	 * Sirasiyla:
+	 *  1. Genel (public) adres veya CDN tanimliysa dogrudan o,
+	 *  2. S3 uyumlu imzali adres (varsayilan; en guvenilir yol),
+	 *  3. Olmazsa Backblaze "friendly" imzali adres.
 	 */
 	public static function url_for( $row ) {
 		if ( ! $row || 'ready' !== $row['status'] ) {
@@ -102,13 +105,33 @@ class Naber_Media {
 		}
 
 		$base = (string) Naber_Settings::get( 'b2_public_base_url' );
-		if ( '' !== $base ) {
+		$mode = (string) Naber_Settings::get( 'media_url_mode', 'auto' );
+
+		if ( '' !== $base && 'friendly' !== $mode && 's3' !== $mode ) {
 			return $base . '/' . ltrim( self::encode_path( $row['file_name'] ), '/' );
 		}
 
-		$ttl    = (int) Naber_Settings::get( 'b2_link_ttl', 3600 );
+		$ttl = (int) Naber_Settings::get( 'b2_link_ttl', 3600 );
+
+		if ( 'friendly' !== $mode ) {
+			$b2  = new Naber_B2();
+			$url = $b2->s3_url( $row['file_name'], $ttl );
+			if ( ! is_wp_error( $url ) ) {
+				return $url;
+			}
+			if ( 's3' === $mode ) {
+				return '';
+			}
+		}
+
+		return self::friendly_url( $row, $ttl );
+	}
+
+	/** Backblaze "friendly" adres + kisa omurlu indirme jetonu. */
+	private static function friendly_url( $row, $ttl ) {
 		$cache  = 'naber_dl_' . md5( dirname( $row['file_name'] ) );
 		$cached = get_transient( $cache );
+
 		if ( ! is_array( $cached ) ) {
 			$b2   = new Naber_B2();
 			$auth = $b2->download_authorization( trailingslashit( dirname( $row['file_name'] ) ), $ttl );
