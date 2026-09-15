@@ -71,6 +71,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import com.naber.app.Naber
 import com.naber.app.data.Chat
+import com.naber.app.data.LocalFiles
 import com.naber.app.data.LocalMedia
 import com.naber.app.data.Message
 import com.naber.app.data.SendState
@@ -104,6 +105,8 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
     var fullScreen by remember { mutableStateOf<Any?>(null) }
     var menuOpen by remember { mutableStateOf(false) }
     var deleteTarget by remember { mutableStateOf<Message?>(null) }
+    // "Yaziyor" bilgisi her tusa basista degil, en fazla 3 saniyede bir gonderilir.
+    val lastTypingSent = remember { longArrayOf(0L) }
 
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         val current = chat ?: return@rememberLauncherForActivityResult
@@ -229,13 +232,17 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
                     messages = messages.map { if (it.clientId == clientId) it.copy(sendState = SendState.FAILED) else it }
                     return@launch
                 }
+                // Galeri adresi gecici oldugu icin kalici bir kopya alinir.
+                val localCopy = LocalFiles.persist(context, prepared.bytes, "msg-$clientId.jpg") ?: uri.toString()
+                LocalMedia.remember(clientId, localCopy)
+
                 val media = Naber.api.uploadImage(prepared.bytes, prepared.mime, prepared.width, prepared.height) { percent ->
                     messages = messages.map { if (it.clientId == clientId) it.copy(uploadProgress = percent) else it }
                 }
-                LocalMedia.rememberMedia(media.id, uri.toString())
+                LocalMedia.rememberMedia(media.id, localCopy)
                 val sent = Naber.api.sendImage(conversationId, media.id, "", clientId)
                 messages = messages.map {
-                    if (it.clientId == clientId) sent.copy(localImageUri = uri.toString()) else it
+                    if (it.clientId == clientId) sent.copy(localImageUri = localCopy) else it
                 }
             } catch (e: Exception) {
                 messages = messages.map { if (it.clientId == clientId) it.copy(sendState = SendState.FAILED) else it }
@@ -448,9 +455,13 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
                     }
                     BasicTextField(
                         value = draft,
-                        onValueChange = {
-                            draft = it
-                            Naber.events.launchInScope { Naber.api.sendTyping(conversationId) }
+                        onValueChange = { value ->
+                            draft = value
+                            val now = System.currentTimeMillis()
+                            if (value.isNotEmpty() && now - lastTypingSent[0] > 3000) {
+                                lastTypingSent[0] = now
+                                Naber.events.launchInScope { Naber.api.sendTyping(conversationId) }
+                            }
                         },
                         textStyle = TextStyle(color = NaberColors.TextPrimary, fontSize = 14.5.sp),
                         cursorBrush = SolidColor(NaberColors.Accent),

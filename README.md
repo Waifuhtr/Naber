@@ -34,8 +34,11 @@ Ses trafigi:  Android  <────  WebRTC P2P  ────>  Android
 
 **Gercek zamanlilik:** Paylasimli WordPress hostinglerinde WebSocket calismadigi icin
 uzun yoklama (long-polling) kullanilir: `GET /events` istegi sunucuda en fazla 25 saniye
-bekler, yeni mesaj/sinyal olunca hemen doner. Boylece hem aninda teslim olur hem de
-saniyede bir istek atan "polling yagmuru" olusmaz.
+bekler, yeni mesaj/sinyal olunca hemen doner. Bekleme sirasinda yalnizca iki kucuk
+`MAX(id)` sorgusu 250 ms araliklarla calisir; tam yanit ancak gercekten yeni bir sey
+oldugunda hazirlanir. Teslim suresi tipik olarak yarim saniyenin altindadir.
+Hosting es zamanli istek sinirindan sikayet ederse **Naber Chat > Canli baglanti suresi**
+ve **Kontrol araligi** degerleri yonetim ekranindan ayarlanabilir.
 
 ---
 
@@ -123,11 +126,21 @@ Ayni test uygulama icindeki **Yonetim** ekranindan da calistirilabilir
 Anahtarlar Android uygulamasina hic gonderilmez; uygulama yalnizca tek kullanimlik
 upload adresi ve kisa omurlu indirme jetonu alir.
 
-### 3.3 Sesli arama (TURN)
+### 3.3 Sesli arama (TURN - Metered)
 
-Ayni ekrandaki **Sesli arama** bolumune STUN/TURN bilgilerini girin. WordPress TURN sunucusu
-saglamaz; harici bir servis (kendi coturn'unuz veya hazir bir saglayici) kullanilir.
-Bilgiler yalnizca giris yapmis kullaniciya `GET /ice-servers` ile verilir.
+WordPress TURN sunucusu saglamaz; harici bir servis kullanilir. Eklenti
+[Metered](https://www.metered.ca/) ile dogrudan calisir:
+
+1. Metered panelinde bir uygulama olusturun (ornek: `naber` -> `naber.metered.live`).
+2. **Developers > API Keys** bolumunden API anahtarini alin.
+3. WordPress > Naber Chat > **Sesli arama** bolumune uygulama adini ve API anahtarini girin.
+4. **TURN yapilandirmasini test et** dugmesine basin: kimlik bilgileri gercekten cekiliyor mu,
+   kac TURN/STUN adresi donuyor, kullanici adi/sifre geliyor mu adim adim gosterilir.
+
+Sunucu kimlik bilgilerini `https://<uygulama>.metered.live/api/v1/turn/credentials` adresinden
+ceker ve varsayilan olarak 30 dakika onbellekler. API anahtari APK'ya gomulmez; uygulama
+yalnizca `GET /ice-servers` ile kisa omurlu listeyi alir. Kendi TURN sunucunuz varsa ayni
+ekrandaki "Ek TURN adresleri" alanina girip ikisini birlikte kullanabilirsiniz.
 
 ### 3.4 Bildirimler (istege bagli)
 

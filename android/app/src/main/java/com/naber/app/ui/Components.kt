@@ -38,6 +38,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.naber.app.Naber
 import com.naber.app.data.Chat
+import com.naber.app.data.LocalFiles
 import com.naber.app.data.Media
 import com.naber.app.data.User
 import com.naber.app.ui.theme.NaberColors
@@ -58,7 +59,8 @@ fun avatarColor(id: Int): Color = avatarPalette[id.mod(avatarPalette.size)]
 @Composable
 fun Avatar(user: User?, size: Dp = 48.dp, modifier: Modifier = Modifier) {
     val myId = Naber.session.user?.id ?: 0
-    val local = if (user != null && user.id == myId) Naber.session.localAvatar else ""
+    val stored = if (user != null && user.id == myId) Naber.session.localAvatar else ""
+    val local = if (stored.startsWith("file://") && !LocalFiles.exists(stored)) "" else stored
     AvatarBase(
         model = local.ifBlank { user?.avatar.orEmpty() },
         cacheKey = "avatar-${user?.id ?: 0}",

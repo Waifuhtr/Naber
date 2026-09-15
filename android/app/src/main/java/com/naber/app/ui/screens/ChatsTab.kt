@@ -95,8 +95,35 @@ fun ChatsTab(
         if (startConversationId > 0) onOpenChat(startConversationId)
     }
 
+    // Yeni mesajda tum liste yeniden cekilmez; yalnizca ilgili satir guncellenir.
     LaunchedEffect(Unit) {
-        Naber.events.messages.collect { reload() }
+        Naber.events.messages.collect { message ->
+            val myId = Naber.session.user?.id ?: 0
+            val existing = chats.firstOrNull { it.id == message.conversationId }
+            if (existing == null) {
+                reload()
+                return@collect
+            }
+            val updated = existing.copy(
+                lastMessage = message,
+                updatedAt = message.createdAt,
+                unread = if (message.senderId == myId) existing.unread else existing.unread + 1
+            )
+            chats = (listOf(updated) + chats.filterNot { it.id == updated.id })
+                .sortedByDescending { it.updatedAt }
+        }
+    }
+
+    // Okundu bilgisi degistiginde tikleri guncelle.
+    LaunchedEffect(Unit) {
+        Naber.events.readStates.collect { states ->
+            if (states.isEmpty()) return@collect
+            val map = states.associate { it.conversationId to it.watermark }
+            chats = chats.map { chat ->
+                val watermark = map[chat.id] ?: return@map chat
+                if (watermark == chat.readWatermark) chat else chat.copy(readWatermark = watermark)
+            }
+        }
     }
 
     val filtered = remember(chats, search, filter) {

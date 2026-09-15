@@ -179,7 +179,7 @@ Naber_Settings::set_override( array(
 	'turn_username'   => 'naber',
 	'turn_credential' => 'gizli',
 ) );
-$ice = Naber_Settings::ice_servers();
+$ice = Naber_Settings::manual_ice_servers();
 Naber_Tests::equals( 3, count( $ice ), 'Iki STUN ve bir TURN girdisi uretiliyor' );
 Naber_Tests::equals( 2, count( $ice[2]['urls'] ), 'TURN adresleri tek girdide toplaniyor' );
 Naber_Tests::equals( 'naber', $ice[2]['username'], 'TURN kullanici adi aktariliyor' );

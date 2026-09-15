@@ -27,6 +27,7 @@ class Naber_Admin_Page {
 		add_action( 'admin_menu', array( $this, 'menu' ) );
 		add_action( 'admin_post_naber_save_settings', array( $this, 'save' ) );
 		add_action( 'wp_ajax_naber_test_b2', array( $this, 'ajax_test_b2' ) );
+		add_action( 'wp_ajax_naber_test_turn', array( $this, 'ajax_test_turn' ) );
 	}
 
 	public function menu() {
@@ -88,7 +89,10 @@ class Naber_Admin_Page {
 				.naber-error { color: #b32d2e; }
 				.naber-field-error input { border-color: #b32d2e; }
 				#naber-test-result { margin-top: 12px; max-width: 760px; }
-				#naber-test-result li { margin: 4px 0; list-style: none; }
+				#naber-test-result li, #naber-turn-result li { margin: 4px 0; list-style: none; }
+				#naber-turn-result { margin-top: 12px; max-width: 760px; }
+				#naber-turn-result .ok::before { content: "\2714"; color: #1a7f37; margin-right: 6px; }
+				#naber-turn-result .fail::before { content: "\2718"; color: #b32d2e; margin-right: 6px; }
 				#naber-test-result .ok::before { content: "\2714"; color: #1a7f37; margin-right: 6px; }
 				#naber-test-result .fail::before { content: "\2718"; color: #b32d2e; margin-right: 6px; }
 			</style>
@@ -123,14 +127,27 @@ class Naber_Admin_Page {
 				</table>
 
 				<h2>Sesli arama (WebRTC)</h2>
-				<p>WordPress yalnizca signaling yapar. TURN sunucusu harici bir servistir.</p>
+				<p>WordPress yalnizca signaling yapar. TURN sunucusu harici bir servistir.
+					Metered kullaniyorsaniz kimlik bilgileri burada tutulur ve uygulamaya yalnizca
+					kisa omurlu bilgiler gonderilir.</p>
 				<table class="form-table" role="presentation">
 					<?php
-					$this->field( 'stun_urls', 'STUN adresleri', $settings['stun_urls'], 'text', 'Virgul veya bosluk ile ayirin.', $errors );
-					$this->field( 'turn_urls', 'TURN adresleri', $settings['turn_urls'], 'text', 'Ornek: <code>turn:turn.ornek.com:3478?transport=udp</code>', $errors );
-					$this->field( 'turn_username', 'TURN kullanici adi', $settings['turn_username'], 'text', '', $errors );
-					$this->field( 'turn_credential', 'TURN sifresi', $settings['turn_credential'], 'password', $settings['turn_credential'] ? 'Kayitli. Degistirmek istemiyorsaniz bos birakin.' : '', $errors );
+					$this->field( 'metered_subdomain', 'Metered uygulama adi', $settings['metered_subdomain'], 'text', 'Metered panelindeki uygulama adi. Ornek: <code>naber</code> (yani <code>naber.metered.live</code>).', $errors );
+					$this->field( 'metered_api_key', 'Metered API anahtari', '', 'password', $settings['metered_api_key'] ? 'Kayitli: <code>' . esc_html( Naber_Settings::mask( $settings['metered_api_key'] ) ) . '</code>. Degistirmek istemiyorsaniz bos birakin.' : 'Metered panelinde <em>Developers &gt; API Keys</em> bolumunden alinir.', $errors );
+					$this->field( 'metered_ttl', 'Metered onbellek suresi (saniye)', $settings['metered_ttl'], 'number', 'Kimlik bilgileri bu sure boyunca tekrar istenmez. 300 - 43200 arasi.', $errors );
+					$this->field( 'stun_urls', 'STUN adresleri', $settings['stun_urls'], 'text', 'Virgul veya bosluk ile ayirin. Metered kullansaniz da kalabilir.', $errors );
+					$this->field( 'turn_urls', 'Ek TURN adresleri', $settings['turn_urls'], 'text', 'Kendi TURN sunucunuz varsa. Ornek: <code>turn:turn.ornek.com:3478?transport=udp</code>', $errors );
+					$this->field( 'turn_username', 'Ek TURN kullanici adi', $settings['turn_username'], 'text', '', $errors );
+					$this->field( 'turn_credential', 'Ek TURN sifresi', $settings['turn_credential'], 'password', $settings['turn_credential'] ? 'Kayitli. Degistirmek istemiyorsaniz bos birakin.' : '', $errors );
 					?>
+					<tr>
+						<th scope="row">TURN testi</th>
+						<td>
+							<button type="button" class="button button-secondary" id="naber-test-turn">TURN yapilandirmasini test et</button>
+							<p class="description">Kayitli bilgilerle Metered'dan kimlik bilgisi cekmeyi dener.</p>
+							<div id="naber-turn-result"></div>
+						</td>
+					</tr>
 				</table>
 
 				<h2>Bildirimler (Firebase)</h2>
@@ -138,6 +155,10 @@ class Naber_Admin_Page {
 					<?php
 					$this->field( 'fcm_project_id', 'Firebase proje kimligi', $settings['fcm_project_id'], 'text', 'Firebase konsolundaki <code>project_id</code>.', $errors );
 					$this->field( 'fcm_service_account', 'Servis hesabi JSON', $settings['fcm_service_account'] ? '(kayitli)' : '', 'textarea', 'Firebase > Proje ayarlari > Servis hesaplari > Yeni ozel anahtar. JSON icerigini yapistirin. "(kayitli)" yazisini degistirmezseniz mevcut deger korunur.', $errors );
+					?>
+					<?php
+					$this->field( 'poll_wait', 'Canli baglanti suresi (saniye)', $settings['poll_wait'], 'number', 'Tek bir istegin sunucuda bekleyecegi azami sure. Hosting "cok fazla es zamanli istek" diyorsa dusurun (0 - 30).', $errors );
+					$this->field( 'poll_interval_ms', 'Kontrol araligi (ms)', $settings['poll_interval_ms'], 'number', 'Yeni mesaj kontrolu sikligi. Dusuk deger = daha hizli teslim (100 - 2000).', $errors );
 					?>
 					<tr>
 						<th scope="row">Yeni kayitlar</th>
@@ -192,6 +213,34 @@ class Naber_Admin_Page {
 							box.innerHTML = '<div class="notice notice-error inline"><p>Test istegi basarisiz: ' + err + '</p></div>';
 						});
 				});
+
+				var turnButton = document.getElementById('naber-test-turn');
+				var turnBox = document.getElementById('naber-turn-result');
+				if (turnButton) {
+					turnButton.addEventListener('click', function () {
+						turnButton.disabled = true;
+						turnBox.innerHTML = '<p>Test ediliyor...</p>';
+						var turnData = new FormData();
+						turnData.append('action', 'naber_test_turn');
+						turnData.append('_ajax_nonce', '<?php echo esc_js( wp_create_nonce( 'naber_test_turn' ) ); ?>');
+						fetch(ajaxurl, { method: 'POST', body: turnData, credentials: 'same-origin' })
+							.then(function (r) { return r.json(); })
+							.then(function (res) {
+								turnButton.disabled = false;
+								var payload = res.data || res;
+								var html = '<ul>';
+								(payload.steps || []).forEach(function (step) {
+									html += '<li class="' + (step.ok ? 'ok' : 'fail') + '"><strong>' + step.label + ':</strong> ' + step.message + '</li>';
+								});
+								html += '</ul><div class="notice notice-' + (payload.ok ? 'success' : 'error') + ' inline"><p>' + (payload.message || '') + '</p></div>';
+								turnBox.innerHTML = html;
+							})
+							.catch(function (err) {
+								turnButton.disabled = false;
+								turnBox.innerHTML = '<div class="notice notice-error inline"><p>Test istegi basarisiz: ' + err + '</p></div>';
+							});
+					});
+				}
 			})();
 			</script>
 		</div>
@@ -243,15 +292,33 @@ class Naber_Admin_Page {
 		$values['turn_urls']          = isset( $_POST['turn_urls'] ) ? sanitize_text_field( wp_unslash( $_POST['turn_urls'] ) ) : '';
 		$values['turn_username']      = isset( $_POST['turn_username'] ) ? sanitize_text_field( wp_unslash( $_POST['turn_username'] ) ) : '';
 		$values['turn_credential']    = isset( $_POST['turn_credential'] ) && '' !== $_POST['turn_credential'] ? sanitize_text_field( wp_unslash( $_POST['turn_credential'] ) ) : $current['turn_credential'];
+		$values['metered_subdomain']  = isset( $_POST['metered_subdomain'] ) ? Naber_Turn::normalize_subdomain( wp_unslash( $_POST['metered_subdomain'] ) ) : '';
+		$values['metered_api_key']    = isset( $_POST['metered_api_key'] ) && '' !== $_POST['metered_api_key'] ? sanitize_text_field( wp_unslash( $_POST['metered_api_key'] ) ) : $current['metered_api_key'];
+		$values['metered_ttl']        = isset( $_POST['metered_ttl'] ) ? max( 300, min( 43200, (int) $_POST['metered_ttl'] ) ) : 1800;
 		$values['fcm_project_id']     = isset( $_POST['fcm_project_id'] ) ? sanitize_text_field( wp_unslash( $_POST['fcm_project_id'] ) ) : '';
 		$values['fcm_service_account'] = $service_account;
 		$values['allow_registration'] = isset( $_POST['allow_registration'] ) ? 1 : 0;
+		$values['poll_wait']          = isset( $_POST['poll_wait'] ) ? max( 0, min( 30, (int) $_POST['poll_wait'] ) ) : 25;
+		$values['poll_interval_ms']   = isset( $_POST['poll_interval_ms'] ) ? max( 100, min( 2000, (int) $_POST['poll_interval_ms'] ) ) : 250;
 
 		Naber_Settings::update( $values );
 		Naber_B2::forget_auth();
+		Naber_Turn::forget_cache();
 
 		wp_safe_redirect( add_query_arg( array( 'page' => self::PAGE, 'naber_saved' => 1 ), admin_url( 'admin.php' ) ) );
 		exit;
+	}
+
+	/** Yonetim ekranindaki "TURN yapilandirmasini test et" dugmesi. */
+	public function ajax_test_turn() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'ok' => false, 'steps' => array(), 'message' => 'Yetkiniz yok.' ), 403 );
+		}
+		check_ajax_referer( 'naber_test_turn' );
+
+		$result = ( new Naber_Turn() )->test();
+		unset( $result['servers'] );
+		wp_send_json_success( $result );
 	}
 
 	/** Yonetim ekranindaki "Baglantiyi test et" dugmesi. */

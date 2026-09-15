@@ -14,6 +14,12 @@ class Naber_Auth {
 	const META_AVATAR   = 'naber_avatar_media_id';
 	const META_CONTACTS = 'naber_contacts';
 	const MAX_TOKENS    = 5;
+
+	/** @var array Istek suresince kullanici gosterimlerini onbellekler. */
+	private static $payload_cache = array();
+
+	/** @var array */
+	private static $presence_cache = array();
 	const TOKEN_TTL     = 7776000; // 90 gun.
 
 	public static function init() {
@@ -177,8 +183,23 @@ class Naber_Auth {
 	// Durum bilgileri
 	// ------------------------------------------------------------------
 
+	/** Cevrimici damgasi; gereksiz veritabani yazmasi icin 20 saniyede bir guncellenir. */
 	public static function touch_presence( $user_id ) {
-		update_user_meta( $user_id, self::META_LASTSEEN, time() );
+		$user_id = (int) $user_id;
+		$now     = time();
+
+		if ( isset( self::$presence_cache[ $user_id ] ) && ( $now - self::$presence_cache[ $user_id ] ) < 20 ) {
+			return;
+		}
+
+		$last = (int) get_user_meta( $user_id, self::META_LASTSEEN, true );
+		self::$presence_cache[ $user_id ] = $now;
+
+		if ( $now - $last < 20 ) {
+			return;
+		}
+
+		update_user_meta( $user_id, self::META_LASTSEEN, $now );
 	}
 
 	public static function is_online( $user_id ) {
@@ -252,12 +273,32 @@ class Naber_Auth {
 
 	// ------------------------------------------------------------------
 
+	/** Profil degistiginde onbellegi temizler. */
+	public static function flush_payload_cache( $user_id = 0 ) {
+		if ( $user_id ) {
+			unset( self::$payload_cache[ (int) $user_id ], self::$payload_cache[ (int) $user_id . ':p' ] );
+			return;
+		}
+		self::$payload_cache = array();
+	}
+
 	public static function user_payload( $user, $include_private = false ) {
+		$cache_key = null;
 		if ( is_numeric( $user ) ) {
+			$cache_key = (int) $user . ( $include_private ? ':p' : '' );
+			if ( isset( self::$payload_cache[ $cache_key ] ) ) {
+				return self::$payload_cache[ $cache_key ];
+			}
 			$user = get_userdata( (int) $user );
 		}
 		if ( ! $user ) {
 			return null;
+		}
+		if ( null === $cache_key ) {
+			$cache_key = (int) $user->ID . ( $include_private ? ':p' : '' );
+			if ( isset( self::$payload_cache[ $cache_key ] ) ) {
+				return self::$payload_cache[ $cache_key ];
+			}
 		}
 		$last = (int) get_user_meta( $user->ID, self::META_LASTSEEN, true );
 		$data = array(
@@ -279,6 +320,8 @@ class Naber_Auth {
 			$data['ban_reason'] = self::ban_reason( $user->ID );
 			$data['registered'] = strtotime( $user->user_registered . ' UTC' );
 		}
+
+		self::$payload_cache[ $cache_key ] = $data;
 		return $data;
 	}
 }

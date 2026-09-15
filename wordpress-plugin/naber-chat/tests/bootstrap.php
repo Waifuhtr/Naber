@@ -96,6 +96,7 @@ $GLOBALS['naber_test_emails'] = array();
 
 require_once dirname( __DIR__ ) . '/includes/class-naber-settings.php';
 require_once dirname( __DIR__ ) . '/includes/class-naber-b2.php';
+require_once dirname( __DIR__ ) . '/includes/class-naber-turn.php';
 require_once dirname( __DIR__ ) . '/includes/class-naber-media.php';
 require_once dirname( __DIR__ ) . '/includes/class-naber-db.php';
 require_once dirname( __DIR__ ) . '/includes/class-naber-auth.php';

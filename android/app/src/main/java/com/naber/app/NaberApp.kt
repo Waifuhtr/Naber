@@ -5,18 +5,47 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import android.os.Build
+import coil.ImageLoader
+import coil.ImageLoaderFactory
+import coil.disk.DiskCache
+import coil.memory.MemoryCache
+import com.naber.app.data.LocalFiles
 import com.naber.app.call.CallManager
 import com.naber.app.data.ApiClient
 import com.naber.app.data.EventHub
 import com.naber.app.data.Session
 
-class NaberApp : Application() {
+class NaberApp : Application(), ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
         Naber.init(this)
         createNotificationChannels()
+        LocalFiles.cleanup(this)
     }
+
+    /**
+     * Gorsel onbellegi.
+     * Backblaze imzali adresleri her seferinde degistigi ve onbelleklenmeyi
+     * yasaklayan basliklar dondugu icin onbellek anahtari medya kimligine
+     * sabitlenir, basliklar yok sayilir. Boylece ayni gorsel tekrar inmez.
+     */
+    override fun newImageLoader(): ImageLoader =
+        ImageLoader.Builder(this)
+            .memoryCache {
+                MemoryCache.Builder(this)
+                    .maxSizePercent(0.25)
+                    .build()
+            }
+            .diskCache {
+                DiskCache.Builder()
+                    .directory(cacheDir.resolve("naber_images"))
+                    .maxSizeBytes(192L * 1024 * 1024)
+                    .build()
+            }
+            .respectCacheHeaders(false)
+            .crossfade(false)
+            .build()
 
     private fun createNotificationChannels() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return

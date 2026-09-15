@@ -16,30 +16,56 @@ class Session(context: Context) {
     private val prefs: SharedPreferences =
         context.getSharedPreferences("naber_session", Context.MODE_PRIVATE)
 
+    // Bu degerler her okumada SharedPreferences'tan cozulmesin diye bellekte tutulur.
+    @Volatile
+    private var cachedUser: User? = null
+
+    @Volatile
+    private var userLoaded = false
+
+    @Volatile
+    private var cachedToken: String? = null
+
+    @Volatile
+    private var cachedBaseUrl: String? = null
+
+    @Volatile
+    private var cachedLocalAvatar: String? = null
+
     var baseUrl: String
-        get() = prefs.getString(KEY_BASE_URL, null)?.takeIf { it.isNotBlank() } ?: DEFAULT_SERVER
+        get() = cachedBaseUrl ?: (prefs.getString(KEY_BASE_URL, null)?.takeIf { it.isNotBlank() } ?: DEFAULT_SERVER).also { cachedBaseUrl = it }
         set(value) {
-            val normalized = normalizeBaseUrl(value)
-            prefs.edit().putString(KEY_BASE_URL, normalized.ifBlank { DEFAULT_SERVER }).apply()
+            val normalized = normalizeBaseUrl(value).ifBlank { DEFAULT_SERVER }
+            cachedBaseUrl = normalized
+            prefs.edit().putString(KEY_BASE_URL, normalized).apply()
         }
 
     val isCustomServer: Boolean
         get() = baseUrl != DEFAULT_SERVER
 
     fun resetServer() {
+        cachedBaseUrl = DEFAULT_SERVER
         prefs.edit().remove(KEY_BASE_URL).apply()
     }
 
     var token: String
-        get() = prefs.getString(KEY_TOKEN, "") ?: ""
-        set(value) = prefs.edit().putString(KEY_TOKEN, value).apply()
+        get() = cachedToken ?: (prefs.getString(KEY_TOKEN, "") ?: "").also { cachedToken = it }
+        set(value) {
+            cachedToken = value
+            prefs.edit().putString(KEY_TOKEN, value).apply()
+        }
 
     var user: User?
         get() {
-            val raw = prefs.getString(KEY_USER, null) ?: return null
-            return runCatching { User.from(JSONObject(raw)) }.getOrNull()
+            if (userLoaded) return cachedUser
+            val raw = prefs.getString(KEY_USER, null)
+            cachedUser = raw?.let { runCatching { User.from(JSONObject(it)) }.getOrNull() }
+            userLoaded = true
+            return cachedUser
         }
         set(value) {
+            cachedUser = value
+            userLoaded = true
             if (value == null) {
                 prefs.edit().remove(KEY_USER).apply()
                 return
@@ -61,15 +87,25 @@ class Session(context: Context) {
         get() = prefs.getString(KEY_PUSH, "") ?: ""
         set(value) = prefs.edit().putString(KEY_PUSH, value).apply()
 
-    /** Profil fotografi degistiginde hemen gostermek icin yerel kopya. */
+    /**
+     * Profil fotografinin cihazdaki kalici kopyasi.
+     * Uygulama kapanip acildiginda da hemen gosterilir.
+     */
     var localAvatar: String
-        get() = prefs.getString(KEY_LOCAL_AVATAR, "") ?: ""
-        set(value) = prefs.edit().putString(KEY_LOCAL_AVATAR, value).apply()
+        get() = cachedLocalAvatar ?: (prefs.getString(KEY_LOCAL_AVATAR, "") ?: "").also { cachedLocalAvatar = it }
+        set(value) {
+            cachedLocalAvatar = value
+            prefs.edit().putString(KEY_LOCAL_AVATAR, value).apply()
+        }
 
     val isLoggedIn: Boolean
         get() = token.isNotEmpty()
 
     fun clear() {
+        cachedToken = ""
+        cachedUser = null
+        userLoaded = true
+        cachedLocalAvatar = ""
         prefs.edit().remove(KEY_TOKEN).remove(KEY_USER).remove(KEY_LOCAL_AVATAR).apply()
     }
 

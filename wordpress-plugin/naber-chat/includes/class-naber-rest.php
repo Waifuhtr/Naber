@@ -80,6 +80,7 @@ class Naber_REST {
 		$this->route( $ns, '/admin/chats', 'GET', 'admin_chats', $admin );
 		$this->route( $ns, '/admin/chats/(?P<id>\d+)', 'DELETE', 'admin_delete_chat', $admin );
 		$this->route( $ns, '/admin/storage/test', 'POST', 'admin_storage_test', $admin );
+		$this->route( $ns, '/admin/turn/test', 'POST', 'admin_turn_test', $admin );
 		$this->route( $ns, '/admin/settings', 'GET', 'admin_settings', $admin );
 	}
 
@@ -260,6 +261,7 @@ class Naber_REST {
 			}
 		}
 
+		Naber_Auth::flush_payload_cache( $user_id );
 		return rest_ensure_response( array( 'user' => Naber_Auth::user_payload( $user_id, true ) ) );
 	}
 
@@ -896,51 +898,80 @@ class Naber_REST {
 
 	/**
 	 * Canli olay akisi (long-polling).
-	 * WordPress hostinglerinde WebSocket calismadigi icin istek sunucuda
-	 * en fazla 25 saniye bekler, yeni bir sey olunca hemen doner.
+	 *
+	 * Istek sunucuda en fazla 25 saniye bekler. Bekleme sirasinda yalnizca
+	 * "yeni mesaj/sinyal var mi" sorusunu soran iki kucuk sorgu calisir
+	 * (250 ms araliklarla), tam yanit ancak gercekten yeni bir sey oldugunda
+	 * hazirlanir. Boylece mesajlar yarim saniyenin altinda ulasir.
 	 */
 	public function events( WP_REST_Request $request ) {
 		$user_id   = get_current_user_id();
 		$since_msg = (int) $request->get_param( 'since_message_id' );
 		$since_sig = (int) $request->get_param( 'since_signal_id' );
-		$wait      = max( 0, min( 25, (int) $request->get_param( 'wait' ) ) );
+		$max_wait  = max( 0, min( 30, (int) Naber_Settings::get( 'poll_wait', 25 ) ) );
+		$wait      = max( 0, min( $max_wait, (int) $request->get_param( 'wait' ) ) );
 		$conv_id   = (int) $request->get_param( 'conversation_id' );
-		$deadline  = time() + $wait;
+		$deadline  = microtime( true ) + $wait;
 
-		do {
-			Naber_Auth::touch_presence( $user_id );
+		// Kontrol araligi: dusuk deger = daha hizli teslim, biraz daha fazla sorgu.
+		$interval_ms = max( 100, min( 2000, (int) Naber_Settings::get( 'poll_interval_ms', 250 ) ) );
+		$slow_every  = max( 1, (int) round( 1000 / $interval_ms ) );
 
-			$messages = Naber_Chat_Repo::messages_since( $user_id, $since_msg );
-			$signals  = Naber_Calls::signals_for( $user_id, $since_sig );
-			$incoming = Naber_Calls::active_incoming( $user_id );
+		$iteration = 0;
 
-			$typing = array();
-			if ( $conv_id > 0 && Naber_Chat_Repo::member( $conv_id, $user_id ) ) {
-				$typing = Naber_Chat_Repo::typing_users( $conv_id, $user_id );
+		while ( true ) {
+			$probe    = Naber_Chat_Repo::probe( $user_id );
+			$has_new  = $probe['message'] > $since_msg || $probe['signal'] > $since_sig;
+			$slow     = ( 0 === $iteration % $slow_every ); // ~1 saniyede bir
+			$extra    = false;
+
+			if ( ! $has_new && $slow ) {
+				$extra = (bool) Naber_Calls::active_incoming( $user_id )
+					|| ( $conv_id > 0 && Naber_Chat_Repo::typing_users( $conv_id, $user_id ) );
 			}
 
-			$has_data = $messages || $signals || $incoming || $typing;
-			if ( $has_data || time() >= $deadline ) {
-				return rest_ensure_response( array(
-					'messages'         => $messages,
-					'signals'          => $signals,
-					'incoming_call'    => $incoming,
-					'read_states'      => Naber_Chat_Repo::read_states( $user_id ),
-					'typing'           => $typing,
-					'typing_conversation_id' => $conv_id,
-					'unread_total'     => Naber_Chat_Repo::unread_total( $user_id ),
-					'server_time'      => time(),
-					'since_message_id' => $messages ? (int) $messages[ count( $messages ) - 1 ]['id'] : $since_msg,
-					'since_signal_id'  => $signals ? (int) $signals[ count( $signals ) - 1 ]['id'] : $since_sig,
-				) );
+			if ( $has_new || $extra || microtime( true ) >= $deadline ) {
+				return rest_ensure_response( $this->build_events_payload( $user_id, $since_msg, $since_sig, $conv_id ) );
 			}
 
-			usleep( 1500000 );
-		} while ( true );
+			// Cevrimici bilgisi her dongude degil, ~5 saniyede bir yazilir.
+			if ( 0 === $iteration % ( $slow_every * 5 ) ) {
+				Naber_Auth::touch_presence( $user_id );
+			}
+
+			$iteration++;
+			usleep( $interval_ms * 1000 );
+		}
+	}
+
+	private function build_events_payload( $user_id, $since_msg, $since_sig, $conv_id ) {
+		Naber_Auth::touch_presence( $user_id );
+
+		$messages = Naber_Chat_Repo::messages_since( $user_id, $since_msg );
+		$signals  = Naber_Calls::signals_for( $user_id, $since_sig );
+		$incoming = Naber_Calls::active_incoming( $user_id );
+
+		$typing = array();
+		if ( $conv_id > 0 && Naber_Chat_Repo::member( $conv_id, $user_id ) ) {
+			$typing = Naber_Chat_Repo::typing_users( $conv_id, $user_id );
+		}
+
+		return array(
+			'messages'               => $messages,
+			'signals'                => $signals,
+			'incoming_call'          => $incoming,
+			'read_states'            => Naber_Chat_Repo::read_states( $user_id ),
+			'typing'                 => $typing,
+			'typing_conversation_id' => $conv_id,
+			'unread_total'           => Naber_Chat_Repo::unread_total( $user_id ),
+			'server_time'            => time(),
+			'since_message_id'       => $messages ? (int) $messages[ count( $messages ) - 1 ]['id'] : $since_msg,
+			'since_signal_id'        => $signals ? (int) $signals[ count( $signals ) - 1 ]['id'] : $since_sig,
+		);
 	}
 
 	public function ice_servers() {
-		return rest_ensure_response( array( 'ice_servers' => Naber_Settings::ice_servers() ) );
+		return rest_ensure_response( array( 'ice_servers' => ( new Naber_Turn() )->ice_servers() ) );
 	}
 
 	// ------------------------------------------------------------------
@@ -1000,7 +1031,7 @@ class Naber_REST {
 		return rest_ensure_response( array(
 			'call'        => Naber_Calls::payload( $call, true ),
 			'peers'       => Naber_Calls::joined_user_ids( (int) $call['id'], $user_id ),
-			'ice_servers' => Naber_Settings::ice_servers(),
+			'ice_servers' => ( new Naber_Turn() )->ice_servers(),
 		) );
 	}
 
@@ -1311,6 +1342,7 @@ class Naber_REST {
 			Naber_Auth::revoke_all_tokens( $target );
 		}
 
+		Naber_Auth::flush_payload_cache( $target );
 		return rest_ensure_response( array( 'user' => Naber_Auth::user_payload( $target, true ) ) );
 	}
 
@@ -1389,11 +1421,21 @@ class Naber_REST {
 			'turn_urls'          => (string) $all['turn_urls'],
 			'stun_urls'          => (string) $all['stun_urls'],
 			'fcm_project_id'     => (string) $all['fcm_project_id'],
+			'metered_app'        => Naber_Turn::normalize_subdomain( $all['metered_subdomain'] ),
+			'metered_ready'      => ( new Naber_Turn() )->metered_configured(),
 			'email_domain'       => Naber_Auth::email_domain(),
 			'allow_registration' => (bool) $all['allow_registration'],
 			'storage_ready'      => Naber_Settings::b2_ready(),
 			'push_ready'         => Naber_Push::is_configured(),
 		) );
+	}
+
+	/** Yonetim panelinden TURN (Metered) yapilandirmasini sinar. */
+	public function admin_turn_test() {
+		$turn   = new Naber_Turn();
+		$result = $turn->test();
+		unset( $result['servers'] );
+		return rest_ensure_response( $result );
 	}
 
 	public function admin_storage_test( WP_REST_Request $request ) {

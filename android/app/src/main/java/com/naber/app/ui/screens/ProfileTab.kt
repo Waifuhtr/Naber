@@ -52,6 +52,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.naber.app.Naber
+import com.naber.app.data.LocalFiles
 import com.naber.app.ui.Avatar
 import com.naber.app.ui.NaberCard
 import com.naber.app.ui.SettingsRow
@@ -82,6 +83,12 @@ fun ProfileTab(onAdmin: () -> Unit, onLoggedOut: () -> Unit) {
             try {
                 val prepared = prepareImage(context, uri, maxSize = 640)
                 if (prepared != null) {
+                    // Galeri adresi uygulama kapaninca gecersiz olur; kalici kopya alinir.
+                    val myId = Naber.session.user?.id ?: 0
+                    LocalFiles.persist(context, prepared.bytes, "avatar-$myId.jpg")?.let { path ->
+                        Naber.session.localAvatar = path
+                        avatarVersion++
+                    }
                     val media = Naber.api.uploadImage(prepared.bytes, prepared.mime, prepared.width, prepared.height) {}
                     user = Naber.api.updateProfile(null, null, media.id)
                     message = "Profil fotografi guncellendi."

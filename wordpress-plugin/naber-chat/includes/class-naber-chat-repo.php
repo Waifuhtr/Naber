@@ -535,6 +535,36 @@ class Naber_Chat_Repo {
 		return null === $value ? 0 : (int) $value;
 	}
 
+	/**
+	 * Uzun yoklama icin ucuz kontrol: yalnizca en son mesaj ve sinyal kimligi.
+	 * Tam yanit ancak gercekten yeni bir sey varsa hazirlanir.
+	 *
+	 * @return array{message:int,signal:int}
+	 */
+	public static function probe( $user_id ) {
+		global $wpdb;
+		$messages = Naber_DB::table( 'messages' );
+		$members  = Naber_DB::table( 'members' );
+		$signals  = Naber_DB::table( 'signals' );
+
+		$max_message = $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT MAX(m.id) FROM {$messages} m
+				 INNER JOIN {$members} me ON me.conversation_id = m.conversation_id AND me.user_id = %d",
+				(int) $user_id
+			)
+		);
+
+		$max_signal = $wpdb->get_var(
+			$wpdb->prepare( "SELECT MAX(id) FROM {$signals} WHERE receiver_id = %d", (int) $user_id )
+		);
+
+		return array(
+			'message' => (int) $max_message,
+			'signal'  => (int) $max_signal,
+		);
+	}
+
 	/** Olay akisi: kullanicinin tum sohbetlerindeki yeni mesajlar. */
 	public static function messages_since( $user_id, $since_id, $limit = 100 ) {
 		global $wpdb;

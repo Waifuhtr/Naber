@@ -1,9 +1,11 @@
 package com.naber.app.data
 
+import androidx.compose.runtime.Immutable
 import org.json.JSONArray
 import org.json.JSONObject
 
 /** WordPress'ten donen kullanici. is_admin bilgisi sunucudan gelir, uygulama tahmin etmez. */
+@Immutable
 data class User(
     val id: Int,
     val username: String,
@@ -63,6 +65,7 @@ data class User(
     }
 }
 
+@Immutable
 data class Media(
     val id: Int,
     val url: String,
@@ -86,6 +89,7 @@ data class Media(
 
 enum class SendState { SENDING, SENT, FAILED }
 
+@Immutable
 data class Message(
     val id: Int,
     val conversationId: Int,
@@ -134,6 +138,7 @@ data class Message(
     }
 }
 
+@Immutable
 data class Chat(
     val id: Int,
     val type: String,
@@ -183,6 +188,7 @@ data class Chat(
     }
 }
 
+@Immutable
 data class CallInfo(
     val id: Int,
     val type: String,
@@ -224,6 +230,7 @@ data class CallInfo(
     }
 }
 
+@Immutable
 data class IceServer(val urls: List<String>, val username: String, val credential: String) {
     companion object {
         fun listFrom(array: JSONArray?): List<IceServer> {
@@ -244,12 +251,16 @@ data class IceServer(val urls: List<String>, val username: String, val credentia
     }
 }
 
+@Immutable
 data class Signal(val id: Int, val callId: Int, val senderId: Int, val type: String, val payload: String)
 
+@Immutable
 data class ReadState(val conversationId: Int, val watermark: Int)
 
+@Immutable
 data class TypingUser(val id: Int, val name: String)
 
+@Immutable
 data class EventBatch(
     val messages: List<Message>,
     val signals: List<Signal>,
@@ -262,6 +273,7 @@ data class EventBatch(
     val sinceSignalId: Int
 )
 
+@Immutable
 data class AdminStats(
     val totalUsers: Int,
     val onlineUsers: Int,
@@ -285,6 +297,7 @@ data class AdminStats(
     val recentUsers: List<User>
 )
 
+@Immutable
 data class AdminChat(
     val id: Int,
     val type: String,
@@ -294,6 +307,7 @@ data class AdminChat(
     val updatedAt: Long
 )
 
+@Immutable
 data class ServerSettings(
     val server: String,
     val pluginVersion: String,
@@ -313,8 +327,10 @@ data class ServerSettings(
     val pushReady: Boolean
 )
 
+@Immutable
 data class StorageTestStep(val label: String, val ok: Boolean, val message: String)
 
+@Immutable
 data class StorageTestResult(val ok: Boolean, val message: String, val bucketId: String, val steps: List<StorageTestStep>)
 
 /** JSONArray -> List<T> kisayolu. */

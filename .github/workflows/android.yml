@@ -26,6 +26,9 @@ jobs:
       - name: Kullanici ve grup testleri
         run: php wordpress-plugin/naber-chat/tests/test-users-groups.php
 
+      - name: TURN (Metered) testleri
+        run: php wordpress-plugin/naber-chat/tests/test-turn.php
+
   android:
     name: Android APK
     runs-on: ubuntu-latest

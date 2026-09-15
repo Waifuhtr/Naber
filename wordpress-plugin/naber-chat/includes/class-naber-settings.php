@@ -34,12 +34,17 @@ class Naber_Settings {
 			'b2_max_upload_mb'   => 25,
 			'b2_path_prefix'     => 'naber/',
 			'turn_urls'          => '',
+			'metered_api_key'    => '',
+			'metered_subdomain'  => '',
+			'metered_ttl'        => 1800,
 			'turn_username'      => '',
 			'turn_credential'    => '',
 			'stun_urls'          => 'stun:stun.l.google.com:19302',
 			'fcm_project_id'     => '',
 			'fcm_service_account' => '',
 			'allow_registration' => 1,
+			'poll_wait'          => 25,
+			'poll_interval_ms'   => 250,
 			'email_domain'       => 'naber.com',
 		);
 	}
@@ -166,15 +171,17 @@ class Naber_Settings {
 		return '' !== $all['b2_key_id'] && '' !== $all['b2_app_key'] && '' !== $all['b2_bucket_name'];
 	}
 
-	/** iceServers listesi; sirlar sadece giris yapmis kullaniciya verilir. */
-	public static function ice_servers() {
-		$all    = self::all();
+	/** Elle girilen STUN/TURN adreslerinden iceServers listesi uretir. */
+	public static function manual_ice_servers( $settings = null ) {
+		$all    = null === $settings ? self::all() : array_merge( self::defaults(), $settings );
 		$result = array();
+
 		foreach ( preg_split( '/[\s,]+/', (string) $all['stun_urls'] ) as $stun ) {
 			if ( '' !== trim( $stun ) ) {
 				$result[] = array( 'urls' => trim( $stun ) );
 			}
 		}
+
 		$turn_urls = array();
 		foreach ( preg_split( '/[\s,]+/', (string) $all['turn_urls'] ) as $turn ) {
 			if ( '' !== trim( $turn ) ) {
@@ -188,7 +195,13 @@ class Naber_Settings {
 				'credential' => (string) $all['turn_credential'],
 			);
 		}
+
 		return $result;
+	}
+
+	/** Uygulamaya verilecek nihai liste (elle girilenler + Metered). */
+	public static function ice_servers() {
+		return ( new Naber_Turn() )->ice_servers();
 	}
 
 	/** Yonetim ekraninda gosterilecek maskeli deger. */
