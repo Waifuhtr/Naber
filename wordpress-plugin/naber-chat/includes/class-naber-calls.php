@@ -246,6 +246,20 @@ class Naber_Calls {
 		}
 
 		$wpdb->update( Naber_DB::table( 'calls' ), $data, array( 'id' => (int) $call_id ), $formats, array( '%d' ) );
+
+		// Arama bittiyse hala "caliyor" gorunen katilimcilar temizlenir; aksi
+		// halde uygulama bir daha acildiginda hayalet gelen arama ekrani cikar.
+		if ( in_array( $status, array( 'ended', 'rejected', 'missed', 'failed' ), true ) ) {
+			$wpdb->query(
+				$wpdb->prepare(
+					'UPDATE ' . Naber_DB::table( 'call_participants' ) . " SET status = 'missed', left_at = %s
+					 WHERE call_id = %d AND status = 'ringing'",
+					$now,
+					(int) $call_id
+				)
+			);
+		}
+
 		return self::get( $call_id );
 	}
 
@@ -259,7 +273,8 @@ class Naber_Calls {
 			$wpdb->prepare(
 				"SELECT c.* FROM {$calls} c
 				 INNER JOIN {$participants} p ON p.call_id = c.id AND p.user_id = %d
-				 WHERE p.status = 'ringing' AND c.status IN ('ringing','active') AND c.created_at > %s
+				 WHERE p.status = 'ringing' AND c.status IN ('ringing','active')
+				   AND c.ended_at IS NULL AND c.created_at > %s
 				 ORDER BY c.id DESC LIMIT 1",
 				(int) $user_id,
 				gmdate( 'Y-m-d H:i:s', time() - self::RING_TIMEOUT )

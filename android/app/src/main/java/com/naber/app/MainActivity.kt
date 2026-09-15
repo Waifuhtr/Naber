@@ -2,6 +2,7 @@ package com.naber.app
 
 import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -18,6 +19,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.core.content.ContextCompat
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.compose.NavHost
@@ -40,7 +42,7 @@ import kotlinx.coroutines.withContext
 class MainActivity : ComponentActivity() {
 
     private var pendingConversationId = 0
-    private var pendingAccept = false
+    private var pendingAccept by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -54,13 +56,14 @@ class MainActivity : ComponentActivity() {
                 Box(modifier = Modifier.fillMaxSize().background(NaberColors.Background)) {
                     NaberRoot(
                         startConversationId = pendingConversationId,
-                        autoAcceptCall = pendingAccept
+                        autoAcceptCall = pendingAccept,
+                        onAcceptConsumed = { pendingAccept = false }
                     )
                 }
             }
         }
 
-        askNotificationPermission()
+        requestStartupPermissions()
         registerPushToken()
     }
 
@@ -91,10 +94,20 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun askNotificationPermission() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
-        val launcher = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
-        launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
+    /** Uygulamanin ihtiyac duydugu tum izinler ilk acilista birlikte istenir. */
+    private fun requestStartupPermissions() {
+        val permissions = mutableListOf(Manifest.permission.RECORD_AUDIO)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+
+        val missing = permissions.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isEmpty()) return
+
+        val launcher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {}
+        launcher.launch(missing.toTypedArray())
     }
 
     /** Firebase yapilandirilmamissa sessizce gecilir. */
@@ -119,7 +132,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun NaberRoot(startConversationId: Int, autoAcceptCall: Boolean) {
+private fun NaberRoot(startConversationId: Int, autoAcceptCall: Boolean, onAcceptConsumed: () -> Unit) {
     val navController = rememberNavController()
     var loggedIn by remember { mutableStateOf(Naber.session.isLoggedIn) }
     val callState by Naber.calls.state.collectAsState()
@@ -141,10 +154,14 @@ private fun NaberRoot(startConversationId: Int, autoAcceptCall: Boolean) {
         val call = incomingCall
         if (call != null && (call.status == "ringing" || call.status == "active")) {
             Naber.calls.onIncoming(call)
-            // Bildirimdeki "Kabul et" ile acildiysa dogrudan baglan.
-            if (autoAcceptCall) {
-                Naber.calls.accept()
-            }
+        }
+    }
+
+    // Bildirimdeki "Kabul et" dugmesi: ekran acilir acilmaz baglanir.
+    LaunchedEffect(autoAcceptCall, callState.stage) {
+        if (autoAcceptCall && callState.stage == CallStage.INCOMING) {
+            Naber.calls.accept()
+            onAcceptConsumed()
         }
     }
 

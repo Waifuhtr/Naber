@@ -93,6 +93,8 @@ class CallManager(
     private val peers = HashMap<Int, PeerSession>()
     private val bufferedSignals = mutableListOf<Signal>()
     private val handledSignals = HashSet<Int>()
+    // Bitmis aramalar tekrar "gelen arama" olarak acilmasin.
+    private val finishedCalls = HashSet<Int>()
     private var ready = false
     private var micEnabled = true
 
@@ -160,6 +162,8 @@ class CallManager(
         val current = _state.value.stage
         if (current != CallStage.IDLE && current != CallStage.ENDED) return
         if (_state.value.callId == call.id) return
+        if (call.id in finishedCalls) return
+        if (call.status == "ended" || call.status == "missed" || call.status == "rejected") return
 
         resetSession()
         _state.value = CallUiState(
@@ -655,6 +659,7 @@ class CallManager(
 
     private fun fail(message: String) {
         val callId = _state.value.callId
+        if (callId > 0) finishedCalls.add(callId)
         releaseResources()
         _state.value = _state.value.copy(stage = CallStage.ENDED, error = message, statusText = message)
         scope.launch { runCatching { api.callAction(callId, "end") } }
@@ -662,6 +667,7 @@ class CallManager(
 
     private fun cleanup(reason: String) {
         if (_state.value.stage == CallStage.IDLE) return
+        if (_state.value.callId > 0) finishedCalls.add(_state.value.callId)
         releaseResources()
         _state.value = _state.value.copy(stage = CallStage.ENDED, statusText = reason)
         scope.launch {

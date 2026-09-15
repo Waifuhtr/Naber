@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -82,6 +83,7 @@ import com.naber.app.Naber
 import com.naber.app.data.Chat
 import com.naber.app.data.LocalFiles
 import com.naber.app.data.LocalMedia
+import com.naber.app.data.MediaStore
 import com.naber.app.data.Message
 import com.naber.app.data.SendState
 import com.naber.app.data.MessageInfo
@@ -207,10 +209,18 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
         }
     }
 
-    // Grup adi, uye listesi veya susturma degisirse ekran kendiliginden tazelenir.
+    // Grup bilgisi, susturma veya silinen mesaj gibi degisikliklerde ekran
+    // kendiliginden tazelenir (sohbetten cikip girmeye gerek yok).
     LaunchedEffect(revisions[conversationId]) {
         if (!loading) {
             runCatching { Naber.api.chatInfo(conversationId) }.onSuccess { chat = it }
+            runCatching { Naber.api.messages(conversationId) }.onSuccess { (fresh, info, _) ->
+                if (fresh.isNotEmpty()) {
+                    val pending = messages.filter { it.id <= 0 }
+                    messages = (fresh + pending).distinctBy { it.key }.sortedBy { it.createdAt }
+                }
+                info?.let { chat = it }
+            }
         }
     }
 
@@ -280,10 +290,22 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
                 val localCopy = LocalFiles.persist(context, prepared.bytes, "msg-$clientId.jpg") ?: uri.toString()
                 LocalMedia.remember(clientId, localCopy)
 
-                val media = Naber.api.uploadImage(prepared.bytes, prepared.mime, prepared.width, prepared.height) { percent ->
-                    messages = messages.map { if (it.clientId == clientId) it.copy(uploadProgress = percent) else it }
+                // Depolama ucundan gecici hata gelebiliyor; bir kez sessizce tekrar denenir.
+                val media = try {
+                    Naber.api.uploadImage(prepared.bytes, prepared.mime, prepared.width, prepared.height) { percent ->
+                        messages = messages.map { if (it.clientId == clientId) it.copy(uploadProgress = percent) else it }
+                    }
+                } catch (first: Exception) {
+                    delay(700)
+                    messages = messages.map { if (it.clientId == clientId) it.copy(uploadProgress = 0) else it }
+                    Naber.api.uploadImage(prepared.bytes, prepared.mime, prepared.width, prepared.height) { percent ->
+                        messages = messages.map { if (it.clientId == clientId) it.copy(uploadProgress = percent) else it }
+                    }
                 }
                 LocalMedia.rememberMedia(media.id, localCopy)
+                // Gonderilen gorsel de ortak depoya yazilir; ileride ayni
+                // kayittan okunur, tekrar indirilmez.
+                MediaStore.store(context, media.id, prepared.bytes)
                 val sent = Naber.api.sendImage(conversationId, media.id, "", clientId)
                 messages = messages.map {
                     if (it.clientId == clientId) sent.copy(localImageUri = localCopy) else it
@@ -788,15 +810,28 @@ private fun MessageRow(
                 )
             } else {
                 if (message.type == "image") {
+                    // Olculer bilindiginde balon en bastan dogru boyutta cizilir,
+                    // gorsel inerken bos dev bir kutu olusmaz.
+                    val ratio = message.media?.let {
+                        if (it.width > 0 && it.height > 0) {
+                            (it.width.toFloat() / it.height.toFloat()).coerceIn(0.5f, 1.8f)
+                        } else {
+                            null
+                        }
+                    } ?: 0.8f
+
                     Box(
                         modifier = Modifier
+                            .width(240.dp)
+                            .aspectRatio(ratio)
                             .clip(RoundedCornerShape(12.dp))
+                            .background(NaberColors.SurfaceHigh)
                             .clickable { message.displayImage?.let(onImageClick) }
                     ) {
                         MessageImage(
                             media = message.media,
                             localUri = message.localImageUri ?: com.naber.app.data.LocalMedia.uriFor(message.media?.id ?: 0, message.clientId),
-                            modifier = Modifier.widthIn(max = 280.dp).heightIn(max = 330.dp),
+                            modifier = Modifier.fillMaxSize(),
                             onError = onImageError
                         )
                         if (message.sendState == SendState.SENDING) {

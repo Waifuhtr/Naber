@@ -23,6 +23,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -40,6 +45,7 @@ import com.naber.app.Naber
 import com.naber.app.data.Chat
 import com.naber.app.data.LocalFiles
 import com.naber.app.data.Media
+import com.naber.app.data.MediaStore
 import com.naber.app.data.User
 import com.naber.app.ui.theme.NaberColors
 
@@ -158,6 +164,28 @@ fun stableImageRequest(model: Any, cacheKey: String): ImageRequest =
         .crossfade(false)
         .build()
 
+/**
+ * Gorseli once cihazdaki kopyadan gosterir; kopya yoksa bir kez indirip saklar.
+ * Sunucudaki imzali adres degisse bile gorsel yeniden yuklenmez.
+ */
+@Composable
+fun rememberStoredImage(media: Media?, localUri: Any?): Any? {
+    val context = LocalContext.current
+    val mediaId = media?.id ?: 0
+
+    var stored by remember(mediaId) {
+        mutableStateOf<String?>(if (mediaId > 0) MediaStore.cachedUri(context, mediaId) else null)
+    }
+
+    LaunchedEffect(mediaId, media?.url) {
+        if (stored == null && mediaId > 0 && !media?.url.isNullOrBlank()) {
+            stored = MediaStore.ensure(context, mediaId, media!!.url)
+        }
+    }
+
+    return localUri ?: stored ?: media?.url?.takeIf { it.isNotBlank() }
+}
+
 @Composable
 fun MessageImage(
     media: Media?,
@@ -166,7 +194,7 @@ fun MessageImage(
     contentScale: ContentScale = ContentScale.Crop,
     onError: (() -> Unit)? = null
 ) {
-    val model = localUri ?: media?.url?.takeIf { it.isNotBlank() } ?: return
+    val model = rememberStoredImage(media, localUri) ?: return
     AsyncImage(
         model = stableImageRequest(model, "media-${media?.id ?: model.hashCode()}"),
         contentDescription = "Gorsel",

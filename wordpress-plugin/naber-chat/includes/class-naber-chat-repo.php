@@ -500,13 +500,20 @@ class Naber_Chat_Repo {
 
 	public static function delete_message( $message_id ) {
 		global $wpdb;
-		return (bool) $wpdb->update(
+		$message = self::get_message( $message_id );
+		$done    = (bool) $wpdb->update(
 			Naber_DB::table( 'messages' ),
 			array( 'deleted' => 1, 'body' => '', 'media_id' => 0 ),
 			array( 'id' => (int) $message_id ),
 			array( '%d', '%s', '%d' ),
 			array( '%d' )
 		);
+
+		// Karsi tarafin ekrani kendiliginden tazelensin.
+		if ( $message ) {
+			self::touch_conversation( (int) $message['conversation_id'] );
+		}
+		return $done;
 	}
 
 	public static function get_message( $message_id ) {
@@ -760,6 +767,7 @@ class Naber_Chat_Repo {
 
 	/** "Kendimden sil": mesaj yalnizca bu kullanicidan gizlenir. */
 	public static function hide_message( $message_id, $user_id ) {
+		// Gizleme yalniz bu kullaniciyi ilgilendirir; surum sayaci artmaz.
 		global $wpdb;
 		$table   = Naber_DB::table( 'messages' );
 		$message = self::get_message( $message_id );

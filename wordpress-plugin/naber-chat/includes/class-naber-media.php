@@ -104,6 +104,24 @@ class Naber_Media {
 			return '';
 		}
 
+		// Ayni medya icin her istekte ayni adres donsun: adres degisirse
+		// uygulama gorseli yeniden indirmeye calisir ve "surekli yukleniyor"
+		// gorunumu olusur.
+		$cache_key = 'naber_media_url_' . (int) $row['id'];
+		$cached    = get_transient( $cache_key );
+		if ( is_string( $cached ) && '' !== $cached ) {
+			return $cached;
+		}
+
+		$url = self::build_url( $row );
+		if ( '' !== $url ) {
+			$ttl = (int) Naber_Settings::get( 'b2_link_ttl', 3600 );
+			set_transient( $cache_key, $url, max( 120, $ttl - 600 ) );
+		}
+		return $url;
+	}
+
+	private static function build_url( $row ) {
 		$base = (string) Naber_Settings::get( 'b2_public_base_url' );
 		$mode = (string) Naber_Settings::get( 'media_url_mode', 'auto' );
 

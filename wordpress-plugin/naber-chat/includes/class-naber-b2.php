@@ -211,8 +211,12 @@ class Naber_B2 {
 		return new WP_Error( 'naber_b2_bucket_not_found', sprintf( '"%s" adinda bir bucket bulunamadi. Bucket adini Backblaze panelindeki yazimla birebir girin.', $wanted ) );
 	}
 
-	/** Dogrudan yukleme icin tek kullanimlik upload URL'i. */
-	public function get_upload_url( $bucket_id = '' ) {
+	/**
+	 * Dogrudan yukleme icin tek kullanimlik upload URL'i.
+	 * Onbellekteki yetki jetonu eskimisse (401) bir kez tazeleyip tekrar dener;
+	 * "ilk denemede depolamaya ulasilamadi, ikincide gitti" sorununun sebebi buydu.
+	 */
+	public function get_upload_url( $bucket_id = '', $retry = true ) {
 		$auth = $this->authorize();
 		if ( is_wp_error( $auth ) ) {
 			return $auth;
@@ -230,8 +234,11 @@ class Naber_B2 {
 
 		$res = $this->api( $auth, 'b2_get_upload_url', array( 'bucketId' => $bucket_id ) );
 		if ( ! $res['ok'] ) {
-			if ( 401 === $res['status'] ) {
+			if ( 401 === $res['status'] || 503 === $res['status'] ) {
 				self::forget_auth();
+				if ( $retry ) {
+					return $this->get_upload_url( $bucket_id, false );
+				}
 			}
 			return new WP_Error( 'naber_b2_upload_url_failed', 'Upload adresi alinamadi: ' . $res['error'] );
 		}
@@ -244,7 +251,7 @@ class Naber_B2 {
 	}
 
 	/** Sunucu uzerinden dosya yukler (kucuk dosyalar / yedek yol). */
-	public function upload( $file_name, $content, $mime ) {
+	public function upload( $file_name, $content, $mime, $retry = true ) {
 		$target = $this->get_upload_url();
 		if ( is_wp_error( $target ) ) {
 			return $target;
@@ -264,6 +271,11 @@ class Naber_B2 {
 		);
 
 		if ( ! $res['ok'] ) {
+			// Upload adresleri tek kullanimliktir ve eskiyebilir.
+			if ( $retry && in_array( $res['status'], array( 401, 408, 429, 500, 503 ), true ) ) {
+				self::forget_auth();
+				return $this->upload( $file_name, $content, $mime, false );
+			}
 			return new WP_Error( 'naber_b2_upload_failed', 'Dosya yuklenemedi: ' . $res['error'] );
 		}
 
@@ -276,7 +288,7 @@ class Naber_B2 {
 	}
 
 	/** Ozel bucket icin kisa omurlu indirme yetkisi uretir. */
-	public function download_authorization( $prefix, $seconds = 3600 ) {
+	public function download_authorization( $prefix, $seconds = 3600, $retry = true ) {
 		$auth = $this->authorize();
 		if ( is_wp_error( $auth ) ) {
 			return $auth;
@@ -297,6 +309,10 @@ class Naber_B2 {
 		) );
 
 		if ( ! $res['ok'] ) {
+			if ( 401 === $res['status'] && $retry ) {
+				self::forget_auth();
+				return $this->download_authorization( $prefix, $seconds, false );
+			}
 			return new WP_Error( 'naber_b2_download_auth_failed', 'Indirme yetkisi alinamadi: ' . $res['error'] );
 		}
 
