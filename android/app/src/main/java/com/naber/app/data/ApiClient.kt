@@ -244,8 +244,8 @@ class ApiClient(private val session: Session) {
         runCatching { call("/chats/$conversationId/read", "POST") }
     }
 
-    suspend fun sendTyping(conversationId: Int) {
-        runCatching { call("/chats/$conversationId/typing", "POST") }
+    suspend fun sendTyping(conversationId: Int, typing: Boolean = true) {
+        runCatching { call("/chats/$conversationId/typing", "POST", JSONObject().put("typing", typing)) }
     }
 
     // ----------------------------------------------------------- medya
@@ -318,13 +318,29 @@ class ApiClient(private val session: Session) {
 
     // ----------------------------------------------------------- olaylar
 
-    suspend fun events(sinceMessageId: Int, sinceSignalId: Int, conversationId: Int?, wait: Int = 25): EventBatch {
+    /**
+     * Uzun yoklama. Istemci elindeki durumun imzalarini gonderir; sunucu farkli
+     * bir durum gorurse (yeni mesaj, cevrimici degisikligi, yaziyor, grup
+     * degisikligi) hemen doner.
+     */
+    suspend fun events(
+        sinceMessageId: Int,
+        sinceSignalId: Int,
+        conversationId: Int?,
+        typingSignature: String,
+        presenceSignature: String,
+        revisionSignature: String,
+        wait: Int = 25
+    ): EventBatch {
         val json = call(
             "/events", "GET",
             query = mapOf(
                 "since_message_id" to sinceMessageId,
                 "since_signal_id" to sinceSignalId,
                 "conversation_id" to conversationId,
+                "typing_signature" to typingSignature,
+                "presence_signature" to presenceSignature,
+                "revision_signature" to revisionSignature,
                 "wait" to wait
             ),
             longPoll = true
@@ -340,10 +356,24 @@ class ApiClient(private val session: Session) {
             },
             typing = json.optJSONArray("typing").mapObjects { TypingUser(it.optInt("id"), it.optString("name")) },
             typingConversationId = json.optInt("typing_conversation_id"),
+            presence = json.optJSONArray("presence").mapObjects {
+                Presence(it.optInt("id"), it.optBoolean("online"), it.optLong("last_seen"))
+            },
+            revisions = json.optJSONArray("chat_revisions").mapObjects {
+                ChatRevision(it.optInt("id"), it.optLong("updated_at"))
+            },
+            typingSignature = json.optString("typing_signature"),
+            presenceSignature = json.optString("presence_signature"),
+            revisionSignature = json.optString("revision_signature"),
             unreadTotal = json.optInt("unread_total"),
             sinceMessageId = json.optInt("since_message_id", sinceMessageId),
             sinceSignalId = json.optInt("since_signal_id", sinceSignalId)
         )
+    }
+
+    /** Uygulama on planda mi arka planda mi; karsi taraf "son gorulme"yi aninda gorur. */
+    suspend fun setPresence(online: Boolean) {
+        runCatching { call("/presence", "POST", JSONObject().put("online", online)) }
     }
 
     // ----------------------------------------------------------- arama

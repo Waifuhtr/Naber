@@ -113,16 +113,19 @@ class Naber_Chat_Repo {
 				Naber_DB::now()
 			)
 		);
+		self::touch_conversation( $conversation_id );
 		return true;
 	}
 
 	public static function remove_member( $conversation_id, $user_id ) {
 		global $wpdb;
-		return (bool) $wpdb->delete(
+		$removed = (bool) $wpdb->delete(
 			Naber_DB::table( 'members' ),
 			array( 'conversation_id' => (int) $conversation_id, 'user_id' => (int) $user_id ),
 			array( '%d', '%d' )
 		);
+		self::touch_conversation( $conversation_id );
+		return $removed;
 	}
 
 	public static function member( $conversation_id, $user_id ) {
@@ -201,6 +204,7 @@ class Naber_Chat_Repo {
 
 	public static function set_chat_muted( $conversation_id, $user_id, $muted ) {
 		global $wpdb;
+		self::touch_conversation( $conversation_id );
 		return (bool) $wpdb->update(
 			Naber_DB::table( 'members' ),
 			array( 'chat_muted' => $muted ? 1 : 0 ),
@@ -223,6 +227,7 @@ class Naber_Chat_Repo {
 
 	public static function set_role( $conversation_id, $user_id, $role ) {
 		global $wpdb;
+		self::touch_conversation( $conversation_id );
 		return (bool) $wpdb->update(
 			Naber_DB::table( 'members' ),
 			array( 'role' => $role ),
@@ -257,6 +262,7 @@ class Naber_Chat_Repo {
 		}
 
 		$wpdb->update( Naber_DB::table( 'conversations' ), $data, array( 'id' => (int) $conversation_id ), $formats, array( '%d' ) );
+		self::touch_conversation( $conversation_id );
 		return true;
 	}
 
@@ -535,6 +541,62 @@ class Naber_Chat_Repo {
 		return null === $value ? 0 : (int) $value;
 	}
 
+	/** Kullanicinin sohbetlerindeki diger herkes (tek sorgu). */
+	public static function peer_ids( $user_id ) {
+		global $wpdb;
+		$members = Naber_DB::table( 'members' );
+		$ids     = $wpdb->get_col(
+			$wpdb->prepare(
+				"SELECT DISTINCT other.user_id FROM {$members} me
+				 INNER JOIN {$members} other ON other.conversation_id = me.conversation_id AND other.user_id <> me.user_id
+				 WHERE me.user_id = %d LIMIT 200",
+				(int) $user_id
+			)
+		);
+		return array_map( 'intval', (array) $ids );
+	}
+
+	/**
+	 * Sohbetlerin son degisiklik zamanlari.
+	 * Istemci bunu karsilastirip yalnizca degiseni yeniden ceker; grup adi,
+	 * uye listesi veya susturma degistiginde ekran kendiliginden guncellenir.
+	 */
+	public static function revisions( $user_id ) {
+		global $wpdb;
+		$conversations = Naber_DB::table( 'conversations' );
+		$members       = Naber_DB::table( 'members' );
+
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT c.id, c.meta_rev FROM {$conversations} c
+				 INNER JOIN {$members} me ON me.conversation_id = c.id AND me.user_id = %d
+				 LIMIT 200",
+				(int) $user_id
+			),
+			ARRAY_A
+		);
+
+		$out = array();
+		foreach ( (array) $rows as $row ) {
+			$out[] = array(
+				'id'         => (int) $row['id'],
+				'updated_at' => (int) $row['meta_rev'],
+			);
+		}
+		return $out;
+	}
+
+	/**
+	 * Sohbette yapisal bir degisiklik (ad, uye, rol, susturma) oldugunda
+	 * surum numarasini artirir. Yeni mesajlar bu sayaci degistirmez; boylece
+	 * uygulamalar yalnizca gercekten degisen sohbeti yeniden ceker.
+	 */
+	public static function touch_conversation( $conversation_id ) {
+		global $wpdb;
+		$table = Naber_DB::table( 'conversations' );
+		$wpdb->query( $wpdb->prepare( "UPDATE {$table} SET meta_rev = meta_rev + 1 WHERE id = %d", (int) $conversation_id ) );
+	}
+
 	/**
 	 * Uzun yoklama icin ucuz kontrol: yalnizca en son mesaj ve sinyal kimligi.
 	 * Tam yanit ancak gercekten yeni bir sey varsa hazirlanir.
@@ -628,7 +690,7 @@ class Naber_Chat_Repo {
 		return 'naber_typing_' . (int) $conversation_id;
 	}
 
-	public static function set_typing( $conversation_id, $user_id ) {
+	public static function set_typing( $conversation_id, $user_id, $typing = true ) {
 		$key   = self::typing_key( $conversation_id );
 		$state = get_transient( $key );
 		if ( ! is_array( $state ) ) {
@@ -641,7 +703,11 @@ class Naber_Chat_Repo {
 				unset( $state[ $uid ] );
 			}
 		}
-		$state[ (int) $user_id ] = $now;
+		if ( $typing ) {
+			$state[ (int) $user_id ] = $now;
+		} else {
+			unset( $state[ (int) $user_id ] );
+		}
 
 		set_transient( $key, $state, 30 );
 	}
@@ -652,6 +718,17 @@ class Naber_Chat_Repo {
 			return false;
 		}
 		return ( time() - (int) $state[ (int) $other_user_id ] ) < 8;
+	}
+
+	/** Yazma durumunun kisa imzasi (degisiklik tespiti icin). */
+	public static function typing_signature( $conversation_id, $user_id ) {
+		$users = self::typing_users( $conversation_id, $user_id );
+		$ids   = array();
+		foreach ( $users as $user ) {
+			$ids[] = (int) $user['id'];
+		}
+		sort( $ids );
+		return implode( ',', $ids );
 	}
 
 	/** Belirli bir sohbette yazan kisiler (kendisi haric). */

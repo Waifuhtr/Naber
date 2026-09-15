@@ -10,7 +10,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Naber_Auth {
 
 	const META_TOKENS   = 'naber_tokens';
-	const META_LASTSEEN = 'naber_last_seen';
+	const META_LASTSEEN    = 'naber_last_seen';
+	const META_ONLINE_UNTIL = 'naber_online_until';
+	const ONLINE_WINDOW     = 45;
 	const META_AVATAR   = 'naber_avatar_media_id';
 	const META_CONTACTS = 'naber_contacts';
 	const MAX_TOKENS    = 5;
@@ -183,28 +185,91 @@ class Naber_Auth {
 	// Durum bilgileri
 	// ------------------------------------------------------------------
 
-	/** Cevrimici damgasi; gereksiz veritabani yazmasi icin 20 saniyede bir guncellenir. */
-	public static function touch_presence( $user_id ) {
+	/**
+	 * Cevrimici damgasi.
+	 * "son gorulme" (META_LASTSEEN) gercek zamani tutar; "cevrimici" bilgisi ise
+	 * META_ONLINE_UNTIL damgasindan okunur. Uygulama arka plana atilinca bu damga
+	 * hemen gecmise cekilir, boylece karsi taraf aninda "son gorulme" gorur.
+	 */
+	public static function touch_presence( $user_id, $force = false ) {
 		$user_id = (int) $user_id;
 		$now     = time();
 
-		if ( isset( self::$presence_cache[ $user_id ] ) && ( $now - self::$presence_cache[ $user_id ] ) < 20 ) {
+		if ( ! $force && isset( self::$presence_cache[ $user_id ] ) && ( $now - self::$presence_cache[ $user_id ] ) < 15 ) {
 			return;
 		}
-
-		$last = (int) get_user_meta( $user_id, self::META_LASTSEEN, true );
 		self::$presence_cache[ $user_id ] = $now;
 
-		if ( $now - $last < 20 ) {
+		$until = (int) get_user_meta( $user_id, self::META_ONLINE_UNTIL, true );
+		if ( ! $force && $until - $now > self::ONLINE_WINDOW - 15 ) {
 			return;
 		}
 
 		update_user_meta( $user_id, self::META_LASTSEEN, $now );
+		update_user_meta( $user_id, self::META_ONLINE_UNTIL, $now + self::ONLINE_WINDOW );
+		self::flush_payload_cache( $user_id );
+	}
+
+	/** Uygulama arka plana alindiginda cagrilir: aninda cevrimdisi gorunur. */
+	public static function set_offline( $user_id ) {
+		$user_id = (int) $user_id;
+		update_user_meta( $user_id, self::META_LASTSEEN, time() );
+		update_user_meta( $user_id, self::META_ONLINE_UNTIL, time() - 1 );
+		unset( self::$presence_cache[ $user_id ] );
+		self::flush_payload_cache( $user_id );
+	}
+
+	/**
+	 * Birden cok kullanicinin durumu tek sorguda.
+	 *
+	 * @return array user_id => array('online' => bool, 'last_seen' => int)
+	 */
+	public static function presence_of( array $ids ) {
+		global $wpdb;
+
+		$ids = array_values( array_unique( array_filter( array_map( 'intval', $ids ) ) ) );
+		if ( ! $ids ) {
+			return array();
+		}
+
+		$list = implode( ',', $ids );
+		$rows = $wpdb->get_results(
+			"SELECT user_id, meta_key, meta_value FROM {$wpdb->usermeta}
+			 WHERE user_id IN ({$list}) AND meta_key IN ('" . self::META_LASTSEEN . "', '" . self::META_ONLINE_UNTIL . "')",
+			ARRAY_A
+		);
+
+		$last  = array();
+		$until = array();
+		foreach ( (array) $rows as $row ) {
+			if ( self::META_LASTSEEN === $row['meta_key'] ) {
+				$last[ (int) $row['user_id'] ] = (int) $row['meta_value'];
+			} else {
+				$until[ (int) $row['user_id'] ] = (int) $row['meta_value'];
+			}
+		}
+
+		$now = time();
+		$out = array();
+		foreach ( $ids as $id ) {
+			$seen         = isset( $last[ $id ] ) ? $last[ $id ] : 0;
+			$online_until = isset( $until[ $id ] ) ? $until[ $id ] : 0;
+			$out[ $id ]   = array(
+				// Eski kurulumlarda online_until yoksa son gorulme zamanina bakilir.
+				'online'    => $online_until > 0 ? ( $online_until > $now ) : ( $seen > 0 && ( $now - $seen ) < self::ONLINE_WINDOW ),
+				'last_seen' => $seen,
+			);
+		}
+		return $out;
 	}
 
 	public static function is_online( $user_id ) {
+		$until = (int) get_user_meta( $user_id, self::META_ONLINE_UNTIL, true );
+		if ( $until > 0 ) {
+			return $until > time();
+		}
 		$last = (int) get_user_meta( $user_id, self::META_LASTSEEN, true );
-		return $last > 0 && ( time() - $last ) < 70;
+		return $last > 0 && ( time() - $last ) < self::ONLINE_WINDOW;
 	}
 
 	public static function is_admin_user( $user_id ) {

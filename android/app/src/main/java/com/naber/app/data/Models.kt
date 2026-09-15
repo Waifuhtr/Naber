@@ -258,6 +258,20 @@ data class Signal(val id: Int, val callId: Int, val senderId: Int, val type: Str
 data class ReadState(val conversationId: Int, val watermark: Int)
 
 @Immutable
+data class Presence(val id: Int, val online: Boolean, val lastSeen: Long)
+
+@Immutable
+data class ChatRevision(val id: Int, val updatedAt: Long)
+
+/** "Yaziyor" durumu; her yanitla tazelenir, 6 saniye sonra kendiliginden duser. */
+@Immutable
+data class TypingState(
+    val conversationId: Int = 0,
+    val users: List<TypingUser> = emptyList(),
+    val at: Long = 0L
+)
+
+@Immutable
 data class TypingUser(val id: Int, val name: String)
 
 @Immutable
@@ -268,6 +282,11 @@ data class EventBatch(
     val readStates: List<ReadState>,
     val typing: List<TypingUser>,
     val typingConversationId: Int,
+    val presence: List<Presence>,
+    val revisions: List<ChatRevision>,
+    val typingSignature: String,
+    val presenceSignature: String,
+    val revisionSignature: String,
     val unreadTotal: Int,
     val sinceMessageId: Int,
     val sinceSignalId: Int

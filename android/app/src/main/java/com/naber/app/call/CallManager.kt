@@ -1,11 +1,15 @@
 package com.naber.app.call
 
 import android.content.Context
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
 import android.media.AudioManager
+import android.os.Build
 import com.naber.app.data.ApiClient
 import com.naber.app.data.CallInfo
 import com.naber.app.data.EventHub
 import com.naber.app.data.IceServer
+import com.naber.app.data.Session
 import com.naber.app.data.Signal
 import com.naber.app.data.User
 import kotlinx.coroutines.CoroutineScope
@@ -17,6 +21,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import org.json.JSONArray
 import org.json.JSONObject
 import org.webrtc.AudioSource
 import org.webrtc.AudioTrack
@@ -27,6 +32,7 @@ import org.webrtc.MediaStream
 import org.webrtc.PeerConnection
 import org.webrtc.PeerConnectionFactory
 import org.webrtc.RtpReceiver
+import org.webrtc.RtpSender
 import org.webrtc.SdpObserver
 import org.webrtc.SessionDescription
 import org.webrtc.audio.JavaAudioDeviceModule
@@ -54,15 +60,18 @@ data class CallUiState(
 /**
  * Sesli arama yonetimi.
  *
- * Birebir aramada tek, grup aramasinda her katilimci icin ayri bir WebRTC
- * baglantisi kurulur (mesh). Ses dogrudan cihazlar arasinda akar; WordPress
- * yalnizca offer/answer/ICE mesajlarini tasir. P2P kurulamazsa sunucudan
- * gelen TURN bilgileri devreye girer.
+ * Her karsi taraf icin tek bir WebRTC baglantisi kurulur. Kim teklif (offer)
+ * gonderecegi kullanici kimligine gore belirlenir: kucuk kimlikli taraf teklifi
+ * gonderir, digeri bekler. Boylece ayni cift arasinda ikinci bir baglanti
+ * acilmaz (ikinci baglanti sesin iki kez gidip gelmesine, yani yankiya yol acar).
+ *
+ * Ses dogrudan WebRTC ile akar; WordPress yalnizca offer/answer/ICE tasir.
  */
 class CallManager(
     private val context: Context,
     private val api: ApiClient,
-    private val events: EventHub
+    private val events: EventHub,
+    private val session: Session
 ) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -75,15 +84,21 @@ class CallManager(
     private var iceServers: List<IceServer> = emptyList()
     private var audioManager: AudioManager? = null
     private var previousAudioMode = AudioManager.MODE_NORMAL
+    // API 26 oncesi surumlerde bu tip bulunmadigi icin alan tipi genel tutulur.
+    private var focusRequest: Any? = null
     private var watchJob: Job? = null
 
     private val peers = HashMap<Int, PeerSession>()
     private val bufferedSignals = mutableListOf<Signal>()
+    private val handledSignals = HashSet<Int>()
     private var ready = false
+    private var micEnabled = true
 
     private inner class PeerSession(val userId: Int) {
         var connection: PeerConnection? = null
+        var sender: RtpSender? = null
         var remoteSet = false
+        var offering = false
         val pending = mutableListOf<IceCandidate>()
     }
 
@@ -93,7 +108,7 @@ class CallManager(
         }
     }
 
-    private fun myId(): Int = 0
+    private fun myId(): Int = session.user?.id ?: 0
 
     // ------------------------------------------------------------ disari acik
 
@@ -106,6 +121,7 @@ class CallManager(
         val current = _state.value.stage
         if (current != CallStage.IDLE && current != CallStage.ENDED) return
 
+        resetSession()
         _state.value = CallUiState(
             stage = CallStage.DIALING,
             isGroup = conversationId > 0 && peerUser == null,
@@ -126,17 +142,10 @@ class CallManager(
                 iceServers = servers
                 applyCall(call)
                 prepareAudio()
-
-                if (call.isGroup) {
-                    // Gruba katilirken halihazirda baglanti kurmus olanlara teklif gonderilir.
-                    joinedPeers.forEach { offerTo(it) }
-                    if (joinedPeers.isEmpty()) {
-                        _state.value = _state.value.copy(statusText = "Katilimcilar bekleniyor...")
-                    }
-                } else {
-                    offerTo(call.calleeId)
+                joinedPeers.forEach { maybeOffer(it) }
+                if (call.isGroup && joinedPeers.isEmpty()) {
+                    _state.value = _state.value.copy(statusText = "Katilimcilar bekleniyor...")
                 }
-
                 watchCall(call.id)
             } catch (e: Exception) {
                 fail(e.message ?: "Arama baslatilamadi.")
@@ -149,6 +158,7 @@ class CallManager(
         if (current != CallStage.IDLE && current != CallStage.ENDED) return
         if (_state.value.callId == call.id) return
 
+        resetSession()
         _state.value = CallUiState(
             stage = CallStage.INCOMING,
             callId = call.id,
@@ -174,11 +184,7 @@ class CallManager(
                 val (call, joinedPeers) = api.callAction(current.callId, "accept")
                 call?.let { applyCall(it) }
                 events.clearIncomingCall()
-
-                // Aramaya sonradan katilan taraf mevcut katilimcilara teklif gonderir.
-                joinedPeers.forEach { offerTo(it) }
-
-                // Yayinlanmis ama henuz islenmemis sinyalleri al.
+                joinedPeers.forEach { maybeOffer(it) }
                 drainServerSignals(current.callId)
                 watchCall(current.callId)
             } catch (e: Exception) {
@@ -188,28 +194,39 @@ class CallManager(
     }
 
     fun reject() {
-        val current = _state.value
-        scope.launch {
-            runCatching { api.callAction(current.callId, "reject") }
-            events.clearIncomingCall()
-            cleanup("Arama reddedildi")
-        }
+        val callId = _state.value.callId
+        // Ekran hemen kapanir, sunucu bildirimi arkada gider.
+        cleanup("Arama reddedildi")
+        events.clearIncomingCall()
+        scope.launch { runCatching { api.callAction(callId, "reject") } }
     }
 
     fun hangUp() {
         val current = _state.value
-        scope.launch {
-            runCatching { api.callAction(current.callId, if (current.isGroup) "leave" else "end") }
-            events.clearIncomingCall()
-            cleanup(if (current.isGroup) "Aramadan ayrildiniz" else "Arama sonlandirildi")
-        }
+        val callId = current.callId
+        val action = if (current.isGroup) "leave" else "end"
+        cleanup(if (current.isGroup) "Aramadan ayrildiniz" else "Arama sonlandirildi")
+        events.clearIncomingCall()
+        scope.launch { runCatching { api.callAction(callId, action) } }
     }
 
     fun toggleMute() {
         if (_state.value.forceMuted) return
-        val muted = !_state.value.muted
-        localTrack?.setEnabled(!muted)
-        _state.value = _state.value.copy(muted = muted)
+        val shouldMute = !_state.value.muted
+        setMicEnabled(!shouldMute, userRequested = true)
+    }
+
+    private fun setMicEnabled(enabled: Boolean, userRequested: Boolean) {
+        micEnabled = enabled
+        localTrack?.setEnabled(enabled)
+        // Her baglantidaki gondericiye de uygulanir (bazi cihazlarda gerekli).
+        peers.values.forEach { session ->
+            runCatching { session.sender?.track()?.setEnabled(enabled) }
+        }
+        audioManager?.isMicrophoneMute = !enabled
+        if (userRequested) {
+            _state.value = _state.value.copy(muted = !enabled)
+        }
     }
 
     fun toggleSpeaker() {
@@ -221,6 +238,12 @@ class CallManager(
     /** Grup aramasinda yonetici: katilimciyi susturur / susturmayi kaldirir. */
     fun moderateMute(userId: Int, muted: Boolean) {
         val callId = _state.value.callId
+        // Once ekranda goster, sonra sunucuya bildir.
+        _state.value = _state.value.copy(
+            participants = _state.value.participants.map {
+                if (it.id == userId) it.copy(muted = muted) else it
+            }
+        )
         scope.launch {
             runCatching { api.muteParticipant(callId, userId, muted) }
                 .onSuccess { call -> call?.let { applyCall(it) } }
@@ -231,12 +254,15 @@ class CallManager(
     /** Grup aramasinda yonetici: katilimciyi sesten atar. */
     fun moderateKick(userId: Int) {
         val callId = _state.value.callId
+        closePeer(userId)
+        _state.value = _state.value.copy(
+            participants = _state.value.participants.map {
+                if (it.id == userId) it.copy(callStatus = "kicked") else it
+            }
+        )
         scope.launch {
             runCatching { api.kickParticipant(callId, userId) }
-                .onSuccess { call ->
-                    closePeer(userId)
-                    call?.let { applyCall(it) }
-                }
+                .onSuccess { call -> call?.let { applyCall(it) } }
                 .onFailure { _state.value = _state.value.copy(error = it.message) }
         }
     }
@@ -270,19 +296,24 @@ class CallManager(
             ready = true
             return
         }
+
+        // Ses oturumu mikrofon acilmadan once ayarlanir; yankı gidericinin
+        // dogru calismasi icin MODE_IN_COMMUNICATION onceden verilmeli.
+        startAudioSession()
+
         val pcFactory = ensureFactory()
         val constraints = MediaConstraints().apply {
             mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation", "true"))
-            mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation2", "true"))
             mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("googHighpassFilter", "true"))
         }
         val source = pcFactory.createAudioSource(constraints)
         audioSource = source
-        localTrack = pcFactory.createAudioTrack("naber_audio", source)
-        startAudioSession()
+        localTrack = pcFactory.createAudioTrack("naber_audio", source).apply { setEnabled(micEnabled) }
         ready = true
 
-        // Hazir olmadan gelen sinyaller simdi islenir.
         val buffered = bufferedSignals.toList()
         bufferedSignals.clear()
         buffered.forEach { handleSignal(it) }
@@ -353,18 +384,33 @@ class CallManager(
         })
 
         localTrack?.let { track ->
-            session.connection?.addTrack(track, listOf("naber_stream_${myId()}"))
+            session.sender = session.connection?.addTrack(track, listOf("naber_stream"))
         }
 
         peers[userId] = session
         return session
     }
 
-    private fun offerTo(userId: Int) {
-        if (userId <= 0) return
+    /**
+     * Ayni cift arasinda tek baglanti olsun diye teklifi kucuk kimlikli taraf gonderir.
+     * Digeri "katildi" bildirimini alinca bekler.
+     */
+    private fun maybeOffer(peerId: Int) {
+        if (peerId <= 0 || peerId == myId()) return
         prepareAudio()
+        if (myId() < peerId) {
+            offerTo(peerId)
+        } else {
+            // Karsi taraf teklif gonderecek; baglantiyi simdiden hazirla.
+            peerFor(peerId)
+        }
+    }
+
+    private fun offerTo(userId: Int) {
         val session = peerFor(userId)
+        if (session.offering || session.remoteSet) return
         val connection = session.connection ?: return
+        session.offering = true
 
         connection.createOffer(object : SimpleSdpObserver() {
             override fun onCreateSuccess(description: SessionDescription?) {
@@ -372,12 +418,20 @@ class CallManager(
                 connection.setLocalDescription(SimpleSdpObserver(), description)
                 sendSignal(userId, "offer", JSONObject().put("sdp", description.description).toString())
             }
+
+            override fun onCreateFailure(error: String?) {
+                session.offering = false
+            }
         }, MediaConstraints())
     }
 
     private fun handleSignal(signal: Signal) {
         val current = _state.value
         if (current.callId != 0 && signal.callId != current.callId) return
+
+        // Ayni sinyal hem olay akisindan hem yedek yoklamadan gelebilir.
+        if (signal.id > 0 && !handledSignals.add(signal.id)) return
+
         if (!ready && signal.type != "state") {
             bufferedSignals.add(signal)
             return
@@ -437,16 +491,31 @@ class CallManager(
     }
 
     private fun handleStateSignal(payload: JSONObject, from: Int) {
+        applyParticipants(payload.optJSONArray("participants"))
+        val target = payload.optInt("user_id", from)
+
         when (payload.optString("status")) {
             "joined" -> {
                 if (_state.value.stage == CallStage.DIALING) {
                     _state.value = _state.value.copy(stage = CallStage.CONNECTING, statusText = "Baglaniyor...")
                 }
-                refreshCall()
+                if (target != myId()) maybeOffer(target)
+            }
+
+            "participant_updated" -> {
+                if (target == myId()) {
+                    val muted = payload.optBoolean("muted")
+                    setMicEnabled(!muted, userRequested = false)
+                    _state.value = _state.value.copy(
+                        muted = muted,
+                        forceMuted = muted,
+                        statusText = if (muted) "Yonetici mikrofonunuzu kapatti" else ""
+                    )
+                }
             }
 
             "force_muted" -> {
-                localTrack?.setEnabled(false)
+                setMicEnabled(false, userRequested = false)
                 _state.value = _state.value.copy(
                     muted = true,
                     forceMuted = true,
@@ -455,27 +524,42 @@ class CallManager(
             }
 
             "force_unmuted" -> {
-                localTrack?.setEnabled(true)
+                setMicEnabled(true, userRequested = false)
                 _state.value = _state.value.copy(muted = false, forceMuted = false, statusText = "")
             }
 
             "kicked" -> {
-                scope.launch { runCatching { api.callAction(_state.value.callId, "leave") } }
-                cleanup("Yonetici sizi aramadan cikardi")
+                if (target == myId()) {
+                    cleanup("Yonetici sizi aramadan cikardi")
+                }
             }
 
             "left", "rejected" -> {
-                closePeer(from)
-                val userId = payload.optInt("user_id", from)
-                closePeer(userId)
+                closePeer(target)
                 if (!_state.value.isGroup) {
                     cleanup(if (payload.optString("status") == "rejected") "Arama reddedildi" else "Arama sonlandi")
-                } else {
-                    refreshCall()
                 }
             }
 
             "ended" -> cleanup("Arama sonlandi")
+        }
+    }
+
+    private fun applyParticipants(array: JSONArray?) {
+        array ?: return
+        val list = User.listFrom(array)
+        if (list.isEmpty()) return
+        _state.value = _state.value.copy(participants = list)
+
+        // Yonetici bizi susturduysa listeden de anlasilir.
+        list.firstOrNull { it.id == myId() }?.let { me ->
+            if (me.muted && !_state.value.forceMuted) {
+                setMicEnabled(false, userRequested = false)
+                _state.value = _state.value.copy(muted = true, forceMuted = true, statusText = "Yonetici mikrofonunuzu kapatti")
+            } else if (!me.muted && _state.value.forceMuted) {
+                setMicEnabled(true, userRequested = false)
+                _state.value = _state.value.copy(muted = false, forceMuted = false, statusText = "")
+            }
         }
     }
 
@@ -498,13 +582,16 @@ class CallManager(
         }
     }
 
-    /** Arama durumunu ve katilimci listesini duzenli olarak tazeler. */
+    /** Olay akisi kesilirse diye yedek yoklama; sinyaller kimlige gore tekilllenir. */
     private fun watchCall(callId: Int) {
         watchJob?.cancel()
         watchJob = scope.launch {
             var since = 0
-            while (_state.value.callId == callId && _state.value.stage != CallStage.ENDED && _state.value.stage != CallStage.IDLE) {
-                delay(2500)
+            while (_state.value.callId == callId &&
+                _state.value.stage != CallStage.ENDED &&
+                _state.value.stage != CallStage.IDLE
+            ) {
+                delay(2000)
                 runCatching {
                     val (signals, call, _) = api.callSignals(callId, since)
                     signals.forEach {
@@ -513,22 +600,14 @@ class CallManager(
                     }
                     call?.let { info ->
                         applyCall(info)
-                        if (!info.isGroup && info.status == "rejected") cleanup("Arama reddedildi")
-                        if (info.status == "ended" || info.status == "missed") {
-                            if (_state.value.stage != CallStage.ACTIVE || !info.isGroup) cleanup("Arama sonlandi")
+                        when (info.status) {
+                            "rejected" -> if (!info.isGroup) cleanup("Arama reddedildi")
+                            "ended", "missed" -> cleanup("Arama sonlandi")
+                            else -> Unit
                         }
                     }
                 }
             }
-        }
-    }
-
-    private fun refreshCall() {
-        val callId = _state.value.callId
-        if (callId == 0) return
-        scope.launch {
-            runCatching { api.callAction(callId, "join") }
-                .onSuccess { (call, _) -> call?.let { applyCall(it) } }
         }
     }
 
@@ -537,7 +616,7 @@ class CallManager(
         _state.value = me.copy(
             callId = call.id,
             isGroup = call.isGroup,
-            title = if (call.isGroup) call.groupTitle.ifBlank { me.title } else (call.caller?.displayName ?: me.title),
+            title = if (call.isGroup) call.groupTitle.ifBlank { me.title } else (me.title.ifBlank { call.caller?.displayName ?: "" }),
             participants = call.participants.ifEmpty { me.participants },
             conversationId = if (call.conversationId > 0) call.conversationId else me.conversationId
         )
@@ -564,17 +643,18 @@ class CallManager(
     }
 
     private fun fail(message: String) {
-        _state.value = _state.value.copy(stage = CallStage.ENDED, error = message, statusText = message)
         val callId = _state.value.callId
         releaseResources()
+        _state.value = _state.value.copy(stage = CallStage.ENDED, error = message, statusText = message)
         scope.launch { runCatching { api.callAction(callId, "end") } }
     }
 
     private fun cleanup(reason: String) {
+        if (_state.value.stage == CallStage.IDLE) return
         releaseResources()
         _state.value = _state.value.copy(stage = CallStage.ENDED, statusText = reason)
         scope.launch {
-            delay(1400)
+            delay(1200)
             if (_state.value.stage == CallStage.ENDED) _state.value = CallUiState()
         }
     }
@@ -585,16 +665,24 @@ class CallManager(
         }
     }
 
+    private fun resetSession() {
+        handledSignals.clear()
+        bufferedSignals.clear()
+        micEnabled = true
+    }
+
     private fun releaseResources() {
         watchJob?.cancel()
         watchJob = null
         peers.values.forEach { runCatching { it.connection?.close() } }
         peers.clear()
         bufferedSignals.clear()
+        handledSignals.clear()
         runCatching { audioSource?.dispose() }
         audioSource = null
         localTrack = null
         ready = false
+        micEnabled = true
         stopAudioSession()
     }
 
@@ -602,15 +690,46 @@ class CallManager(
         val manager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
         audioManager = manager
         previousAudioMode = manager.mode
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build()
+                )
+                .build()
+            focusRequest = request
+            runCatching { manager.requestAudioFocus(request) }
+        } else {
+            @Suppress("DEPRECATION")
+            runCatching {
+                manager.requestAudioFocus(null, AudioManager.STREAM_VOICE_CALL, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+            }
+        }
+
         manager.mode = AudioManager.MODE_IN_COMMUNICATION
+        manager.isMicrophoneMute = false
+        // Hoparlor acikken mikrofon hoparloru duyar; varsayilan olarak kulaklik yolu kullanilir.
         manager.isSpeakerphoneOn = false
     }
 
     private fun stopAudioSession() {
-        audioManager?.let {
-            it.mode = previousAudioMode
-            it.isSpeakerphoneOn = false
+        audioManager?.let { manager ->
+            runCatching {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    (focusRequest as? AudioFocusRequest)?.let { manager.abandonAudioFocusRequest(it) }
+                } else {
+                    @Suppress("DEPRECATION")
+                    manager.abandonAudioFocus(null)
+                }
+            }
+            manager.isMicrophoneMute = false
+            manager.mode = previousAudioMode
+            manager.isSpeakerphoneOn = false
         }
+        focusRequest = null
         audioManager = null
     }
 }

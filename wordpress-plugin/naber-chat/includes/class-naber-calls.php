@@ -300,6 +300,23 @@ class Naber_Calls {
 		}
 	}
 
+	/**
+	 * Durum degisikligini katilimci listesiyle birlikte duyurur.
+	 * Uygulamalar boylece susturma/atma/katilma bilgisini ek istek yapmadan,
+	 * aninda ekrana yansitir.
+	 */
+	public static function broadcast_state( $call_id, $sender_id, array $extra, $include_sender = false ) {
+		$participants = self::participants( $call_id );
+		$payload      = wp_json_encode( array_merge( $extra, array( 'participants' => $participants ) ) );
+
+		foreach ( $participants as $participant ) {
+			if ( ! $include_sender && (int) $participant['id'] === (int) $sender_id ) {
+				continue;
+			}
+			self::add_signal( $call_id, $sender_id, (int) $participant['id'], 'state', $payload );
+		}
+	}
+
 	public static function signals_for( $user_id, $since_id, $call_id = 0 ) {
 		global $wpdb;
 		$table = Naber_DB::table( 'signals' );

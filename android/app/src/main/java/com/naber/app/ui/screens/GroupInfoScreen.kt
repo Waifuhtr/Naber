@@ -32,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -76,6 +77,12 @@ fun GroupInfoScreen(conversationId: Int, onBack: () -> Unit, onLeft: () -> Unit)
     }
 
     LaunchedEffect(conversationId) { reload() }
+
+    // Baska bir yonetici uye eklerse/cikarirsa ekran kendiliginden guncellenir.
+    val revisions by Naber.events.revisions.collectAsState()
+    LaunchedEffect(revisions[conversationId]) {
+        if (!loading) reload()
+    }
 
     fun act(block: suspend () -> Chat) {
         scope.launch {

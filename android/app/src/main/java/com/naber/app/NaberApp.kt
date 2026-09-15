@@ -87,7 +87,7 @@ object Naber {
         session = Session(context.applicationContext)
         api = ApiClient(session)
         events = EventHub(api)
-        calls = CallManager(context.applicationContext, api, events)
+        calls = CallManager(context.applicationContext, api, events, session)
         started = true
     }
 }

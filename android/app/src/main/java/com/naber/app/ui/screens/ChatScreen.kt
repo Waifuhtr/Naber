@@ -50,6 +50,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -82,6 +83,7 @@ import com.naber.app.ui.EmptyState
 import com.naber.app.ui.MessageImage
 import com.naber.app.ui.OnlineDot
 import com.naber.app.ui.formatClock
+import com.naber.app.ui.formatPresence
 import com.naber.app.ui.prepareImage
 import com.naber.app.ui.theme.NaberColors
 import kotlinx.coroutines.delay
@@ -102,6 +104,10 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var typing by remember { mutableStateOf<List<TypingUser>>(emptyList()) }
+    var typingAt by remember { mutableStateOf(0L) }
+    var tick by remember { mutableStateOf(System.currentTimeMillis()) }
+    val presenceMap by Naber.events.presence.collectAsState()
+    val revisions by Naber.events.revisions.collectAsState()
     var fullScreen by remember { mutableStateOf<Any?>(null) }
     var menuOpen by remember { mutableStateOf(false) }
     var deleteTarget by remember { mutableStateOf<Message?>(null) }
@@ -168,8 +174,26 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
     }
 
     LaunchedEffect(conversationId) {
-        Naber.events.typing.collect { (convId, users) ->
-            if (convId == conversationId) typing = users
+        Naber.events.typing.collect { state ->
+            if (state.conversationId == conversationId) {
+                typing = state.users
+                typingAt = state.at
+            }
+        }
+    }
+
+    // "Yaziyor" bilgisi sunucudan gelmeyi birakirsa en gec 6 saniyede kaybolur.
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1000)
+            tick = System.currentTimeMillis()
+        }
+    }
+
+    // Grup adi, uye listesi veya susturma degisirse ekran kendiliginden tazelenir.
+    LaunchedEffect(revisions[conversationId]) {
+        if (!loading) {
+            runCatching { Naber.api.chatInfo(conversationId) }.onSuccess { chat = it }
         }
     }
 
@@ -195,6 +219,8 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
             sendState = SendState.SENDING
         )
         draft = ""
+        lastTypingSent[0] = 0L
+        Naber.events.launchInScope { Naber.api.sendTyping(conversationId, false) }
         scope.launch {
             try {
                 val sent = Naber.api.sendText(conversationId, body, clientId)
@@ -256,11 +282,15 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
     }
 
     val current = chat
+    val typingActive = typing.isNotEmpty() && (tick - typingAt) < 6000
+    val peerPresence = current?.peer?.id?.let { presenceMap[it] }
+    val peerOnline = peerPresence?.online ?: (current?.peer?.online == true)
+    val peerLastSeen = peerPresence?.lastSeen ?: (current?.peer?.lastSeen ?: 0L)
     val subtitle = when {
-        typing.isNotEmpty() && current?.isGroup == true -> "${typing.joinToString { it.name }} yaziyor..."
-        typing.isNotEmpty() -> "yaziyor..."
+        typingActive && current?.isGroup == true -> "${typing.joinToString { it.name }} yaziyor..."
+        typingActive -> "yaziyor..."
         current?.isGroup == true -> "${current.memberCount} uye"
-        current?.peer?.online == true -> "cevrimici"
+        current?.peer != null -> formatPresence(peerOnline, peerLastSeen)
         else -> ""
     }
 
@@ -288,13 +318,17 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
                     .size(24.dp)
                     .clickable {
                         Naber.events.activeConversationId = 0
+                        Naber.events.clearTyping()
+                        if (draft.isNotEmpty()) {
+                            Naber.events.launchInScope { Naber.api.sendTyping(conversationId, false) }
+                        }
                         onBack()
                     }
             )
             Spacer(Modifier.width(10.dp))
             Box {
                 current?.let { ChatAvatar(it, size = 40.dp) }
-                if (current?.isGroup == false && current.peer?.online == true) {
+                if (current?.isGroup == false && peerOnline) {
                     OnlineDot(size = 11.dp, borderColor = NaberColors.TopBar, modifier = Modifier.align(Alignment.BottomEnd))
                 }
             }
@@ -316,7 +350,7 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
                     Text(
                         subtitle,
                         fontSize = 12.sp,
-                        color = if (typing.isNotEmpty()) NaberColors.Accent else NaberColors.TextSecondary,
+                        color = if (typingActive) NaberColors.Accent else NaberColors.TextSecondary,
                         maxLines = 1
                     )
                 }
@@ -456,11 +490,20 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
                     BasicTextField(
                         value = draft,
                         onValueChange = { value ->
+                            val wasEmpty = draft.isEmpty()
                             draft = value
                             val now = System.currentTimeMillis()
-                            if (value.isNotEmpty() && now - lastTypingSent[0] > 3000) {
-                                lastTypingSent[0] = now
-                                Naber.events.launchInScope { Naber.api.sendTyping(conversationId) }
+                            when {
+                                // Ilk harfte hemen, sonra en fazla 3 saniyede bir bildir.
+                                value.isNotEmpty() && (wasEmpty || now - lastTypingSent[0] > 3000) -> {
+                                    lastTypingSent[0] = now
+                                    Naber.events.launchInScope { Naber.api.sendTyping(conversationId, true) }
+                                }
+                                // Kutu bosaldiginda "yaziyor" hemen kalksin.
+                                value.isEmpty() -> {
+                                    lastTypingSent[0] = 0L
+                                    Naber.events.launchInScope { Naber.api.sendTyping(conversationId, false) }
+                                }
                             }
                         },
                         textStyle = TextStyle(color = NaberColors.TextPrimary, fontSize = 14.5.sp),

@@ -60,6 +60,7 @@ class Naber_REST {
 		$this->route( $ns, '/devices', 'POST', 'register_device', $user );
 		$this->route( $ns, '/devices', 'DELETE', 'delete_device', $user );
 		$this->route( $ns, '/events', 'GET', 'events', $user );
+		$this->route( $ns, '/presence', 'POST', 'set_presence', $user );
 		$this->route( $ns, '/ice-servers', 'GET', 'ice_servers', $user );
 
 		// --- Aramalar ---
@@ -753,8 +754,11 @@ class Naber_REST {
 		if ( is_wp_error( $conversation ) ) {
 			return $conversation;
 		}
-		Naber_Chat_Repo::set_typing( (int) $conversation['id'], get_current_user_id() );
-		return rest_ensure_response( array( 'ok' => true ) );
+		$typing = $request->get_param( 'typing' );
+		$typing = ( null === $typing ) ? true : rest_sanitize_boolean( $typing );
+
+		Naber_Chat_Repo::set_typing( (int) $conversation['id'], get_current_user_id(), $typing );
+		return rest_ensure_response( array( 'ok' => true, 'typing' => $typing ) );
 	}
 
 	// ------------------------------------------------------------------
@@ -899,10 +903,11 @@ class Naber_REST {
 	/**
 	 * Canli olay akisi (long-polling).
 	 *
-	 * Istek sunucuda en fazla 25 saniye bekler. Bekleme sirasinda yalnizca
-	 * "yeni mesaj/sinyal var mi" sorusunu soran iki kucuk sorgu calisir
-	 * (250 ms araliklarla), tam yanit ancak gercekten yeni bir sey oldugunda
-	 * hazirlanir. Boylece mesajlar yarim saniyenin altinda ulasir.
+	 * Istek sunucuda en fazla 25 saniye bekler. Bekleme sirasinda yalnizca kucuk
+	 * kontrol sorgulari calisir; tam yanit ancak gercekten bir sey degistiginde
+	 * hazirlanir. Istemci elindeki durumun imzalarini gonderir, sunucu farkli
+	 * bir durum gorurse hemen doner. Boylece yeni mesaj, cevrimici/son gorulme,
+	 * "yaziyor" ve grup degisiklikleri ekranda kendiliginden guncellenir.
 	 */
 	public function events( WP_REST_Request $request ) {
 		$user_id   = get_current_user_id();
@@ -913,35 +918,81 @@ class Naber_REST {
 		$conv_id   = (int) $request->get_param( 'conversation_id' );
 		$deadline  = microtime( true ) + $wait;
 
-		// Kontrol araligi: dusuk deger = daha hizli teslim, biraz daha fazla sorgu.
 		$interval_ms = max( 100, min( 2000, (int) Naber_Settings::get( 'poll_interval_ms', 250 ) ) );
 		$slow_every  = max( 1, (int) round( 1000 / $interval_ms ) );
+
+		// Istemcinin elindeki durum; eski surumler gondermezse karsilastirma yapilmaz.
+		$client_typing   = $request->get_param( 'typing_signature' );
+		$client_presence = $request->get_param( 'presence_signature' );
+		$client_revision = $request->get_param( 'revision_signature' );
 
 		$iteration = 0;
 
 		while ( true ) {
-			$probe    = Naber_Chat_Repo::probe( $user_id );
-			$has_new  = $probe['message'] > $since_msg || $probe['signal'] > $since_sig;
-			$slow     = ( 0 === $iteration % $slow_every ); // ~1 saniyede bir
-			$extra    = false;
+			$probe   = Naber_Chat_Repo::probe( $user_id );
+			$has_new = $probe['message'] > $since_msg || $probe['signal'] > $since_sig;
+			$changed = false;
 
-			if ( ! $has_new && $slow ) {
-				$extra = (bool) Naber_Calls::active_incoming( $user_id )
-					|| ( $conv_id > 0 && Naber_Chat_Repo::typing_users( $conv_id, $user_id ) );
+			// Saniyede bir: gelen arama ve "yaziyor". Iki saniyede bir: cevrimici ve grup degisiklikleri.
+			if ( ! $has_new && 0 === $iteration % $slow_every ) {
+				if ( Naber_Calls::active_incoming( $user_id ) ) {
+					$changed = true;
+				}
+				if ( ! $changed && null !== $client_typing ) {
+					$changed = Naber_Chat_Repo::typing_signature( $conv_id, $user_id ) !== (string) $client_typing;
+				}
 			}
 
-			if ( $has_new || $extra || microtime( true ) >= $deadline ) {
+			if ( ! $has_new && ! $changed && 0 === $iteration % ( $slow_every * 2 ) ) {
+				if ( null !== $client_presence ) {
+					$changed = self::presence_signature( $user_id ) !== (string) $client_presence;
+				}
+				if ( ! $changed && null !== $client_revision ) {
+					$changed = self::revision_signature( $user_id ) !== (string) $client_revision;
+				}
+			}
+
+			if ( $has_new || $changed || microtime( true ) >= $deadline ) {
 				return rest_ensure_response( $this->build_events_payload( $user_id, $since_msg, $since_sig, $conv_id ) );
 			}
 
-			// Cevrimici bilgisi her dongude degil, ~5 saniyede bir yazilir.
-			if ( 0 === $iteration % ( $slow_every * 5 ) ) {
+			if ( 0 === $iteration % ( $slow_every * 10 ) ) {
 				Naber_Auth::touch_presence( $user_id );
 			}
 
 			$iteration++;
 			usleep( $interval_ms * 1000 );
 		}
+	}
+
+	/** @var array|null Istek suresince gecerli kisi listesi. */
+	private static $peer_ids = null;
+
+	private static function peer_ids( $user_id ) {
+		if ( null === self::$peer_ids ) {
+			self::$peer_ids = Naber_Chat_Repo::peer_ids( $user_id );
+		}
+		return self::$peer_ids;
+	}
+
+	/** Cevrimici durumlarinin kisa imzasi. */
+	private static function presence_signature( $user_id ) {
+		$parts = array();
+		foreach ( Naber_Auth::presence_of( self::peer_ids( $user_id ) ) as $id => $state ) {
+			$parts[] = $id . ':' . ( $state['online'] ? '1' : '0' );
+		}
+		sort( $parts );
+		return implode( ',', $parts );
+	}
+
+	/** Sohbet degisiklik damgalarinin kisa imzasi. */
+	private static function revision_signature( $user_id ) {
+		$parts = array();
+		foreach ( Naber_Chat_Repo::revisions( $user_id ) as $row ) {
+			$parts[] = $row['id'] . ':' . $row['updated_at'];
+		}
+		sort( $parts );
+		return md5( implode( ',', $parts ) );
 	}
 
 	private function build_events_payload( $user_id, $since_msg, $since_sig, $conv_id ) {
@@ -956,6 +1007,15 @@ class Naber_REST {
 			$typing = Naber_Chat_Repo::typing_users( $conv_id, $user_id );
 		}
 
+		$presence = array();
+		foreach ( Naber_Auth::presence_of( self::peer_ids( $user_id ) ) as $id => $state ) {
+			$presence[] = array(
+				'id'        => (int) $id,
+				'online'    => (bool) $state['online'],
+				'last_seen' => (int) $state['last_seen'],
+			);
+		}
+
 		return array(
 			'messages'               => $messages,
 			'signals'                => $signals,
@@ -963,11 +1023,31 @@ class Naber_REST {
 			'read_states'            => Naber_Chat_Repo::read_states( $user_id ),
 			'typing'                 => $typing,
 			'typing_conversation_id' => $conv_id,
+			'presence'               => $presence,
+			'chat_revisions'         => Naber_Chat_Repo::revisions( $user_id ),
+			'typing_signature'       => Naber_Chat_Repo::typing_signature( $conv_id, $user_id ),
+			'presence_signature'     => self::presence_signature( $user_id ),
+			'revision_signature'     => self::revision_signature( $user_id ),
 			'unread_total'           => Naber_Chat_Repo::unread_total( $user_id ),
 			'server_time'            => time(),
 			'since_message_id'       => $messages ? (int) $messages[ count( $messages ) - 1 ]['id'] : $since_msg,
 			'since_signal_id'        => $signals ? (int) $signals[ count( $signals ) - 1 ]['id'] : $since_sig,
 		);
+	}
+
+	/** Uygulama on planda mi arka planda mi oldugunu bildirir. */
+	public function set_presence( WP_REST_Request $request ) {
+		$user_id = get_current_user_id();
+		$online  = $request->get_param( 'online' );
+		$online  = ( null === $online ) ? true : rest_sanitize_boolean( $online );
+
+		if ( $online ) {
+			Naber_Auth::touch_presence( $user_id, true );
+		} else {
+			Naber_Auth::set_offline( $user_id );
+		}
+
+		return rest_ensure_response( array( 'online' => $online ) );
 	}
 
 	public function ice_servers() {
@@ -1078,7 +1158,7 @@ class Naber_REST {
 			case 'join':
 				Naber_Calls::set_participant_status( $call_id, $user_id, 'joined' );
 				$call = Naber_Calls::set_status( $call_id, 'active' );
-				Naber_Calls::broadcast( $call_id, $user_id, 'state', wp_json_encode( array( 'status' => 'joined', 'user_id' => $user_id ) ) );
+				Naber_Calls::broadcast_state( $call_id, $user_id, array( 'status' => 'joined', 'user_id' => $user_id ) );
 				break;
 
 			case 'reject':
@@ -1086,21 +1166,21 @@ class Naber_REST {
 				if ( ! $is_group ) {
 					$call = Naber_Calls::set_status( $call_id, 'rejected', 'declined' );
 				}
-				Naber_Calls::broadcast( $call_id, $user_id, 'state', wp_json_encode( array( 'status' => $is_group ? 'left' : 'rejected', 'user_id' => $user_id ) ) );
+				Naber_Calls::broadcast_state( $call_id, $user_id, array( 'status' => $is_group ? 'left' : 'rejected', 'user_id' => $user_id ) );
 				break;
 
 			case 'end':
 			case 'leave':
 			default:
 				Naber_Calls::set_participant_status( $call_id, $user_id, 'left' );
-				Naber_Calls::broadcast( $call_id, $user_id, 'state', wp_json_encode( array( 'status' => 'left', 'user_id' => $user_id ) ) );
+				Naber_Calls::broadcast_state( $call_id, $user_id, array( 'status' => 'left', 'user_id' => $user_id ) );
 
 				$remaining = Naber_Calls::joined_user_ids( $call_id, 0 );
 				if ( ! $is_group || count( $remaining ) < 2 ) {
 					$reason = ( 'ringing' === $call['status'] && (int) $call['caller_id'] === $user_id ) ? 'cancelled' : 'hangup';
 					$status = ( 'ringing' === $call['status'] && ! $is_group && (int) $call['caller_id'] === $user_id ) ? 'missed' : 'ended';
 					$call   = Naber_Calls::set_status( $call_id, $status, $reason );
-					Naber_Calls::broadcast( $call_id, $user_id, 'state', wp_json_encode( array( 'status' => 'ended' ) ) );
+					Naber_Calls::broadcast_state( $call_id, $user_id, array( 'status' => 'ended' ) );
 				} else {
 					$call = Naber_Calls::get( $call_id );
 				}
@@ -1176,12 +1256,20 @@ class Naber_REST {
 
 		$muted = rest_sanitize_boolean( $request->get_param( 'muted' ) );
 		Naber_Calls::set_participant_muted( (int) $call['id'], $target, $muted );
+
+		// Susturulan kisiye ozel bildirim, herkese guncel katilimci listesi.
 		Naber_Calls::add_signal(
 			(int) $call['id'],
 			get_current_user_id(),
 			$target,
 			'state',
-			wp_json_encode( array( 'status' => $muted ? 'force_muted' : 'force_unmuted' ) )
+			wp_json_encode( array( 'status' => $muted ? 'force_muted' : 'force_unmuted', 'user_id' => $target ) )
+		);
+		Naber_Calls::broadcast_state(
+			(int) $call['id'],
+			get_current_user_id(),
+			array( 'status' => 'participant_updated', 'user_id' => $target, 'muted' => $muted ),
+			true
 		);
 
 		return rest_ensure_response( array( 'call' => Naber_Calls::payload( $call, true ) ) );
@@ -1200,8 +1288,13 @@ class Naber_REST {
 		}
 
 		Naber_Calls::set_participant_status( (int) $call['id'], $target, 'kicked' );
-		Naber_Calls::add_signal( (int) $call['id'], get_current_user_id(), $target, 'state', wp_json_encode( array( 'status' => 'kicked' ) ) );
-		Naber_Calls::broadcast( (int) $call['id'], get_current_user_id(), 'state', wp_json_encode( array( 'status' => 'left', 'user_id' => $target ) ) );
+		Naber_Calls::add_signal( (int) $call['id'], get_current_user_id(), $target, 'state', wp_json_encode( array( 'status' => 'kicked', 'user_id' => $target ) ) );
+		Naber_Calls::broadcast_state(
+			(int) $call['id'],
+			get_current_user_id(),
+			array( 'status' => 'left', 'user_id' => $target ),
+			true
+		);
 
 		return rest_ensure_response( array( 'call' => Naber_Calls::payload( $call, true ) ) );
 	}

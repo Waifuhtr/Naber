@@ -35,8 +35,14 @@ class EventHub(private val api: ApiClient) {
     private val _readStates = MutableSharedFlow<List<ReadState>>(extraBufferCapacity = 16)
     val readStates: SharedFlow<List<ReadState>> = _readStates.asSharedFlow()
 
-    private val _typing = MutableStateFlow(0 to emptyList<TypingUser>())
-    val typing: StateFlow<Pair<Int, List<TypingUser>>> = _typing.asStateFlow()
+    private val _typing = MutableStateFlow(TypingState())
+    val typing: StateFlow<TypingState> = _typing.asStateFlow()
+
+    private val _presence = MutableStateFlow<Map<Int, Presence>>(emptyMap())
+    val presence: StateFlow<Map<Int, Presence>> = _presence.asStateFlow()
+
+    private val _revisions = MutableStateFlow<Map<Int, Long>>(emptyMap())
+    val revisions: StateFlow<Map<Int, Long>> = _revisions.asStateFlow()
 
     private val _incomingCall = MutableStateFlow<CallInfo?>(null)
     val incomingCall: StateFlow<CallInfo?> = _incomingCall.asStateFlow()
@@ -53,21 +59,45 @@ class EventHub(private val api: ApiClient) {
 
     private var sinceMessageId = 0
     private var sinceSignalId = 0
+    private var typingSignature = ""
+    private var presenceSignature = ""
+    private var revisionSignature = ""
 
     fun start() {
         if (job?.isActive == true) return
         job = scope.launch {
             while (isActive) {
                 try {
-                    val batch = api.events(sinceMessageId, sinceSignalId, activeConversationId.takeIf { it > 0 })
+                    val conversationId = activeConversationId.takeIf { it > 0 }
+                    val batch = api.events(
+                        sinceMessageId = sinceMessageId,
+                        sinceSignalId = sinceSignalId,
+                        conversationId = conversationId,
+                        typingSignature = typingSignature,
+                        presenceSignature = presenceSignature,
+                        revisionSignature = revisionSignature
+                    )
                     _connected.value = true
                     sinceMessageId = maxOf(sinceMessageId, batch.sinceMessageId)
                     sinceSignalId = maxOf(sinceSignalId, batch.sinceSignalId)
+                    typingSignature = batch.typingSignature
+                    presenceSignature = batch.presenceSignature
+                    revisionSignature = batch.revisionSignature
                     _unreadTotal.value = batch.unreadTotal
                     batch.messages.forEach { _messages.emit(it) }
                     batch.signals.forEach { _signals.emit(it) }
                     if (batch.readStates.isNotEmpty()) _readStates.emit(batch.readStates)
-                    _typing.value = batch.typingConversationId to batch.typing
+                    _typing.value = TypingState(
+                        conversationId = batch.typingConversationId,
+                        users = batch.typing,
+                        at = System.currentTimeMillis()
+                    )
+                    if (batch.presence.isNotEmpty()) {
+                        _presence.value = batch.presence.associateBy { it.id }
+                    }
+                    if (batch.revisions.isNotEmpty()) {
+                        _revisions.value = batch.revisions.associate { it.id to it.updatedAt }
+                    }
                     _incomingCall.value = batch.incomingCall
                 } catch (e: Exception) {
                     _connected.value = false
@@ -90,9 +120,20 @@ class EventHub(private val api: ApiClient) {
         stop()
         sinceMessageId = 0
         sinceSignalId = 0
+        typingSignature = ""
+        presenceSignature = ""
+        revisionSignature = ""
         _unreadTotal.value = 0
         _incomingCall.value = null
-        _typing.value = 0 to emptyList()
+        _typing.value = TypingState()
+        _presence.value = emptyMap()
+        _revisions.value = emptyMap()
+    }
+
+    /** Sohbet degistiginde "yaziyor" bilgisi hemen sifirlanir. */
+    fun clearTyping() {
+        _typing.value = TypingState()
+        typingSignature = ""
     }
 
     fun launchInScope(block: suspend () -> Unit) {

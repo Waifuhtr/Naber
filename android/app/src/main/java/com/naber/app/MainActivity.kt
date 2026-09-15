@@ -66,13 +66,20 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (Naber.session.isLoggedIn) Naber.events.start()
+        if (Naber.session.isLoggedIn) {
+            Naber.events.start()
+            Naber.events.launchInScope { Naber.api.setPresence(true) }
+        }
     }
 
     override fun onPause() {
         super.onPause()
         if (Naber.calls.state.value.stage == CallStage.IDLE) {
             Naber.events.stop()
+            // Karsi taraf beklemeden "son gorulme" gorsun.
+            if (Naber.session.isLoggedIn) {
+                Naber.events.launchInScope { Naber.api.setPresence(false) }
+            }
         }
     }
 

@@ -37,10 +37,31 @@ fun formatChatTime(epochSeconds: Long): String {
     }
 }
 
+/** "son gorulme bugun 14:32" / "son gorulme dun 09:10" / "son gorulme 12.03.2026" */
+fun formatLastSeen(epochSeconds: Long): String {
+    if (epochSeconds <= 0) return ""
+    val date = Date(epochSeconds * 1000)
+    val now = Calendar.getInstance()
+    val then = Calendar.getInstance().apply { time = date }
+    val sameYear = now.get(Calendar.YEAR) == then.get(Calendar.YEAR)
+    val dayDiff = now.get(Calendar.DAY_OF_YEAR) - then.get(Calendar.DAY_OF_YEAR)
+    val clock = hourFormat.format(date)
+    return when {
+        sameYear && dayDiff == 0 -> "son gorulme bugun $clock"
+        sameYear && dayDiff == 1 -> "son gorulme dun $clock"
+        sameYear -> "son gorulme ${dayFormat.format(date)} $clock"
+        else -> "son gorulme ${dateFormat.format(date)}"
+    }
+}
+
 fun formatPresence(user: User): String = when {
     user.online -> "cevrimici"
-    user.lastSeen <= 0 -> ""
-    else -> "son gorulme ${formatChatTime(user.lastSeen)} ${formatClock(user.lastSeen)}"
+    else -> formatLastSeen(user.lastSeen)
+}
+
+fun formatPresence(online: Boolean, lastSeen: Long): String = when {
+    online -> "cevrimici"
+    else -> formatLastSeen(lastSeen)
 }
 
 fun formatDuration(seconds: Int): String {

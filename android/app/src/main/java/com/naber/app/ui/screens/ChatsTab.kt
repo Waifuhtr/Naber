@@ -77,6 +77,8 @@ fun ChatsTab(
 
     val me = Naber.session.user
     val connected by Naber.events.connected.collectAsState()
+    val presenceMap by Naber.events.presence.collectAsState()
+    val revisions by Naber.events.revisions.collectAsState()
 
     suspend fun reload() {
         try {
@@ -112,6 +114,11 @@ fun ChatsTab(
             chats = (listOf(updated) + chats.filterNot { it.id == updated.id })
                 .sortedByDescending { it.updatedAt }
         }
+    }
+
+    // Yeni grup, uye degisikligi veya grup adi degisiminde liste kendiliginden tazelenir.
+    LaunchedEffect(revisions) {
+        if (revisions.isNotEmpty() && !loading) reload()
     }
 
     // Okundu bilgisi degistiginde tikleri guncelle.
@@ -245,7 +252,11 @@ fun ChatsTab(
 
                 else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
                     items(filtered, key = { it.id }) { chat ->
-                        ChatRow(chat = chat, onClick = { onOpenChat(chat.id) })
+                        ChatRow(
+                            chat = chat,
+                            online = chat.peer?.id?.let { presenceMap[it]?.online } ?: (chat.peer?.online == true),
+                            onClick = { onOpenChat(chat.id) }
+                        )
                     }
                 }
             }
@@ -280,7 +291,7 @@ fun ChatsTab(
 }
 
 @Composable
-private fun ChatRow(chat: Chat, onClick: () -> Unit) {
+private fun ChatRow(chat: Chat, online: Boolean, onClick: () -> Unit) {
     val myId = Naber.session.user?.id ?: 0
     Row(
         modifier = Modifier
@@ -291,7 +302,7 @@ private fun ChatRow(chat: Chat, onClick: () -> Unit) {
     ) {
         Box {
             ChatAvatar(chat, size = 52.dp)
-            if (!chat.isGroup && chat.peer?.online == true) {
+            if (!chat.isGroup && online) {
                 OnlineDot(modifier = Modifier.align(Alignment.BottomEnd))
             }
         }
