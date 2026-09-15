@@ -620,27 +620,56 @@ class Naber_Chat_Repo {
 		return $out;
 	}
 
+	/**
+	 * "Yaziyor" durumu sohbet basina tek bir kayitta tutulur
+	 * (kullanici basina ayri kayit yerine), boylece her kontrolde tek okuma yapilir.
+	 */
+	private static function typing_key( $conversation_id ) {
+		return 'naber_typing_' . (int) $conversation_id;
+	}
+
 	public static function set_typing( $conversation_id, $user_id ) {
-		set_transient( 'naber_typing_' . (int) $conversation_id . '_' . (int) $user_id, time(), 15 );
+		$key   = self::typing_key( $conversation_id );
+		$state = get_transient( $key );
+		if ( ! is_array( $state ) ) {
+			$state = array();
+		}
+
+		$now = time();
+		foreach ( $state as $uid => $stamp ) {
+			if ( $now - (int) $stamp > 10 ) {
+				unset( $state[ $uid ] );
+			}
+		}
+		$state[ (int) $user_id ] = $now;
+
+		set_transient( $key, $state, 30 );
 	}
 
 	public static function typing_state( $conversation_id, $other_user_id ) {
-		$value = get_transient( 'naber_typing_' . (int) $conversation_id . '_' . (int) $other_user_id );
-		return $value && ( time() - (int) $value ) < 8;
+		$state = get_transient( self::typing_key( $conversation_id ) );
+		if ( ! is_array( $state ) || ! isset( $state[ (int) $other_user_id ] ) ) {
+			return false;
+		}
+		return ( time() - (int) $state[ (int) $other_user_id ] ) < 8;
 	}
 
 	/** Belirli bir sohbette yazan kisiler (kendisi haric). */
 	public static function typing_users( $conversation_id, $user_id ) {
+		$state = get_transient( self::typing_key( $conversation_id ) );
+		if ( ! is_array( $state ) ) {
+			return array();
+		}
+
+		$now = time();
 		$out = array();
-		foreach ( self::member_ids( $conversation_id ) as $member_id ) {
-			if ( $member_id === (int) $user_id ) {
+		foreach ( $state as $uid => $stamp ) {
+			if ( (int) $uid === (int) $user_id || ( $now - (int) $stamp ) >= 8 ) {
 				continue;
 			}
-			if ( self::typing_state( $conversation_id, $member_id ) ) {
-				$user = Naber_Auth::user_payload( $member_id );
-				if ( $user ) {
-					$out[] = array( 'id' => $member_id, 'name' => $user['display_name'] );
-				}
+			$user = Naber_Auth::user_payload( (int) $uid );
+			if ( $user ) {
+				$out[] = array( 'id' => (int) $uid, 'name' => $user['display_name'] );
 			}
 		}
 		return $out;
