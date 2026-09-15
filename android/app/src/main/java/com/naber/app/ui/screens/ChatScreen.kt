@@ -65,6 +65,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -119,6 +120,9 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
     var chat by remember { mutableStateOf<Chat?>(null) }
     var draft by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(true) }
+    var loadingOlder by remember { mutableStateOf(false) }
+    // Sunucuda daha eski mesaj kalmadiginda bir daha istenmez.
+    var hasOlder by remember(conversationId) { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var typing by remember { mutableStateOf<List<TypingUser>>(emptyList()) }
     var typingAt by remember { mutableStateOf(0L) }
@@ -246,7 +250,9 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
         }
     }
 
-    LaunchedEffect(messages.size) {
+    // En alta yalnizca yeni mesaj eklendiginde kaydirilir. Eski mesajlar
+    // yukari eklendiginde son mesaj degismedigi icin ekran yerinde kalir.
+    LaunchedEffect(messages.lastOrNull()?.key) {
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
     }
 
@@ -378,6 +384,28 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
     // Baglanti geri geldiginde kuyruktakiler kendiliginden gonderilir.
     LaunchedEffect(connected) {
         if (connected) retryPending()
+    }
+
+    /**
+     * Listenin basina gelindiginde daha eski mesajlar cekilir.
+     * Tum gecmis bir kerede indirilmez; kullanici yukari kaydirdikca gelir.
+     */
+    LaunchedEffect(listState, messages.size) {
+        snapshotFlow { listState.firstVisibleItemIndex }
+            .collect { index ->
+                if (index > 2 || loadingOlder || !hasOlder || messages.isEmpty()) return@collect
+                val oldest = messages.firstOrNull { it.id > 0 }?.id ?: return@collect
+                loadingOlder = true
+                runCatching { Naber.api.messages(conversationId, before = oldest) }
+                    .onSuccess { (older, _, _) ->
+                        if (older.isEmpty()) {
+                            hasOlder = false
+                        } else {
+                            messages = (older + messages).distinctBy { it.key }.sortedBy { it.createdAt }
+                        }
+                    }
+                loadingOlder = false
+            }
     }
 
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -524,6 +552,20 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
+                    if (loadingOlder) {
+                        item("eski-yukleniyor") {
+                            Box(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator(
+                                    color = NaberColors.Accent,
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
                     items(messages, key = { it.key }) { message ->
                         MessageRow(
                             message = message,
