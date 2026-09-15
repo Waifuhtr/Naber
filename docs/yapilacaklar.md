@@ -79,73 +79,97 @@ Yapilacaklar:
 15. **Sikistirilmis JSON / gzip** — sunucu yanitlarinda gzip acik degilse
     acilmasi (WordPress/Apache seviyesinde) veri kullanimini dusurur.
 
-## Genel ozellik onerileri (durtme disinda)
+## Genel ozellikler — KESIN EKLENECEK
 
-Kucuk bir arkadas/aile grubu (~10 kisi) icin, karmasiklastirmadan asil
-deger katacak ozellikler. Kullanici sececek, hepsi zorunlu degil.
+Kullanici onayladi, hepsi eklenecek. Not: **belge/dosya gonderme
+listeden cikarildi, istenmiyor.**
 
-**Mesajlasmada eksik olan cekirdek ozellikler:**
+**Mesajlasma:**
 
-- **Sesli mesaj (voice note)** — WhatsApp'in en cok kullanilan
-  ozelliklerinden biri; basili tutup kaydet, birak gonder.
+- **Sesli mesaj (voice note)** — basili tutup kaydet, birak gonder.
 - **Mesaja yanit verme (reply/quote)** — hangi mesaja cevap
-  yazildigini gostermek, kalabalik sohbetlerde onemli.
+  yazildigini gostermek.
 - **Mesaj iletme (forward)** — bir mesaji baska bir sohbete gondermek.
-- **Emoji reaksiyon** — mesaja basili tutup 👍❤️😂 gibi hizli tepki
-  birakmak; her seye yazili cevap yazmaktan kurtarir.
-- **Mesaj duzenleme** — gonderilen metni kisa bir sure icinde
-  duzeltebilme ("duzenlendi" etiketiyle).
-- **Belge/dosya gonderme** — su an sadece gorsel var; PDF, zip gibi
-  dosyalar da gonderilebilsin.
+- **Emoji reaksiyon** — mesaja basili tutup 👍❤️😂 gibi hizli tepki.
+- **Mesaj duzenleme** — gonderilen metni kisa sure icinde duzeltebilme
+  ("duzenlendi" etiketiyle).
 - **Uygulama ici kamera** — galeriye gitmeden dogrudan fotograf
-  cekip gondermek (WhatsApp'taki gibi).
+  cekip gondermek.
 
 **Sohbet yonetimi:**
 
-- **Sohbeti sabitleme (pin)** — onemli sohbetler listenin basinda
-  kalsin.
-- **Sureli sessize alma** — "8 saat / 1 hafta / surekli" gibi secenekler
-  (su an sadece acik/kapali gibi gorunuyor).
-- **Sohbet ici global arama** — tum sohbetlerde tek seferde arama
-  (belirli bir kisiden veya kelimeden gecen mesajlari bulmak).
-- **Kaybolan mesajlar** — secilirse mesajlar belirli sure sonra
-  otomatik silinir (gizlilik odakli sohbetler icin).
+- **Sohbeti sabitleme (pin)** — onemli sohbetler listenin basinda.
+- **Sureli sessize alma** — "8 saat / 1 hafta / surekli" secenekleri.
+- **Global arama** — tum sohbetlerde tek seferde arama.
+- **Kaybolan mesajlar — ISTEGE BAGLI (opt-in).** Varsayilan kapali;
+  kullanici bir sohbette ozellikle acarsa o sohbette mesajlar belirli
+  sure sonra otomatik silinir. Sohbet bazinda ayri ayri acilip
+  kapatilabilmeli, global bir ayar olmamali.
 
 **Grup ozellikleri:**
 
 - **@bahsetme (mention)** — grupta birinin adini yazinca ona ozel
   bildirim gitmesi.
-- **Grup davet linki** — yeni birini eklemek icin manuel uye eklemek
-  yerine paylasilabilir bir link.
+- **Grup davet KODU (link degil).** Grup bilgisinde kisa bir kod
+  uretilir (orn. 6 haneli). Ana ekranda "Kod ile grup bul" secenegi
+  ile kullanici bu kodu girip gruba katilir. Link paylasimindan
+  farkli olarak kod disaridan tiklanabilir bir URL olmadigindan
+  daha kontrollu: sadece kod bilen, uygulamaya zaten giris yapmis
+  kisi katilabilir. Kodun suresiz mi yoksa yenilenebilir mi olacagi
+  (guvenlik icin admin "kodu yenile" diyebilsin) sonra netlesir.
 - **Anket (poll)** — grup icinde hizli oylama.
 
 **Gizlilik / guvenlik:**
 
-- **Uygulama kilidi** — PIN veya parmak izi ile uygulamayi acma
-  (telefonu baskasi alirsa sohbetler gorunmesin).
-- **Kullanici engelleme** — istenmeyen kisiyi engelleme (10 kisilik
-  guvenilir grup icin dusuk oncelikli ama yine de faydali).
-- **Son gorulme / okundu bilgisini gizleme secenegi** — kullanici
-  isterse bu bilgileri paylasmasin.
+- **Uygulama kilidi** — PIN veya parmak izi ile uygulamayi acma.
+- **Kullanici engelleme.**
+- **Son gorulme / okundu bilgisini gizleme secenegi.**
 
 **Kisisellestirme:**
 
-- **Acik tema secenegi** — su an sadece koyu tema var; kullanici
-  secebilse iyi olur.
-- **Sohbet arka plani / renk teması** — her sohbete farkli bir gorunum.
+- **Acik tema secenegi** — su an sadece koyu tema var.
+- **Sohbet arka plani / renk teması.**
 - **Konum paylasma** — anlik veya tek seferlik konum gonderme.
 
-**Onerilen oncelik (dustuğu yerden baslanabilir):**
+## Ek ozellik onerileri (henuz onaylanmadi, degerlendirilecek)
 
-1. Mesaja yanit verme + emoji reaksiyon (en cok fark yaratacaklar, gorece kolay)
-2. Sesli mesaj
-3. Sohbeti sabitleme + sureli sessize alma
-4. Uygulama kilidi
-5. Digerleri kullaniciya gore
+Daha once onerilenlere ek, yine kucuk guvenilir grup (~10 kisi)
+mantigina uygun, karmasiklastirmayan fikirler:
+
+- **Mesaj yildizlama (starred messages)** — onemli mesajlari
+  isaretleyip sonradan tek bir ekrandan hepsini gorme.
+- **Sohbeti arsivleme** — silmeden listeden gizleme, istenince geri
+  cikarma.
+- **Grupta sabitlenmis mesaj/duyuru** — grup bilgisinin ustunde
+  sabit duran bir duyuru satiri (yalnizca admin degistirebilir).
+- **Kisiye ozel takma ad (nickname)** — karsi tarafin profil adini
+  degistirmeden, yalnizca sizin ekraninizda farkli bir isimle gorme.
+- **Gorunmez mod** — yalnizca son gorulmeyi degil, anlik cevrimici
+  noktasini da gizleme (simetrik: gizleyen karsisininkini de goremez).
+- **"Yaziyor" gostergesini kapatma secenegi** — gizlilik simetrisiyle
+  ayni mantik.
+- **GIF/sticker destegi** — yerel bir sticker paketi veya basit bir
+  GIF arama entegrasyonu.
+- **Medya galerisi gorunumu** — bir sohbetin butun gonderilen
+  gorsellerini izgara halinde tek ekranda gorme (galeriye girmeden).
+- **Canli konum paylasimi** — sureli (orn. 30 dk) hareket eden konum,
+  tek seferlik konumdan farkli olarak.
+- **Sesli mesaj hiz kontrolu** — 1x / 1.5x / 2x dinleme (sesli mesaj
+  eklenince dogal bir tamamlayici).
+- **"Duyuru modu" grup ayari** — admin acarsa yalnizca adminler mesaj
+  atabilir, digerleri sadece okur (kurallar/duyurular grubu icin).
+- **Favori/sabit kisiler** — sohbet listesinde en ust kisimda ayri bir
+  "favoriler" bolumu.
+- **Dogum gunu alani + hatirlatma** — profile dogum tarihi eklenir,
+  o gun diger kullanicilara hafif bir bildirim/rozet gosterilir.
+- **Ana ekran widget'i** — son mesajlari veya okunmamis sayisini
+  telefonun ana ekraninda gosteren kucuk bir widget.
 
 ## Kodlamaya gecince siralama
 
 1. Tam ekran gorsel siyah ekran duzeltmesi (kucuk, hizli).
 2. Durtme ozelligi (sunucu + istemci).
-3. Onaylanan optimizasyonlar (yukaridaki KESIN YAPILACAK listesi).
-4. Kullanicinin sectigi genel ozellikler.
+3. Onaylanan optimizasyonlar (KESIN YAPILACAK listesi).
+4. Onaylanan genel ozellikler (KESIN EKLENECEK listesi) — kullanici
+   sirayi belirleyecek.
+5. Ek oneriler arasindan kullanicinin sectikleri.
