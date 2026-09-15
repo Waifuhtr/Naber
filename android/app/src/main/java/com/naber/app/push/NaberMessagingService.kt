@@ -3,6 +3,7 @@ package com.naber.app.push
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import com.naber.app.Naber
+import com.naber.app.data.LocalStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -52,6 +53,36 @@ class NaberMessagingService : FirebaseMessagingService() {
                 val sender = data["sender_name"] ?: message.notification?.title ?: "Yeni mesaj"
                 val preview = data["preview"] ?: message.notification?.body ?: ""
                 Notifications.showMessage(this, sender, preview, conversationId)
+                cacheInBackground(conversationId)
+            }
+        }
+    }
+
+    /**
+     * Bildirim geldiginde sohbeti arka planda cihaza yazar.
+     *
+     * Boylece kullanici bildirime dokundugunda sohbet zaten dolu acilir;
+     * mesajin gelmesini beklemez. Basarisiz olursa sessizce gecilir, bildirim
+     * yine de gosterilmistir.
+     */
+    private fun cacheInBackground(conversationId: Int) {
+        if (conversationId <= 0 || !Naber.session.isLoggedIn) return
+        val context = applicationContext
+        scope.launch {
+            runCatching {
+                val (list, _, _) = Naber.api.messages(conversationId)
+                if (list.isNotEmpty()) {
+                    // Gonderilemeyen mesajlar kuyrukta kalsin diye once mevcut
+                    // kayit okunur, sunucudan gelenlerle birlestirilir.
+                    val pending = LocalStore.loadMessages(context, conversationId).filter { it.id <= 0 }
+                    LocalStore.saveMessages(
+                        context,
+                        conversationId,
+                        (list + pending).distinctBy { it.key }.sortedBy { it.createdAt }
+                    )
+                }
+                val (chats, unread) = Naber.api.chats()
+                LocalStore.saveChats(context, chats, unread)
             }
         }
     }

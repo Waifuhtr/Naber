@@ -45,7 +45,7 @@ class Naber_Media {
 		);
 	}
 
-	public static function create_pending( $user_id, $file_name, $mime, $size, $width = 0, $height = 0 ) {
+	public static function create_pending( $user_id, $file_name, $mime, $size, $width = 0, $height = 0, $hash = '' ) {
 		global $wpdb;
 		$wpdb->insert(
 			Naber_DB::table( 'media' ),
@@ -55,15 +55,40 @@ class Naber_Media {
 				'file_name'  => (string) $file_name,
 				'file_id'    => '',
 				'mime'       => (string) $mime,
+				'hash'       => (string) $hash,
 				'size'       => (int) $size,
 				'width'      => (int) $width,
 				'height'     => (int) $height,
 				'status'     => 'pending',
 				'created_at' => Naber_DB::now(),
 			),
-			array( '%d', '%s', '%s', '%s', '%s', '%d', '%d', '%d', '%s', '%s' )
+			array( '%d', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%d', '%s', '%s' )
 		);
 		return (int) $wpdb->insert_id;
+	}
+
+	/**
+	 * Ayni dosya daha once yuklenmisse tekrar yuklemeye gerek yok.
+	 * (Ileri gonderilen ayni gorsel, tekrar gonderilen fotograf vb.)
+	 */
+	public static function find_by_hash( $hash, $user_id = 0 ) {
+		global $wpdb;
+		$hash = trim( (string) $hash );
+		if ( 64 !== strlen( $hash ) || ! ctype_xdigit( $hash ) ) {
+			return null;
+		}
+
+		$table = Naber_DB::table( 'media' );
+		if ( $user_id ) {
+			return $wpdb->get_row(
+				$wpdb->prepare( "SELECT * FROM {$table} WHERE hash = %s AND owner_id = %d AND status = 'ready' ORDER BY id DESC LIMIT 1", $hash, (int) $user_id ),
+				ARRAY_A
+			);
+		}
+		return $wpdb->get_row(
+			$wpdb->prepare( "SELECT * FROM {$table} WHERE hash = %s AND status = 'ready' ORDER BY id DESC LIMIT 1", $hash ),
+			ARRAY_A
+		);
 	}
 
 	public static function complete( $media_id, $user_id, $file_id, $size = 0 ) {

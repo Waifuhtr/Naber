@@ -372,6 +372,7 @@ class Naber_Auth {
 			'display_name' => $user->display_name,
 			'naber_email'  => $user->user_email,
 			'avatar'       => self::avatar_url( $user->ID ),
+			'avatar_id'    => (int) get_user_meta( $user->ID, self::META_AVATAR, true ),
 			'about'        => (string) get_user_meta( $user->ID, 'naber_about', true ),
 			'last_seen'    => $last,
 			'online'       => self::is_online( $user->ID ),

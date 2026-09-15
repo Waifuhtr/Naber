@@ -1,5 +1,6 @@
 package com.naber.app.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -32,6 +33,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -70,6 +73,7 @@ fun Avatar(user: User?, size: Dp = 48.dp, modifier: Modifier = Modifier) {
     AvatarBase(
         model = local.ifBlank { user?.avatar.orEmpty() },
         cacheKey = "avatar-${user?.id ?: 0}",
+        avatarId = if (local.isBlank()) user?.avatarId ?: 0 else 0,
         name = user?.displayName.orEmpty(),
         colorSeed = user?.id ?: 0,
         size = size,
@@ -97,6 +101,7 @@ fun ChatAvatar(chat: Chat, size: Dp = 52.dp, modifier: Modifier = Modifier) {
             AvatarBase(
                 model = chat.avatar,
                 cacheKey = "group-${chat.id}",
+                avatarId = chat.avatarId,
                 name = chat.title,
                 colorSeed = chat.id,
                 size = size,
@@ -127,9 +132,13 @@ private fun AvatarBase(
     name: String,
     colorSeed: Int,
     size: Dp,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    avatarId: Int = 0
 ) {
     val color = avatarColor(colorSeed)
+    // Profil fotografi bir kez indirilip cihazda saklanir; sonraki acilislarda
+    // ag beklenmez, fotograf aninda gorunur.
+    val source = rememberCachedAvatar(avatarId, model)
     Box(
         modifier = modifier.size(size).clip(CircleShape).background(color),
         contentAlignment = Alignment.Center
@@ -140,15 +149,36 @@ private fun AvatarBase(
             fontWeight = FontWeight.SemiBold,
             fontSize = (size.value / 2.5f).sp
         )
-        if (model.isNotBlank()) {
+        if (source.isNotBlank()) {
             AsyncImage(
-                model = stableImageRequest(model, cacheKey),
+                model = stableImageRequest(source, cacheKey),
                 contentDescription = name,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop
             )
         }
     }
+}
+
+/**
+ * Profil fotografini cihazdaki kopyadan verir; kopya yoksa bir kez indirir.
+ * Kimlik bilinmiyorsa (0) dogrudan gelen adres kullanilir.
+ */
+@Composable
+private fun rememberCachedAvatar(avatarId: Int, url: String): String {
+    val context = LocalContext.current
+
+    var stored by remember(avatarId) {
+        mutableStateOf(if (avatarId > 0) MediaStore.cachedAvatarUri(context, avatarId) else null)
+    }
+
+    LaunchedEffect(avatarId, url) {
+        if (avatarId > 0 && stored == null && url.isNotBlank()) {
+            stored = MediaStore.ensureAvatar(context, avatarId, url)
+        }
+    }
+
+    return stored ?: url
 }
 
 /**
@@ -192,16 +222,49 @@ fun MessageImage(
     localUri: Any?,
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop,
+    preview: String = "",
     onError: (() -> Unit)? = null
 ) {
-    val model = rememberStoredImage(media, localUri) ?: return
-    AsyncImage(
-        model = stableImageRequest(model, "media-${media?.id ?: model.hashCode()}"),
-        contentDescription = "Gorsel",
-        modifier = modifier,
-        contentScale = contentScale,
-        onError = { onError?.invoke() }
-    )
+    // Mesajla birlikte gelen kucucuk on izleme aninda cizilir; asil gorsel
+    // hazir oldugunda ustune biner. Boylece bos gri kutu hic gorunmez.
+    val thumb = rememberPreviewBitmap(preview)
+    val model = rememberStoredImage(media, localUri)
+
+    if (model == null) {
+        if (thumb != null) {
+            Image(
+                bitmap = thumb,
+                contentDescription = "Gorsel on izlemesi",
+                modifier = modifier,
+                contentScale = contentScale
+            )
+        }
+        return
+    }
+
+    Box(modifier = modifier) {
+        if (thumb != null) {
+            Image(
+                bitmap = thumb,
+                contentDescription = null,
+                modifier = Modifier.matchParentSize(),
+                contentScale = contentScale
+            )
+        }
+        AsyncImage(
+            model = stableImageRequest(model, "media-${media?.id ?: model.hashCode()}"),
+            contentDescription = "Gorsel",
+            modifier = Modifier.matchParentSize(),
+            contentScale = contentScale,
+            onError = { onError?.invoke() }
+        )
+    }
+}
+
+/** Base64 on izleme yalnizca bir kez cozulur; her yeniden cizimde degil. */
+@Composable
+private fun rememberPreviewBitmap(preview: String): ImageBitmap? = remember(preview) {
+    decodePreview(preview)?.asImageBitmap()
 }
 
 @Composable

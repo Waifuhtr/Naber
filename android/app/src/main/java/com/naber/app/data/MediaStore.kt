@@ -43,11 +43,44 @@ object MediaStore {
     fun fileFor(context: Context, mediaId: Int): File =
         File(directory(context), "NABER-IMG-$mediaId.jpg")
 
+    /**
+     * Profil fotograflari ayri adlandirilir; sohbet gorselleri temizlenirken
+     * yanlislikla silinmesinler ve boyut hesabinda ayirt edilebilsinler.
+     */
+    fun avatarFileFor(context: Context, mediaId: Int): File =
+        File(directory(context), "NABER-AVA-$mediaId.jpg")
+
     /** Indirilmis dosyanin adresi; yoksa null. */
     fun cachedUri(context: Context, mediaId: Int): String? {
         if (mediaId <= 0) return null
         val file = fileFor(context, mediaId)
         return if (file.exists() && file.length() > 0) Uri.fromFile(file).toString() else null
+    }
+
+    fun cachedAvatarUri(context: Context, mediaId: Int): String? {
+        if (mediaId <= 0) return null
+        val file = avatarFileFor(context, mediaId)
+        return if (file.exists() && file.length() > 0) Uri.fromFile(file).toString() else null
+    }
+
+    /**
+     * Profil fotografini bir kez indirir.
+     *
+     * Avatar adresi imzalidir ve her istekte degisir; medya kimligine gore
+     * saklanirsa ayni fotograf bir daha indirilmez, liste kaydirirken
+     * "mavi arka plan" yerine aninda fotograf gorunur.
+     */
+    suspend fun ensureAvatar(context: Context, mediaId: Int, url: String): String? {
+        if (mediaId <= 0 || url.isBlank()) return null
+        cachedAvatarUri(context, mediaId)?.let { return it }
+
+        val key = -mediaId
+        val lock = globalLock.withLock { locks.getOrPut(key) { Mutex() } }
+
+        return lock.withLock {
+            cachedAvatarUri(context, mediaId)?.let { return@withLock it }
+            download(url, avatarFileFor(context, mediaId))
+        }
     }
 
     /** Yerel kopyayi dogrudan kaydeder (gonderdigimiz gorseller icin). */
@@ -70,30 +103,39 @@ object MediaStore {
 
         return lock.withLock {
             cachedUri(context, mediaId)?.let { return@withLock it }
-
-            withContext(Dispatchers.IO) {
-                runCatching {
-                    val request = Request.Builder().url(url).build()
-                    client.newCall(request).execute().use { response ->
-                        if (!response.isSuccessful) return@use null
-                        val bytes = response.body?.bytes() ?: return@use null
-                        if (bytes.isEmpty()) return@use null
-
-                        val file = fileFor(context, mediaId)
-                        val temp = File(file.parentFile, "${file.name}.part")
-                        temp.writeBytes(bytes)
-                        if (file.exists()) file.delete()
-                        temp.renameTo(file)
-                        Uri.fromFile(file).toString()
-                    }
-                }.getOrNull()
-            }
+            download(url, fileFor(context, mediaId))
         }
+    }
+
+    /**
+     * Dosyayi indirip diske yazar.
+     * Once ".part" adiyla yazilip sonra tasindigi icin yarim kalan indirme
+     * gecerli bir dosya gibi gorunmez.
+     */
+    private suspend fun download(url: String, file: File): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            val request = Request.Builder().url(url).build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                val bytes = response.body?.bytes() ?: return@use null
+                if (bytes.isEmpty()) return@use null
+
+                val temp = File(file.parentFile, "${file.name}.part")
+                temp.writeBytes(bytes)
+                if (file.exists()) file.delete()
+                temp.renameTo(file)
+                Uri.fromFile(file).toString()
+            }
+        }.getOrNull()
     }
 
     /** Toplam boyut (yonetim/temizlik icin). */
     fun totalBytes(context: Context): Long =
         directory(context).listFiles()?.sumOf { it.length() } ?: 0L
+
+    /** Saklanan gorsel sayisi (depolama ekraninda gosterilir). */
+    fun fileCount(context: Context): Int =
+        directory(context).listFiles()?.count { it.isFile && !it.name.endsWith(".part") } ?: 0
 
     fun clear(context: Context) {
         runCatching { directory(context).listFiles()?.forEach { it.delete() } }

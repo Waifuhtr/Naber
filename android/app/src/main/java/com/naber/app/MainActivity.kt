@@ -48,6 +48,10 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         Naber.init(applicationContext)
+        // Arama yoneticisi surec boyunca yasar; onceki oturumdan kalan bitmis
+        // arama durumu temizlenmezse uygulamaya her girildiginde hayalet bir
+        // arama ekrani gorunur.
+        Naber.calls.clearStaleState()
         pendingConversationId = intent?.getIntExtra(EXTRA_CONVERSATION_ID, 0) ?: 0
         pendingAccept = intent?.getBooleanExtra(EXTRA_CALL_ACCEPT, false) ?: false
 
@@ -77,6 +81,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        Naber.calls.clearStaleState()
         if (Naber.session.isLoggedIn) {
             Naber.events.start()
             Naber.events.launchInScope { Naber.api.setPresence(true) }

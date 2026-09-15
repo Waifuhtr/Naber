@@ -348,6 +348,9 @@ class Naber_Chat_Repo {
 			'title'        => 'group' === $row['type'] ? (string) $row['title'] : ( $peer ? $peer['display_name'] : '' ),
 			'about'        => (string) $row['about'],
 			'avatar'       => 'group' === $row['type'] ? Naber_Media::url_for_id( (int) $row['avatar_media_id'] ) : ( $peer ? $peer['avatar'] : '' ),
+			// Imzali adres her istekte degisir; istemci fotografi bu kimlige gore
+			// cihazda saklar ve ayni fotografi bir daha indirmez.
+			'avatar_id'    => 'group' === $row['type'] ? (int) $row['avatar_media_id'] : ( $peer ? (int) $peer['avatar_id'] : 0 ),
 			'peer'         => $peer,
 			'owner_id'     => (int) $row['owner_id'],
 			'member_count' => isset( $row['member_count'] ) ? (int) $row['member_count'] : count( self::member_ids( (int) $row['id'] ) ),
@@ -444,7 +447,7 @@ class Naber_Chat_Repo {
 		return $out;
 	}
 
-	public static function insert_message( $conversation_id, $sender_id, $receiver_id, $type, $body, $media_id = 0, $client_id = '' ) {
+	public static function insert_message( $conversation_id, $sender_id, $receiver_id, $type, $body, $media_id = 0, $client_id = '', $preview = '' ) {
 		global $wpdb;
 		$messages      = Naber_DB::table( 'messages' );
 		$conversations = Naber_DB::table( 'conversations' );
@@ -469,11 +472,12 @@ class Naber_Chat_Repo {
 				'message_type'    => $type,
 				'body'            => $body,
 				'media_id'        => (int) $media_id,
+				'preview'         => (string) $preview,
 				'client_id'       => (string) $client_id,
 				'is_read'         => 0,
 				'created_at'      => $now,
 			),
-			array( '%d', '%d', '%d', '%s', '%s', '%d', '%s', '%d', '%s' )
+			array( '%d', '%d', '%d', '%s', '%s', '%d', '%s', '%s', '%d', '%s' )
 		);
 
 		$message_id = (int) $wpdb->insert_id;
@@ -929,6 +933,8 @@ class Naber_Chat_Repo {
 			'is_read'         => (bool) (int) $row['is_read'],
 			'deleted'         => (bool) (int) $row['deleted'],
 			'created_at'      => self::ts( $row['created_at'] ),
+			// Gorselin cok kucuk on izlemesi; mesajla birlikte gelir, aninda cizilir.
+			'preview'         => isset( $row['preview'] ) ? (string) $row['preview'] : '',
 			'media'           => null,
 			'sender_name'     => '',
 			'sender_avatar'   => '',

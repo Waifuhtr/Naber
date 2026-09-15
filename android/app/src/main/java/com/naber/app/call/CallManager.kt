@@ -55,6 +55,8 @@ data class CallUiState(
     val speakerOn: Boolean = false,
     val canModerate: Boolean = false,
     val startedAt: Long = 0L,
+    // Cagrinin sunucudaki olusturulma zamani (unix saniye); bayat cagriyi elemek icin.
+    val createdAt: Long = 0L,
     val error: String? = null,
     val statusText: String = ""
 )
@@ -89,6 +91,7 @@ class CallManager(
     // API 26 oncesi surumlerde bu tip bulunmadigi icin alan tipi genel tutulur.
     private var focusRequest: Any? = null
     private var watchJob: Job? = null
+    private var resetJob: Job? = null
 
     private val peers = HashMap<Int, PeerSession>()
     private val bufferedSignals = mutableListOf<Signal>()
@@ -126,6 +129,7 @@ class CallManager(
         if (current != CallStage.IDLE && current != CallStage.ENDED) return
 
         resetSession()
+        resetJob?.cancel()
         _state.value = CallUiState(
             stage = CallStage.DIALING,
             isGroup = conversationId > 0 && peerUser == null,
@@ -164,11 +168,24 @@ class CallManager(
         if (_state.value.callId == call.id) return
         if (call.id in finishedCalls) return
         if (call.status == "ended" || call.status == "missed" || call.status == "rejected") return
+        // Kendi baslattigimiz arama bize "gelen arama" olarak donmemeli.
+        if (call.callerId > 0 && call.callerId == myId()) {
+            finishedCalls.add(call.id)
+            return
+        }
+        // Sunucudan gec gelen ya da uygulama kapaliyken birikmis eski kayitlar
+        // "hayalet arama" ekranina yol acar; zil suresi gecmisse hic acma.
+        if (isStale(call.createdAt)) {
+            finishedCalls.add(call.id)
+            return
+        }
 
         resetSession()
+        resetJob?.cancel()
         _state.value = CallUiState(
             stage = CallStage.INCOMING,
             callId = call.id,
+            createdAt = call.createdAt,
             isGroup = call.isGroup,
             title = if (call.isGroup) call.groupTitle else (call.caller?.displayName ?: "Bilinmeyen"),
             peer = call.caller,
@@ -284,6 +301,7 @@ class CallManager(
 
     fun dismiss() {
         if (_state.value.stage == CallStage.ENDED) {
+            resetJob?.cancel()
             _state.value = CallUiState()
         }
     }
@@ -663,6 +681,8 @@ class CallManager(
         releaseResources()
         _state.value = _state.value.copy(stage = CallStage.ENDED, error = message, statusText = message)
         scope.launch { runCatching { api.callAction(callId, "end") } }
+        // Hata mesaji ekranda asili kalmasin; okunacak kadar bekleyip kendini temizler.
+        scheduleIdleReset(ENDED_RESET_ERROR_MS)
     }
 
     private fun cleanup(reason: String) {
@@ -670,10 +690,56 @@ class CallManager(
         if (_state.value.callId > 0) finishedCalls.add(_state.value.callId)
         releaseResources()
         _state.value = _state.value.copy(stage = CallStage.ENDED, statusText = reason)
-        scope.launch {
-            delay(1200)
+        scheduleIdleReset(ENDED_RESET_MS)
+    }
+
+    /**
+     * "Arama sonlandi" ekrani belirli bir sure sonra kendiliginden kapanir.
+     * Tek is parcasi kullanilir; ust uste cagrilarda eski sayac iptal olur.
+     */
+    private fun scheduleIdleReset(delayMs: Long) {
+        resetJob?.cancel()
+        resetJob = scope.launch {
+            delay(delayMs)
             if (_state.value.stage == CallStage.ENDED) _state.value = CallUiState()
         }
+    }
+
+    /**
+     * Uygulama yeniden acildiginda cagrilir.
+     *
+     * CallManager surec boyunca yasayan tek bir nesnedir; ekran yok edilip
+     * yeniden olusturuldugunda eski ENDED durumu hafizada kalir ve uygulamaya
+     * her girildiginde "hayalet" bir arama ekrani gorunur. Burada o artik
+     * durum temizlenir.
+     */
+    fun clearStaleState() {
+        val current = _state.value
+        when (current.stage) {
+            CallStage.IDLE -> Unit
+            CallStage.ENDED -> {
+                resetJob?.cancel()
+                _state.value = CallUiState()
+            }
+            CallStage.INCOMING -> {
+                // Cevaplanmamis eski bir cagri; suresi gectiyse dusur.
+                if (isStale(current.createdAt)) {
+                    SoundPlayer.stopRingtone()
+                    if (current.callId > 0) finishedCalls.add(current.callId)
+                    resetJob?.cancel()
+                    _state.value = CallUiState()
+                }
+            }
+            // Gercekten suren bir arama varsa dokunma.
+            else -> Unit
+        }
+    }
+
+    /** Sunucudan gelen cagri kaydi cok eskiyse (zil suresi gecmisse) dogru degildir. */
+    private fun isStale(createdAtSeconds: Long): Boolean {
+        if (createdAtSeconds <= 0L) return false
+        val ageMs = System.currentTimeMillis() - createdAtSeconds * 1000L
+        return ageMs > INCOMING_MAX_AGE_MS
     }
 
     private fun closePeer(userId: Int) {
@@ -751,6 +817,15 @@ class CallManager(
         }
         focusRequest = null
         audioManager = null
+    }
+
+    private companion object {
+        /** "Arama sonlandi" yazisinin ekranda kalma suresi. */
+        const val ENDED_RESET_MS = 1200L
+        /** Hata mesaji biraz daha uzun kalsin ki okunabilsin. */
+        const val ENDED_RESET_ERROR_MS = 2500L
+        /** Bu sureden eski "gelen arama" kayitlari artik gecerli sayilmaz. */
+        const val INCOMING_MAX_AGE_MS = 45_000L
     }
 }
 

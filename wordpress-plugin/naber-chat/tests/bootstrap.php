@@ -101,6 +101,7 @@ require_once dirname( __DIR__ ) . '/includes/class-naber-media.php';
 require_once dirname( __DIR__ ) . '/includes/class-naber-db.php';
 require_once dirname( __DIR__ ) . '/includes/class-naber-auth.php';
 require_once dirname( __DIR__ ) . '/includes/class-naber-chat-repo.php';
+require_once dirname( __DIR__ ) . '/includes/class-naber-rest.php';
 
 /**
  * Backblaze API'sini taklit eden HTTP katmani.
@@ -221,10 +222,16 @@ class Naber_Tests {
 		self::ok( $same, $label );
 	}
 
+	/**
+	 * Ozet yazar ve surecten cikar.
+	 *
+	 * Cikis kodu onemli: surekli tumlestirme (CI) yalnizca buna bakar.
+	 * Yalnizca deger dondurulseydi basarisiz test bile "gecti" sayilirdi.
+	 */
 	public static function summary() {
 		$total = self::$passed + self::$failed;
 		echo "\n------------------------------------------\n";
 		echo sprintf( "Toplam: %d  Gecti: %d  Kaldi: %d\n", $total, self::$passed, self::$failed );
-		return self::$failed === 0 ? 0 : 1;
+		exit( self::$failed === 0 ? 0 : 1 );
 	}
 }

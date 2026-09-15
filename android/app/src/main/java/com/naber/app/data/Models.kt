@@ -12,6 +12,8 @@ data class User(
     val displayName: String,
     val naberEmail: String,
     val avatar: String,
+    /** Profil fotografinin medya kimligi; cihazda saklamak icin kullanilir. */
+    val avatarId: Int = 0,
     val about: String,
     val lastSeen: Long,
     val online: Boolean,
@@ -45,6 +47,7 @@ data class User(
                 displayName = json.optString("display_name").ifBlank { json.optString("username") },
                 naberEmail = json.optString("naber_email"),
                 avatar = json.optString("avatar"),
+                avatarId = json.optInt("avatar_id"),
                 about = json.optString("about"),
                 lastSeen = json.optLong("last_seen"),
                 online = json.optBoolean("online"),
@@ -105,7 +108,9 @@ data class Message(
     val senderAvatar: String = "",
     val localImageUri: String? = null,
     val sendState: SendState = SendState.SENT,
-    val uploadProgress: Int = 0
+    val uploadProgress: Int = 0,
+    /** Cok kucuk base64 JPEG. Asil dosya inene kadar bulanik on izleme cizilir. */
+    val preview: String = ""
 ) {
     val key: String get() = if (id > 0) "id-$id" else "c-$clientId"
 
@@ -130,7 +135,10 @@ data class Message(
                 createdAt = json.optLong("created_at"),
                 media = Media.from(json.optJSONObject("media")),
                 senderName = json.optString("sender_name"),
-                senderAvatar = json.optString("sender_avatar")
+                senderAvatar = json.optString("sender_avatar"),
+                preview = json.optString("preview"),
+                // Sunucu bu alani gondermez; yalnizca cihazdaki kopyada bulunur.
+                localImageUri = json.optString("local_image_uri").ifBlank { null }
             )
         }
 
@@ -145,6 +153,7 @@ data class Chat(
     val title: String,
     val about: String,
     val avatar: String,
+    val avatarId: Int,
     val peer: User?,
     val ownerId: Int,
     val memberCount: Int,
@@ -171,6 +180,7 @@ data class Chat(
                 title = json.optString("title"),
                 about = json.optString("about"),
                 avatar = json.optString("avatar"),
+                avatarId = json.optInt("avatar_id"),
                 peer = User.from(json.optJSONObject("peer")),
                 ownerId = json.optInt("owner_id"),
                 memberCount = json.optInt("member_count"),
@@ -376,6 +386,76 @@ data class StorageTestStep(val label: String, val ok: Boolean, val message: Stri
 
 @Immutable
 data class StorageTestResult(val ok: Boolean, val message: String, val bucketId: String, val steps: List<StorageTestStep>)
+
+// ---------------------------------------------------------------- cevrimdisi
+//
+// Asagidaki donusturucular sohbet listesini ve mesaj gecmisini cihaza yazmak
+// icin kullanilir. Sunucudan gelen bicimin aynisi yazildigi icin okuma
+// tarafinda ayri bir cozumleyiciye gerek kalmaz.
+
+fun Media.toJson(): JSONObject = JSONObject()
+    .put("id", id)
+    .put("url", url)
+    .put("mime", mime)
+    .put("width", width)
+    .put("height", height)
+
+fun User.toJson(): JSONObject = JSONObject()
+    .put("id", id)
+    .put("username", username)
+    .put("display_name", displayName)
+    .put("naber_email", naberEmail)
+    .put("avatar", avatar)
+    .put("avatar_id", avatarId)
+    .put("about", about)
+    .put("last_seen", lastSeen)
+    .put("online", online)
+    .put("is_admin", isAdmin)
+    .put("is_contact", isContact)
+    .put("disabled", disabled)
+    .put("banned", banned)
+    .put("ban_reason", banReason)
+    .put("registered", registered)
+    .put("role", role)
+    .put("chat_muted", chatMuted)
+    .put("call_status", callStatus)
+    .put("muted", muted)
+
+fun Message.toJson(): JSONObject = JSONObject()
+    .put("id", id)
+    .put("conversation_id", conversationId)
+    .put("sender_id", senderId)
+    .put("type", type)
+    .put("body", body)
+    .put("client_id", clientId)
+    .put("is_read", isRead)
+    .put("deleted", deleted)
+    .put("created_at", createdAt)
+    .put("media", media?.toJson())
+    .put("sender_name", senderName)
+    .put("sender_avatar", senderAvatar)
+    .put("preview", preview)
+    .put("local_image_uri", localImageUri.orEmpty())
+
+fun Chat.toJson(): JSONObject = JSONObject()
+    .put("id", id)
+    .put("type", type)
+    .put("title", title)
+    .put("about", about)
+    .put("avatar", avatar)
+    .put("avatar_id", avatarId)
+    .put("peer", peer?.toJson())
+    .put("owner_id", ownerId)
+    .put("member_count", memberCount)
+    .put("role", role)
+    .put("chat_muted", chatMuted)
+    .put("notify_muted", notifyMuted)
+    .put("unread", unread)
+    .put("updated_at", updatedAt)
+    .put("last_message", lastMessage?.toJson())
+    .put("read_watermark", readWatermark)
+    .put("delivered_watermark", deliveredWatermark)
+    .put("members", JSONArray(members.map { it.toJson() }))
 
 /** JSONArray -> List<T> kisayolu. */
 internal fun <T> JSONArray?.mapObjects(mapper: (JSONObject) -> T?): List<T> {

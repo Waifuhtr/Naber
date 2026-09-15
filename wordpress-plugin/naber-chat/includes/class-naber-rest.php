@@ -9,6 +9,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class Naber_REST {
 
+	/** On izleme base64 metninin ust siniri (yaklasik 6 KB ikili veri). */
+	const MAX_PREVIEW_CHARS = 8000;
+
 	public function register_routes() {
 		$ns = NABER_CHAT_NS;
 
@@ -52,6 +55,7 @@ class Naber_REST {
 		$this->route( $ns, '/messages/(?P<id>\d+)/info', 'GET', 'message_info', $user );
 
 		// --- Medya ---
+		$this->route( $ns, '/media/find', 'POST', 'media_find', $user );
 		$this->route( $ns, '/media/upload-url', 'POST', 'media_upload_url', $user );
 		$this->route( $ns, '/media/complete', 'POST', 'media_complete', $user );
 		$this->route( $ns, '/media/upload', 'POST', 'media_proxy_upload', $user );
@@ -691,7 +695,10 @@ class Naber_REST {
 			$media_id = 0;
 		}
 
-		$message = Naber_Chat_Repo::insert_message( $conversation_id, $user_id, $receiver_id, $type, $body, $media_id, $client );
+		// Gorselin cok kucuk on izlemesi (base64 JPEG). Mesajla birlikte tasindigi
+		// icin alici, asil dosya inmeden once bulanik bir goruntu gorebilir.
+		$thumb   = 'image' === $type ? self::sanitize_preview( $request->get_param( 'preview' ) ) : '';
+		$message = Naber_Chat_Repo::insert_message( $conversation_id, $user_id, $receiver_id, $type, $body, $media_id, $client, $thumb );
 		if ( $is_group ) {
 			$message['sender_name'] = Naber_Auth::user_payload( $user_id )['display_name'];
 		}
@@ -800,9 +807,38 @@ class Naber_REST {
 	// Medya
 	// ------------------------------------------------------------------
 
+	/**
+	 * Ayni dosya daha once yuklendi mi?
+	 *
+	 * Istemci dosyanin SHA-256 ozetini gonderir; ayni ozet bulunursa dosya
+	 * tekrar yuklenmez, var olan medya kaydi kullanilir. Boylece ayni gorseli
+	 * ikinci kez paylasmak aninda tamamlanir ve depolama kotasi bosa gitmez.
+	 */
+	public function media_find( WP_REST_Request $request ) {
+		$hash  = self::sanitize_hash( $request->get_param( 'hash' ) );
+		$media = '' === $hash ? null : Naber_Media::find_by_hash( $hash, get_current_user_id() );
+		if ( ! $media ) {
+			return rest_ensure_response( array( 'media' => null ) );
+		}
+		return rest_ensure_response( array( 'media' => Naber_Media::payload( $media ) ) );
+	}
+
 	public function media_upload_url( WP_REST_Request $request ) {
 		$mime = strtolower( sanitize_text_field( (string) $request->get_param( 'mime' ) ) );
 		$size = (int) $request->get_param( 'size' );
+		$hash = self::sanitize_hash( $request->get_param( 'hash' ) );
+
+		// Ayni dosya zaten yuklenmisse yeniden yuklemeye gerek yok.
+		if ( '' !== $hash ) {
+			$existing = Naber_Media::find_by_hash( $hash, get_current_user_id() );
+			if ( $existing ) {
+				return rest_ensure_response( array(
+					'media_id'  => (int) $existing['id'],
+					'duplicate' => true,
+					'media'     => Naber_Media::payload( $existing ),
+				) );
+			}
+		}
 
 		if ( ! Naber_Media::is_allowed_mime( $mime ) ) {
 			return new WP_Error( 'naber_bad_mime', 'Bu dosya turu desteklenmiyor.', array( 'status' => 415 ) );
@@ -828,7 +864,8 @@ class Naber_REST {
 			$mime,
 			$size,
 			(int) $request->get_param( 'width' ),
-			(int) $request->get_param( 'height' )
+			(int) $request->get_param( 'height' ),
+			$hash
 		);
 
 		return rest_ensure_response( array(
@@ -870,9 +907,17 @@ class Naber_REST {
 			return new WP_Error( 'naber_bad_mime', 'Bu dosya turu desteklenmiyor.', array( 'status' => 415 ) );
 		}
 
-		$user_id   = get_current_user_id();
+		$user_id = get_current_user_id();
+		$content = file_get_contents( $file['tmp_name'] );
+		$hash    = hash( 'sha256', $content );
+
+		// Ayni dosya daha once yuklendiyse tekrar yukleme; var olani dondur.
+		$existing = Naber_Media::find_by_hash( $hash, $user_id );
+		if ( $existing ) {
+			return rest_ensure_response( array( 'media' => Naber_Media::payload( $existing ), 'duplicate' => true ) );
+		}
+
 		$file_name = Naber_Media::build_file_name( $user_id, $mime );
-		$content   = file_get_contents( $file['tmp_name'] );
 		$b2        = new Naber_B2();
 		$uploaded  = $b2->upload( $file_name, $content, $mime );
 		if ( is_wp_error( $uploaded ) ) {
@@ -880,7 +925,7 @@ class Naber_REST {
 		}
 
 		$size     = getimagesize( $file['tmp_name'] );
-		$media_id = Naber_Media::create_pending( $user_id, $file_name, $mime, strlen( $content ), $size ? (int) $size[0] : 0, $size ? (int) $size[1] : 0 );
+		$media_id = Naber_Media::create_pending( $user_id, $file_name, $mime, strlen( $content ), $size ? (int) $size[0] : 0, $size ? (int) $size[1] : 0, $hash );
 		$media    = Naber_Media::complete( $media_id, $user_id, $uploaded['file_id'], strlen( $content ) );
 
 		return rest_ensure_response( array( 'media' => Naber_Media::payload( $media ) ) );
@@ -1002,6 +1047,42 @@ class Naber_REST {
 
 	/** @var array|null Istek suresince gecerli kisi listesi. */
 	private static $peer_ids = null;
+
+	/**
+	 * Dosya ozeti: yalnizca 64 haneli onaltilik SHA-256 kabul edilir.
+	 * Gecersiz deger sessizce bos doner; ozet yoksa normal yukleme yapilir.
+	 */
+	public static function sanitize_hash( $value ) {
+		$hash = strtolower( trim( (string) $value ) );
+		if ( 64 !== strlen( $hash ) || ! ctype_xdigit( $hash ) ) {
+			return '';
+		}
+		return $hash;
+	}
+
+	/**
+	 * Gorsel on izlemesi: base64 kodlu cok kucuk bir JPEG.
+	 * Mesaj satirini sismemesi icin boyutu sinirlanir; bozuk veri atilir.
+	 */
+	public static function sanitize_preview( $value ) {
+		$raw = trim( (string) $value );
+		if ( '' === $raw ) {
+			return '';
+		}
+		// "data:image/jpeg;base64," onekiyle gelirse ayiklanir.
+		$comma = strpos( $raw, ',' );
+		if ( 0 === strpos( $raw, 'data:' ) && false !== $comma ) {
+			$raw = substr( $raw, $comma + 1 );
+		}
+		$raw = preg_replace( '/\s+/', '', $raw );
+		if ( '' === $raw || strlen( $raw ) > self::MAX_PREVIEW_CHARS ) {
+			return '';
+		}
+		if ( ! preg_match( '#^[A-Za-z0-9+/]+={0,2}$#', $raw ) ) {
+			return '';
+		}
+		return $raw;
+	}
 
 	private static function peer_ids( $user_id ) {
 		if ( null === self::$peer_ids ) {

@@ -26,10 +26,12 @@ import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.AlternateEmail
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -53,9 +55,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.naber.app.Naber
 import com.naber.app.data.LocalFiles
+import com.naber.app.data.LocalMedia
+import com.naber.app.data.LocalStore
+import com.naber.app.data.MediaStore
 import com.naber.app.ui.Avatar
 import com.naber.app.ui.NaberCard
 import com.naber.app.ui.SettingsRow
+import com.naber.app.ui.formatBytes
 import com.naber.app.ui.ThinDivider
 import com.naber.app.ui.prepareImage
 import com.naber.app.ui.theme.NaberColors
@@ -71,7 +77,14 @@ fun ProfileTab(onAdmin: () -> Unit, onLoggedOut: () -> Unit) {
     var editName by remember { mutableStateOf(false) }
     var editAbout by remember { mutableStateOf(false) }
     var confirmLogout by remember { mutableStateOf(false) }
+    var confirmClearMedia by remember { mutableStateOf(false) }
     var avatarVersion by remember { mutableStateOf(0) }
+    // Temizlik sonrasi sayilar yeniden hesaplansin diye artirilir.
+    var storageVersion by remember { mutableStateOf(0) }
+
+    val storageBytes = remember(storageVersion) { MediaStore.totalBytes(context) }
+    val storageFiles = remember(storageVersion) { MediaStore.fileCount(context) }
+    val historyBytes = remember(storageVersion) { LocalStore.totalBytes(context) }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
@@ -241,6 +254,30 @@ fun ProfileTab(onAdmin: () -> Unit, onLoggedOut: () -> Unit) {
 
         Spacer(Modifier.height(14.dp))
 
+        // Depolama: gorseller ve sohbet gecmisi cihazda saklanir; buradan
+        // ne kadar yer kapladigi gorulur ve temizlenebilir.
+        NaberCard(modifier = Modifier.padding(horizontal = 14.dp)) {
+            SettingsRow(
+                icon = Icons.Filled.Storage,
+                title = "Depolama",
+                subtitle = if (storageFiles > 0) {
+                    "$storageFiles gorsel - ${formatBytes(storageBytes)}"
+                } else {
+                    "Saklanan gorsel yok"
+                },
+                onClick = { confirmClearMedia = true }
+            )
+            ThinDivider(startIndent = 54.dp)
+            SettingsRow(
+                icon = Icons.Filled.History,
+                title = "Sohbet gecmisi",
+                subtitle = "Cihazda ${formatBytes(historyBytes)} - cevrimdisiyken de okunur",
+                tint = NaberColors.TextSecondary
+            )
+        }
+
+        Spacer(Modifier.height(14.dp))
+
         NaberCard(modifier = Modifier.padding(horizontal = 14.dp)) {
             SettingsRow(
                 icon = Icons.Filled.Logout,
@@ -297,6 +334,10 @@ fun ProfileTab(onAdmin: () -> Unit, onLoggedOut: () -> Unit) {
                     confirmLogout = false
                     scope.launch {
                         Naber.events.reset()
+                        // Cihazdaki kopyalar baska bir hesaba gorunmemeli.
+                        LocalStore.clear(context)
+                        MediaStore.clear(context)
+                        LocalMedia.clear()
                         Naber.api.logout()
                         onLoggedOut()
                     }
@@ -304,6 +345,32 @@ fun ProfileTab(onAdmin: () -> Unit, onLoggedOut: () -> Unit) {
             },
             dismissButton = {
                 TextButton(onClick = { confirmLogout = false }) { Text("Vazgec") }
+            }
+        )
+    }
+
+    if (confirmClearMedia) {
+        AlertDialog(
+            containerColor = NaberColors.Surface,
+            onDismissRequest = { confirmClearMedia = false },
+            title = { Text("Gorseller silinsin mi?") },
+            text = {
+                Text(
+                    "Cihazda saklanan $storageFiles gorsel (${formatBytes(storageBytes)}) silinecek. " +
+                        "Mesajlar silinmez; gorseller gerektiginde yeniden indirilir."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmClearMedia = false
+                    MediaStore.clear(context)
+                    LocalMedia.clear()
+                    storageVersion++
+                    message = "Saklanan gorseller silindi."
+                }) { Text("Sil", color = NaberColors.Danger) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmClearMedia = false }) { Text("Vazgec") }
             }
         )
     }

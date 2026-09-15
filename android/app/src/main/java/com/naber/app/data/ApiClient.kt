@@ -223,7 +223,17 @@ class ApiClient(private val session: Session) {
             ).optJSONObject("message")
         ) ?: throw ApiException("Mesaj gonderilemedi.")
 
-    suspend fun sendImage(conversationId: Int, mediaId: Int, caption: String, clientId: String): Message =
+    /**
+     * [preview] gorselin cok kucuk base64 JPEG on izlemesidir; mesajla birlikte
+     * tasinir, boylece alici asil dosya inmeden once bulanik bir goruntu gorur.
+     */
+    suspend fun sendImage(
+        conversationId: Int,
+        mediaId: Int,
+        caption: String,
+        clientId: String,
+        preview: String = ""
+    ): Message =
         Message.from(
             call(
                 "/messages", "POST",
@@ -233,6 +243,7 @@ class ApiClient(private val session: Session) {
                     .put("media_id", mediaId)
                     .put("body", caption)
                     .put("client_id", clientId)
+                    .put("preview", preview)
             ).optJSONObject("message")
         ) ?: throw ApiException("Gorsel gonderilemedi.")
 
@@ -296,10 +307,27 @@ class ApiClient(private val session: Session) {
         height: Int,
         onProgress: (Int) -> Unit
     ): Media = withContext(Dispatchers.IO) {
+        // Dosya ozeti: ayni gorsel daha once yuklendiyse sunucu var olan kaydi
+        // doner ve tekrar yukleme yapilmaz (hem hizli hem de kotayi korur).
+        val hash = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+
         val prepare = call(
             "/media/upload-url", "POST",
-            JSONObject().put("mime", mime).put("size", bytes.size).put("width", width).put("height", height)
+            JSONObject()
+                .put("mime", mime)
+                .put("size", bytes.size)
+                .put("width", width)
+                .put("height", height)
+                .put("hash", hash)
         )
+
+        if (prepare.optBoolean("duplicate")) {
+            Media.from(prepare.optJSONObject("media"))?.let {
+                onProgress(100)
+                return@withContext it
+            }
+        }
+
         val mediaId = prepare.optInt("media_id")
         val uploadUrl = prepare.optString("upload_url")
         val uploadToken = prepare.optString("token")

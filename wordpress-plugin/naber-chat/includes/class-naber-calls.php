@@ -90,17 +90,59 @@ class Naber_Calls {
 		return $row ? $row : null;
 	}
 
-	private static function expire_stale( $user_id ) {
+	/**
+	 * Zil suresi gecmis ama kapanmamis aramalari kapatir.
+	 *
+	 * Uygulama arama sirasinda oldurulurse kayit 'ringing' olarak asili kalir;
+	 * temizlenmezse kullanici uygulamayi actiginda olmayan bir arama ekrani
+	 * ("hayalet arama") gorur. Hem birebir hem grup aramalari taranir.
+	 */
+	private static function expire_stale( $user_id, $throttle = 0 ) {
+		// Olay akisi bu temizligi saniyede bir tetikleyebilir; gereksiz yazma
+		// yukunu onlemek icin kullanici basina araliga bakilir.
+		if ( $throttle > 0 ) {
+			$key = 'naber_call_sweep_' . (int) $user_id;
+			if ( get_transient( $key ) ) {
+				return;
+			}
+			set_transient( $key, 1, $throttle );
+		}
+
 		global $wpdb;
+		$calls        = Naber_DB::table( 'calls' );
+		$participants = Naber_DB::table( 'call_participants' );
+		$deadline     = gmdate( 'Y-m-d H:i:s', time() - self::RING_TIMEOUT );
+
 		$wpdb->query(
 			$wpdb->prepare(
-				'UPDATE ' . Naber_DB::table( 'calls' ) . " SET status = 'missed', ended_at = %s, end_reason = 'timeout'
+				"UPDATE {$calls} SET status = 'missed', ended_at = %s, end_reason = 'timeout'
 				 WHERE status = 'ringing' AND type = 'direct' AND (caller_id = %d OR callee_id = %d) AND created_at < %s",
 				Naber_DB::now(),
 				(int) $user_id,
 				(int) $user_id,
-				gmdate( 'Y-m-d H:i:s', time() - self::RING_TIMEOUT )
+				$deadline
 			)
+		);
+
+		// Grup aramasi: kimse katilmadan zil suresi gectiyse dusur.
+		$wpdb->query(
+			$wpdb->prepare(
+				"UPDATE {$calls} c SET c.status = 'missed', c.ended_at = %s, c.end_reason = 'timeout'
+				 WHERE c.status = 'ringing' AND c.type = 'group' AND c.ended_at IS NULL AND c.created_at < %s
+				   AND EXISTS (SELECT 1 FROM {$participants} p WHERE p.call_id = c.id AND p.user_id = %d AND p.status = 'ringing')
+				   AND NOT EXISTS (SELECT 1 FROM {$participants} j WHERE j.call_id = c.id AND j.status = 'joined' AND j.left_at IS NULL)",
+				Naber_DB::now(),
+				$deadline,
+				(int) $user_id
+			)
+		);
+
+		// Kapanmis aramalarda asili kalan 'ringing' katilimci satirlari.
+		$wpdb->query(
+			"UPDATE {$participants} p
+			 INNER JOIN {$calls} c ON c.id = p.call_id
+			 SET p.status = 'missed'
+			 WHERE p.status = 'ringing' AND (c.ended_at IS NOT NULL OR c.status IN ('ended','missed','rejected'))"
 		);
 	}
 
@@ -268,6 +310,9 @@ class Naber_Calls {
 		global $wpdb;
 		$calls        = Naber_DB::table( 'calls' );
 		$participants = Naber_DB::table( 'call_participants' );
+
+		// Once bayat kayitlari kapat; yoksa olmayan bir arama "geliyor" gorunur.
+		self::expire_stale( $user_id, 30 );
 
 		$row = $wpdb->get_row(
 			$wpdb->prepare(

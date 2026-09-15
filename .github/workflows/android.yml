@@ -20,14 +20,15 @@ jobs:
       - name: Sozdizimi kontrolu (php -l)
         run: find wordpress-plugin -name "*.php" -print0 | xargs -0 -n1 php -l
 
-      - name: Backblaze bucket testleri
-        run: php wordpress-plugin/naber-chat/tests/test-b2-settings.php
-
-      - name: Kullanici ve grup testleri
-        run: php wordpress-plugin/naber-chat/tests/test-users-groups.php
-
-      - name: TURN (Metered) testleri
-        run: php wordpress-plugin/naber-chat/tests/test-turn.php
+      # Yeni test dosyasi eklendiginde is akisini guncellemeye gerek kalmasin.
+      - name: Eklenti testleri
+        run: |
+          set -e
+          for t in wordpress-plugin/naber-chat/tests/test-*.php; do
+            echo "::group::$t"
+            php "$t"
+            echo "::endgroup::"
+          done
 
   android:
     name: Android APK

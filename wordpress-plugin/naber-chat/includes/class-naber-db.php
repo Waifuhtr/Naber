@@ -9,7 +9,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class Naber_DB {
 
-	const DB_VERSION = '1.4.0';
+	const DB_VERSION = '1.6.0';
 
 	public static function table( $name ) {
 		global $wpdb;
@@ -77,6 +77,7 @@ class Naber_DB {
 			message_type varchar(20) NOT NULL DEFAULT 'text',
 			body longtext NULL,
 			media_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			preview mediumtext NULL,
 			client_id varchar(64) NOT NULL DEFAULT '',
 			is_read tinyint(1) NOT NULL DEFAULT 0,
 			read_at datetime NULL,
@@ -98,6 +99,7 @@ class Naber_DB {
 			file_name varchar(500) NOT NULL DEFAULT '',
 			file_id varchar(191) NOT NULL DEFAULT '',
 			mime varchar(100) NOT NULL DEFAULT '',
+			hash varchar(64) NOT NULL DEFAULT '',
 			size bigint(20) unsigned NOT NULL DEFAULT 0,
 			width int(11) NOT NULL DEFAULT 0,
 			height int(11) NOT NULL DEFAULT 0,
@@ -105,6 +107,7 @@ class Naber_DB {
 			created_at datetime NOT NULL DEFAULT '0000-00-00 00:00:00',
 			PRIMARY KEY  (id),
 			KEY owner_id (owner_id),
+			KEY hash (hash),
 			KEY status (status)
 		) {$charset};";
 

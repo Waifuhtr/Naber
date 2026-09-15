@@ -3,7 +3,10 @@ package com.naber.app.ui
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
+import android.util.Base64
 import com.naber.app.data.User
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -96,20 +99,38 @@ fun initialsOf(name: String): String {
     }
 }
 
-data class PreparedImage(val bytes: ByteArray, val width: Int, val height: Int, val mime: String = "image/jpeg")
+data class PreparedImage(
+    val bytes: ByteArray,
+    val width: Int,
+    val height: Int,
+    val mime: String = "image/jpeg",
+    /** Mesajla birlikte tasinan cok kucuk base64 JPEG on izleme. */
+    val preview: String = ""
+)
+
+/** On izleme karesinin uzun kenari; birkac kilobayti gecmemeli. */
+private const val PREVIEW_EDGE = 48
 
 /**
- * Secilen gorseli yuklemeden once kucultur (en fazla 1600 px, JPEG %85).
- * Hem yukleme suresini hem de Backblaze kullanimini dusurur.
+ * Secilen gorseli yuklemeden once kucultur.
+ *
+ * Boyut ve kalite baglanti turune gore secilir: olculu (mobil veri) baglantida
+ * daha kucuk ve daha sikistirilmis gonderilir. Ayrica mesajla birlikte
+ * gidecek kucucuk bir on izleme uretilir; alici asil dosya inmeden once
+ * bulanik da olsa gorseli gorur.
  */
-suspend fun prepareImage(context: Context, uri: Uri, maxSize: Int = 1600): PreparedImage? =
+suspend fun prepareImage(context: Context, uri: Uri, maxSize: Int = 0): PreparedImage? =
     withContext(Dispatchers.IO) {
+        val metered = isMeteredConnection(context)
+        val edge = if (maxSize > 0) maxSize else if (metered) 1080 else 1600
+        val quality = if (metered) 72 else 85
+
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@withContext null
 
         var sample = 1
-        while (bounds.outWidth / sample > maxSize * 2 || bounds.outHeight / sample > maxSize * 2) {
+        while (bounds.outWidth / sample > edge * 2 || bounds.outHeight / sample > edge * 2) {
             sample *= 2
         }
 
@@ -118,7 +139,7 @@ suspend fun prepareImage(context: Context, uri: Uri, maxSize: Int = 1600): Prepa
             BitmapFactory.decodeStream(it, null, options)
         } ?: return@withContext null
 
-        val scale = minOf(1f, maxSize.toFloat() / maxOf(decoded.width, decoded.height))
+        val scale = minOf(1f, edge.toFloat() / maxOf(decoded.width, decoded.height))
         val bitmap = if (scale < 1f) {
             Bitmap.createScaledBitmap(decoded, (decoded.width * scale).toInt(), (decoded.height * scale).toInt(), true)
         } else {
@@ -126,6 +147,35 @@ suspend fun prepareImage(context: Context, uri: Uri, maxSize: Int = 1600): Prepa
         }
 
         val output = ByteArrayOutputStream()
-        bitmap.compress(Bitmap.CompressFormat.JPEG, 85, output)
-        PreparedImage(output.toByteArray(), bitmap.width, bitmap.height)
+        bitmap.compress(Bitmap.CompressFormat.JPEG, quality, output)
+        PreparedImage(output.toByteArray(), bitmap.width, bitmap.height, preview = buildPreview(bitmap))
     }
+
+/** Gorselin kucucuk halini base64 JPEG olarak uretir; uretilemezse bos doner. */
+private fun buildPreview(bitmap: Bitmap): String = runCatching {
+    val scale = minOf(1f, PREVIEW_EDGE.toFloat() / maxOf(bitmap.width, bitmap.height))
+    val width = maxOf(1, (bitmap.width * scale).toInt())
+    val height = maxOf(1, (bitmap.height * scale).toInt())
+    val small = Bitmap.createScaledBitmap(bitmap, width, height, true)
+    val output = ByteArrayOutputStream()
+    small.compress(Bitmap.CompressFormat.JPEG, 55, output)
+    if (small !== bitmap) small.recycle()
+    Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)
+}.getOrDefault("")
+
+/** Kullanici mobil veri gibi olculu bir baglantida mi? */
+fun isMeteredConnection(context: Context): Boolean = runCatching {
+    val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        ?: return@runCatching false
+    val capabilities = manager.getNetworkCapabilities(manager.activeNetwork) ?: return@runCatching false
+    !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+}.getOrDefault(false)
+
+/** Base64 on izlemeyi cizilebilir bir bitmap'e cevirir. */
+fun decodePreview(preview: String): Bitmap? {
+    if (preview.isBlank()) return null
+    return runCatching {
+        val raw = Base64.decode(preview, Base64.DEFAULT)
+        BitmapFactory.decodeByteArray(raw, 0, raw.size)
+    }.getOrNull()
+}

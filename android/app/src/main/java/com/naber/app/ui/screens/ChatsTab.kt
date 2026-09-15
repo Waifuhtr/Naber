@@ -48,7 +48,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.naber.app.Naber
+import androidx.compose.ui.platform.LocalContext
 import com.naber.app.data.Chat
+import com.naber.app.data.LocalStore
 import com.naber.app.ui.Avatar
 import com.naber.app.ui.ChatAvatar
 import com.naber.app.ui.EmptyState
@@ -57,6 +59,7 @@ import com.naber.app.ui.OnlineDot
 import com.naber.app.ui.UnreadBadge
 import com.naber.app.ui.formatChatTime
 import com.naber.app.ui.theme.NaberColors
+import kotlinx.coroutines.delay
 
 @Composable
 fun ChatsTab(
@@ -80,12 +83,18 @@ fun ChatsTab(
     val presenceMap by Naber.events.presence.collectAsState()
     val revisions by Naber.events.revisions.collectAsState()
 
+    val context = LocalContext.current
+
     suspend fun reload() {
         try {
-            chats = Naber.api.chats().first
+            val (fresh, unreadTotal) = Naber.api.chats()
+            chats = fresh
             error = null
+            LocalStore.saveChats(context, fresh, unreadTotal)
         } catch (e: Exception) {
-            error = e.message
+            // Cevrimdisiyken elimizdeki kopya ekranda kalir; hata yalnizca
+            // hicbir sey gosteremiyorsak anlamli olur.
+            if (chats.isEmpty()) error = e.message
         } finally {
             loading = false
         }
@@ -93,8 +102,22 @@ fun ChatsTab(
 
     LaunchedEffect(Unit) {
         Naber.events.activeConversationId = 0
+        // Once cihazdaki kopya: liste aninda gorunur, ag beklenmez.
+        val (cached, _) = LocalStore.loadChats(context)
+        if (cached.isNotEmpty() && chats.isEmpty()) {
+            chats = cached
+            loading = false
+        }
         reload()
         if (startConversationId > 0) onOpenChat(startConversationId)
+    }
+
+    // Liste degistiginde cihazdaki kopya tazelenir; art arda gelen
+    // degisikliklerde tek yazma yapmak icin kisa bir bekleme konur.
+    LaunchedEffect(chats) {
+        if (chats.isEmpty()) return@LaunchedEffect
+        delay(400)
+        LocalStore.saveChats(context, chats, chats.sumOf { it.unread })
     }
 
     // Yeni mesajda tum liste yeniden cekilmez; yalnizca ilgili satir guncellenir.

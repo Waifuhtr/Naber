@@ -83,6 +83,7 @@ import com.naber.app.Naber
 import com.naber.app.data.Chat
 import com.naber.app.data.LocalFiles
 import com.naber.app.data.LocalMedia
+import com.naber.app.data.LocalStore
 import com.naber.app.data.MediaStore
 import com.naber.app.data.Message
 import com.naber.app.data.SendState
@@ -124,6 +125,7 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
     var tick by remember { mutableStateOf(System.currentTimeMillis()) }
     val presenceMap by Naber.events.presence.collectAsState()
     val revisions by Naber.events.revisions.collectAsState()
+    val connected by Naber.events.connected.collectAsState()
     var fullScreen by remember { mutableStateOf<Any?>(null) }
     var menuOpen by remember { mutableStateOf(false) }
     var actionTarget by remember { mutableStateOf<Message?>(null) }
@@ -158,12 +160,16 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
     suspend fun load() {
         try {
             val (list, info, typingUsers) = Naber.api.messages(conversationId)
-            messages = list
+            // Gonderilememis mesajlar kuyrukta kalmali; sunucu listesi onlari bilmez.
+            val pending = messages.filter { it.id <= 0 }
+            messages = (list + pending).distinctBy { it.key }.sortedBy { it.createdAt }
             chat = info
             typing = typingUsers
+            error = null
             Naber.api.markRead(conversationId)
         } catch (e: Exception) {
-            error = e.message
+            // Cevrimdisiyken cihazdaki gecmis ekranda kalir.
+            if (messages.isEmpty()) error = e.message
         } finally {
             loading = false
         }
@@ -172,7 +178,23 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
     LaunchedEffect(conversationId) {
         Naber.events.activeConversationId = conversationId
         Notifications.cancelConversation(context, conversationId)
+        // Once cihazdaki gecmis: sohbet aninda dolu acilir, ag beklenmez.
+        val cached = LocalStore.loadMessages(context, conversationId)
+        if (cached.isNotEmpty()) {
+            messages = cached
+            loading = false
+        }
         load()
+    }
+
+    // Gecmis degistiginde cihazdaki kopya tazelenir (kuyruktakiler dahil).
+    // Yukleme ilerlemesi gibi hizli degisikliklerde her seferinde diske
+    // yazmamak icin kisa bir bekleme konur; LaunchedEffect yeni degisiklikte
+    // onceki beklemeyi iptal eder.
+    LaunchedEffect(messages) {
+        if (messages.isEmpty()) return@LaunchedEffect
+        delay(400)
+        LocalStore.saveMessages(context, conversationId, messages)
     }
 
     LaunchedEffect(conversationId) {
@@ -228,6 +250,64 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
     }
 
+    fun mark(clientId: String, state: SendState) {
+        messages = messages.map { if (it.clientId == clientId) it.copy(sendState = state) else it }
+    }
+
+    /** Sunucuya metin mesajini ulastirir. Basarisiz olursa kuyrukta kalir. */
+    suspend fun deliverText(clientId: String, body: String) {
+        try {
+            mark(clientId, SendState.SENDING)
+            val sent = Naber.api.sendText(conversationId, body, clientId)
+            messages = messages.map { if (it.clientId == clientId) sent else it }
+            SoundPlayer.playSent(context)
+        } catch (e: Exception) {
+            mark(clientId, SendState.FAILED)
+        }
+    }
+
+    /** Gorseli hazirlar, yukler ve mesaji gonderir. */
+    suspend fun deliverImage(clientId: String, uri: Uri) {
+        try {
+            mark(clientId, SendState.SENDING)
+            val prepared = prepareImage(context, uri)
+            if (prepared == null) {
+                error = "Gorsel okunamadi."
+                mark(clientId, SendState.FAILED)
+                return
+            }
+            // Galeri adresi gecici oldugu icin kalici bir kopya alinir.
+            val localCopy = LocalFiles.persist(context, prepared.bytes, "msg-$clientId.jpg") ?: uri.toString()
+            LocalMedia.remember(clientId, localCopy)
+            messages = messages.map { if (it.clientId == clientId) it.copy(localImageUri = localCopy) else it }
+
+            // Depolama ucundan gecici hata gelebiliyor; bir kez sessizce tekrar denenir.
+            val media = try {
+                Naber.api.uploadImage(prepared.bytes, prepared.mime, prepared.width, prepared.height) { percent ->
+                    messages = messages.map { if (it.clientId == clientId) it.copy(uploadProgress = percent) else it }
+                }
+            } catch (first: Exception) {
+                delay(700)
+                messages = messages.map { if (it.clientId == clientId) it.copy(uploadProgress = 0) else it }
+                Naber.api.uploadImage(prepared.bytes, prepared.mime, prepared.width, prepared.height) { percent ->
+                    messages = messages.map { if (it.clientId == clientId) it.copy(uploadProgress = percent) else it }
+                }
+            }
+            LocalMedia.rememberMedia(media.id, localCopy)
+            // Gonderilen gorsel de ortak depoya yazilir; ileride ayni
+            // kayittan okunur, tekrar indirilmez.
+            MediaStore.store(context, media.id, prepared.bytes)
+            val sent = Naber.api.sendImage(conversationId, media.id, "", clientId, prepared.preview)
+            messages = messages.map {
+                if (it.clientId == clientId) sent.copy(localImageUri = localCopy) else it
+            }
+            SoundPlayer.playSent(context)
+        } catch (e: Exception) {
+            mark(clientId, SendState.FAILED)
+            error = e.message
+        }
+    }
+
     fun sendText() {
         val body = draft.trim()
         if (body.isEmpty()) return
@@ -248,15 +328,7 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
         draft = ""
         lastTypingSent[0] = 0L
         Naber.events.launchInScope { Naber.api.sendTyping(conversationId, false) }
-        scope.launch {
-            try {
-                val sent = Naber.api.sendText(conversationId, body, clientId)
-                messages = messages.map { if (it.clientId == clientId) sent else it }
-                SoundPlayer.playSent(context)
-            } catch (e: Exception) {
-                messages = messages.map { if (it.clientId == clientId) it.copy(sendState = SendState.FAILED) else it }
-            }
-        }
+        scope.launch { deliverText(clientId, body) }
     }
 
     fun sendImage(uri: Uri) {
@@ -277,45 +349,35 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
             localImageUri = uri.toString(),
             sendState = SendState.SENDING
         )
+        scope.launch { deliverImage(clientId, uri) }
+    }
 
+    /**
+     * Gonderilemeyen mesajlari yeniden dener.
+     *
+     * Kuyruk cihaza yazildigi icin uygulama kapatilip acilsa bile mesajlar
+     * kaybolmaz; baglanti geri geldiginde kendiliginden gonderilirler.
+     */
+    fun retryPending() {
+        val pending = messages.filter { it.id <= 0 && it.sendState == SendState.FAILED }
+        if (pending.isEmpty()) return
         scope.launch {
-            try {
-                val prepared = prepareImage(context, uri)
-                if (prepared == null) {
-                    error = "Gorsel okunamadi."
-                    messages = messages.map { if (it.clientId == clientId) it.copy(sendState = SendState.FAILED) else it }
-                    return@launch
-                }
-                // Galeri adresi gecici oldugu icin kalici bir kopya alinir.
-                val localCopy = LocalFiles.persist(context, prepared.bytes, "msg-$clientId.jpg") ?: uri.toString()
-                LocalMedia.remember(clientId, localCopy)
-
-                // Depolama ucundan gecici hata gelebiliyor; bir kez sessizce tekrar denenir.
-                val media = try {
-                    Naber.api.uploadImage(prepared.bytes, prepared.mime, prepared.width, prepared.height) { percent ->
-                        messages = messages.map { if (it.clientId == clientId) it.copy(uploadProgress = percent) else it }
+            pending.forEach { message ->
+                if (message.type == "image") {
+                    val source = message.localImageUri ?: LocalMedia.uriFor(0, message.clientId)
+                    if (source != null && LocalFiles.exists(source)) {
+                        deliverImage(message.clientId, Uri.parse(source))
                     }
-                } catch (first: Exception) {
-                    delay(700)
-                    messages = messages.map { if (it.clientId == clientId) it.copy(uploadProgress = 0) else it }
-                    Naber.api.uploadImage(prepared.bytes, prepared.mime, prepared.width, prepared.height) { percent ->
-                        messages = messages.map { if (it.clientId == clientId) it.copy(uploadProgress = percent) else it }
-                    }
+                } else if (message.body.isNotBlank()) {
+                    deliverText(message.clientId, message.body)
                 }
-                LocalMedia.rememberMedia(media.id, localCopy)
-                // Gonderilen gorsel de ortak depoya yazilir; ileride ayni
-                // kayittan okunur, tekrar indirilmez.
-                MediaStore.store(context, media.id, prepared.bytes)
-                val sent = Naber.api.sendImage(conversationId, media.id, "", clientId)
-                messages = messages.map {
-                    if (it.clientId == clientId) sent.copy(localImageUri = localCopy) else it
-                }
-                SoundPlayer.playSent(context)
-            } catch (e: Exception) {
-                messages = messages.map { if (it.clientId == clientId) it.copy(sendState = SendState.FAILED) else it }
-                error = e.message
             }
         }
+    }
+
+    // Baglanti geri geldiginde kuyruktakiler kendiliginden gonderilir.
+    LaunchedEffect(connected) {
+        if (connected) retryPending()
     }
 
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -832,6 +894,7 @@ private fun MessageRow(
                             media = message.media,
                             localUri = message.localImageUri ?: com.naber.app.data.LocalMedia.uriFor(message.media?.id ?: 0, message.clientId),
                             modifier = Modifier.fillMaxSize(),
+                            preview = message.preview,
                             onError = onImageError
                         )
                         if (message.sendState == SendState.SENDING) {
