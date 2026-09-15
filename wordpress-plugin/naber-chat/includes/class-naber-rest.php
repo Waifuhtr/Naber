@@ -12,200 +12,101 @@ class Naber_REST {
 	public function register_routes() {
 		$ns = NABER_CHAT_NS;
 
-		register_rest_route( $ns, '/register', array(
-			'methods'             => 'POST',
-			'callback'            => array( $this, 'register_user' ),
-			'permission_callback' => '__return_true',
-		) );
+		$public = array( $this, 'open' );
+		$user   = array( $this, 'require_user' );
+		$admin  = array( $this, 'require_admin' );
 
-		register_rest_route( $ns, '/login', array(
-			'methods'             => 'POST',
-			'callback'            => array( $this, 'login' ),
-			'permission_callback' => '__return_true',
-		) );
+		// --- Hesap ---
+		$this->route( $ns, '/register', 'POST', 'register_user', $public );
+		$this->route( $ns, '/login', 'POST', 'login', $public );
+		$this->route( $ns, '/logout', 'POST', 'logout', $user );
+		$this->route( $ns, '/me', 'GET', 'get_me', $user );
+		$this->route( $ns, '/me', 'POST', 'update_me', $user );
 
-		register_rest_route( $ns, '/logout', array(
-			'methods'             => 'POST',
-			'callback'            => array( $this, 'logout' ),
-			'permission_callback' => array( $this, 'require_user' ),
-		) );
+		// --- Kisiler ---
+		$this->route( $ns, '/users', 'GET', 'list_users', $user );
+		$this->route( $ns, '/users/lookup', 'GET', 'lookup_user', $user );
+		$this->route( $ns, '/contacts', 'GET', 'list_contacts', $user );
+		$this->route( $ns, '/contacts', 'POST', 'add_contact', $user );
+		$this->route( $ns, '/contacts/(?P<id>\d+)', 'DELETE', 'remove_contact', $user );
 
-		register_rest_route( $ns, '/me', array(
-			array(
-				'methods'             => 'GET',
-				'callback'            => array( $this, 'get_me' ),
-				'permission_callback' => array( $this, 'require_user' ),
-			),
-			array(
-				'methods'             => 'POST',
-				'callback'            => array( $this, 'update_me' ),
-				'permission_callback' => array( $this, 'require_user' ),
-			),
-		) );
+		// --- Sohbetler ---
+		$this->route( $ns, '/chats', 'GET', 'list_chats', $user );
+		$this->route( $ns, '/chats', 'POST', 'open_chat', $user );
+		$this->route( $ns, '/groups', 'POST', 'create_group', $user );
+		$this->route( $ns, '/chats/(?P<id>\d+)', 'GET', 'chat_info', $user );
+		$this->route( $ns, '/chats/(?P<id>\d+)', 'POST', 'update_chat', $user );
+		$this->route( $ns, '/chats/(?P<id>\d+)/members', 'POST', 'add_members', $user );
+		$this->route( $ns, '/chats/(?P<id>\d+)/members/(?P<user>\d+)', 'DELETE', 'remove_member', $user );
+		$this->route( $ns, '/chats/(?P<id>\d+)/members/(?P<user>\d+)/role', 'POST', 'set_member_role', $user );
+		$this->route( $ns, '/chats/(?P<id>\d+)/members/(?P<user>\d+)/mute', 'POST', 'mute_member', $user );
+		$this->route( $ns, '/chats/(?P<id>\d+)/leave', 'POST', 'leave_chat', $user );
+		$this->route( $ns, '/chats/(?P<id>\d+)/notifications', 'POST', 'toggle_notifications', $user );
+		$this->route( $ns, '/chats/(?P<id>\d+)/messages', 'GET', 'list_messages', $user );
+		$this->route( $ns, '/chats/(?P<id>\d+)/read', 'POST', 'mark_read', $user );
+		$this->route( $ns, '/chats/(?P<id>\d+)/typing', 'POST', 'typing', $user );
 
-		register_rest_route( $ns, '/users', array(
-			'methods'             => 'GET',
-			'callback'            => array( $this, 'list_users' ),
-			'permission_callback' => array( $this, 'require_user' ),
-		) );
+		// --- Mesajlar ---
+		$this->route( $ns, '/messages', 'POST', 'send_message', $user );
+		$this->route( $ns, '/messages/(?P<id>\d+)', 'DELETE', 'delete_message', $user );
 
-		register_rest_route( $ns, '/chats', array(
-			array(
-				'methods'             => 'GET',
-				'callback'            => array( $this, 'list_chats' ),
-				'permission_callback' => array( $this, 'require_user' ),
-			),
-			array(
-				'methods'             => 'POST',
-				'callback'            => array( $this, 'open_chat' ),
-				'permission_callback' => array( $this, 'require_user' ),
-			),
-		) );
+		// --- Medya ---
+		$this->route( $ns, '/media/upload-url', 'POST', 'media_upload_url', $user );
+		$this->route( $ns, '/media/complete', 'POST', 'media_complete', $user );
+		$this->route( $ns, '/media/upload', 'POST', 'media_proxy_upload', $user );
+		$this->route( $ns, '/media/(?P<id>\d+)/url', 'GET', 'media_url', $user );
 
-		register_rest_route( $ns, '/chats/(?P<id>\d+)/messages', array(
-			'methods'             => 'GET',
-			'callback'            => array( $this, 'list_messages' ),
-			'permission_callback' => array( $this, 'require_user' ),
-		) );
+		// --- Cihaz & olaylar ---
+		$this->route( $ns, '/devices', 'POST', 'register_device', $user );
+		$this->route( $ns, '/devices', 'DELETE', 'delete_device', $user );
+		$this->route( $ns, '/events', 'GET', 'events', $user );
+		$this->route( $ns, '/ice-servers', 'GET', 'ice_servers', $user );
 
-		register_rest_route( $ns, '/chats/(?P<id>\d+)/read', array(
-			'methods'             => 'POST',
-			'callback'            => array( $this, 'mark_read' ),
-			'permission_callback' => array( $this, 'require_user' ),
-		) );
+		// --- Aramalar ---
+		$this->route( $ns, '/calls', 'GET', 'call_history', $user );
+		$this->route( $ns, '/calls/start', 'POST', 'call_start', $user );
+		$this->route( $ns, '/calls/(?P<id>\d+)', 'GET', 'call_info', $user );
+		$this->route( $ns, '/calls/(?P<id>\d+)/(?P<action>accept|reject|end|join|leave)', 'POST', 'call_action', $user );
+		$this->route( $ns, '/calls/(?P<id>\d+)/signal', 'POST', 'call_signal', $user );
+		$this->route( $ns, '/calls/(?P<id>\d+)/signals', 'GET', 'call_signals', $user );
+		$this->route( $ns, '/calls/(?P<id>\d+)/participants/(?P<user>\d+)/mute', 'POST', 'call_mute_participant', $user );
+		$this->route( $ns, '/calls/(?P<id>\d+)/participants/(?P<user>\d+)/kick', 'POST', 'call_kick_participant', $user );
 
-		register_rest_route( $ns, '/chats/(?P<id>\d+)/typing', array(
-			'methods'             => 'POST',
-			'callback'            => array( $this, 'typing' ),
-			'permission_callback' => array( $this, 'require_user' ),
-		) );
+		// --- Yonetim (her biri sunucu tarafinda rol kontrolunden gecer) ---
+		$this->route( $ns, '/admin/stats', 'GET', 'admin_stats', $admin );
+		$this->route( $ns, '/admin/users', 'GET', 'admin_users', $admin );
+		$this->route( $ns, '/admin/users/(?P<id>\d+)', 'POST', 'admin_update_user', $admin );
+		$this->route( $ns, '/admin/users/(?P<id>\d+)', 'DELETE', 'admin_delete_user', $admin );
+		$this->route( $ns, '/admin/chats', 'GET', 'admin_chats', $admin );
+		$this->route( $ns, '/admin/chats/(?P<id>\d+)', 'DELETE', 'admin_delete_chat', $admin );
+		$this->route( $ns, '/admin/storage/test', 'POST', 'admin_storage_test', $admin );
+		$this->route( $ns, '/admin/settings', 'GET', 'admin_settings', $admin );
+	}
 
-		register_rest_route( $ns, '/messages', array(
-			'methods'             => 'POST',
-			'callback'            => array( $this, 'send_message' ),
-			'permission_callback' => array( $this, 'require_user' ),
-		) );
-
-		register_rest_route( $ns, '/media/upload-url', array(
-			'methods'             => 'POST',
-			'callback'            => array( $this, 'media_upload_url' ),
-			'permission_callback' => array( $this, 'require_user' ),
-		) );
-
-		register_rest_route( $ns, '/media/complete', array(
-			'methods'             => 'POST',
-			'callback'            => array( $this, 'media_complete' ),
-			'permission_callback' => array( $this, 'require_user' ),
-		) );
-
-		register_rest_route( $ns, '/media/upload', array(
-			'methods'             => 'POST',
-			'callback'            => array( $this, 'media_proxy_upload' ),
-			'permission_callback' => array( $this, 'require_user' ),
-		) );
-
-		register_rest_route( $ns, '/media/(?P<id>\d+)/url', array(
-			'methods'             => 'GET',
-			'callback'            => array( $this, 'media_url' ),
-			'permission_callback' => array( $this, 'require_user' ),
-		) );
-
-		register_rest_route( $ns, '/devices', array(
-			array(
-				'methods'             => 'POST',
-				'callback'            => array( $this, 'register_device' ),
-				'permission_callback' => array( $this, 'require_user' ),
-			),
-			array(
-				'methods'             => 'DELETE',
-				'callback'            => array( $this, 'delete_device' ),
-				'permission_callback' => array( $this, 'require_user' ),
-			),
-		) );
-
-		register_rest_route( $ns, '/events', array(
-			'methods'             => 'GET',
-			'callback'            => array( $this, 'events' ),
-			'permission_callback' => array( $this, 'require_user' ),
-		) );
-
-		register_rest_route( $ns, '/ice-servers', array(
-			'methods'             => 'GET',
-			'callback'            => array( $this, 'ice_servers' ),
-			'permission_callback' => array( $this, 'require_user' ),
-		) );
-
-		register_rest_route( $ns, '/calls', array(
-			'methods'             => 'GET',
-			'callback'            => array( $this, 'call_history' ),
-			'permission_callback' => array( $this, 'require_user' ),
-		) );
-
-		register_rest_route( $ns, '/calls/start', array(
-			'methods'             => 'POST',
-			'callback'            => array( $this, 'call_start' ),
-			'permission_callback' => array( $this, 'require_user' ),
-		) );
-
-		register_rest_route( $ns, '/calls/(?P<id>\d+)/(?P<action>accept|reject|end)', array(
-			'methods'             => 'POST',
-			'callback'            => array( $this, 'call_action' ),
-			'permission_callback' => array( $this, 'require_user' ),
-		) );
-
-		register_rest_route( $ns, '/calls/(?P<id>\d+)/signal', array(
-			'methods'             => 'POST',
-			'callback'            => array( $this, 'call_signal' ),
-			'permission_callback' => array( $this, 'require_user' ),
-		) );
-
-		register_rest_route( $ns, '/calls/(?P<id>\d+)/signals', array(
-			'methods'             => 'GET',
-			'callback'            => array( $this, 'call_signals' ),
-			'permission_callback' => array( $this, 'require_user' ),
-		) );
-
-		// --- Yonetim uclari: her biri sunucu tarafinda rol kontrolunden gecer. ---
-		register_rest_route( $ns, '/admin/stats', array(
-			'methods'             => 'GET',
-			'callback'            => array( $this, 'admin_stats' ),
-			'permission_callback' => array( $this, 'require_admin' ),
-		) );
-
-		register_rest_route( $ns, '/admin/users', array(
-			'methods'             => 'GET',
-			'callback'            => array( $this, 'admin_users' ),
-			'permission_callback' => array( $this, 'require_admin' ),
-		) );
-
-		register_rest_route( $ns, '/admin/users/(?P<id>\d+)', array(
-			array(
-				'methods'             => 'POST',
-				'callback'            => array( $this, 'admin_update_user' ),
-				'permission_callback' => array( $this, 'require_admin' ),
-			),
-			array(
-				'methods'             => 'DELETE',
-				'callback'            => array( $this, 'admin_delete_user' ),
-				'permission_callback' => array( $this, 'require_admin' ),
-			),
-		) );
-
-		register_rest_route( $ns, '/admin/storage/test', array(
-			'methods'             => 'POST',
-			'callback'            => array( $this, 'admin_storage_test' ),
-			'permission_callback' => array( $this, 'require_admin' ),
+	private function route( $ns, $path, $method, $callback, $permission ) {
+		register_rest_route( $ns, $path, array(
+			'methods'             => $method,
+			'callback'            => array( $this, $callback ),
+			'permission_callback' => $permission,
 		) );
 	}
 
+	public function open() {
+		return true;
+	}
+
 	// ------------------------------------------------------------------
-	// Yetki kontrolleri
+	// Yetki
 	// ------------------------------------------------------------------
 
 	public function require_user() {
 		$user_id = get_current_user_id();
 		if ( ! $user_id ) {
 			return new WP_Error( 'naber_unauthorized', 'Oturum acmaniz gerekiyor.', array( 'status' => 401 ) );
+		}
+		if ( Naber_Auth::is_banned( $user_id ) ) {
+			$reason = Naber_Auth::ban_reason( $user_id );
+			return new WP_Error( 'naber_banned', 'Hesabiniz yasaklandi.' . ( $reason ? ' Sebep: ' . $reason : '' ), array( 'status' => 403 ) );
 		}
 		if ( Naber_Auth::is_disabled( $user_id ) ) {
 			return new WP_Error( 'naber_disabled', 'Hesabiniz devre disi birakilmis.', array( 'status' => 403 ) );
@@ -225,6 +126,18 @@ class Naber_REST {
 		return true;
 	}
 
+	/** Sohbete erisim kontrolu. */
+	private function authorized_conversation( $conversation_id ) {
+		$conversation = Naber_Chat_Repo::get_conversation( $conversation_id );
+		if ( ! $conversation ) {
+			return new WP_Error( 'naber_chat_not_found', 'Sohbet bulunamadi.', array( 'status' => 404 ) );
+		}
+		if ( ! Naber_Chat_Repo::member( (int) $conversation['id'], get_current_user_id() ) ) {
+			return new WP_Error( 'naber_forbidden', 'Bu sohbete erisim yetkiniz yok.', array( 'status' => 403 ) );
+		}
+		return $conversation;
+	}
+
 	// ------------------------------------------------------------------
 	// Hesap
 	// ------------------------------------------------------------------
@@ -237,7 +150,6 @@ class Naber_REST {
 		$username = sanitize_user( (string) $request->get_param( 'username' ), true );
 		$password = (string) $request->get_param( 'password' );
 		$display  = sanitize_text_field( (string) $request->get_param( 'display_name' ) );
-		$email    = sanitize_email( (string) $request->get_param( 'email' ) );
 
 		if ( strlen( $username ) < 3 ) {
 			return new WP_Error( 'naber_bad_username', 'Kullanici adi en az 3 karakter olmali.', array( 'status' => 400 ) );
@@ -248,12 +160,9 @@ class Naber_REST {
 		if ( username_exists( $username ) ) {
 			return new WP_Error( 'naber_username_taken', 'Bu kullanici adi zaten alinmis.', array( 'status' => 409 ) );
 		}
-		if ( '' === $email ) {
-			$email = $username . '@naber.local';
-		}
-		if ( email_exists( $email ) ) {
-			return new WP_Error( 'naber_email_taken', 'Bu e-posta zaten kayitli.', array( 'status' => 409 ) );
-		}
+
+		// Kullaniciya uygulamaya ozel bir Naber adresi uretilir: kullaniciadi@naber.com
+		$email = Naber_Auth::build_naber_email( $username );
 
 		$user_id = wp_insert_user( array(
 			'user_login'   => $username,
@@ -271,12 +180,24 @@ class Naber_REST {
 	}
 
 	public function login( WP_REST_Request $request ) {
-		$username = (string) $request->get_param( 'username' );
-		$password = (string) $request->get_param( 'password' );
+		$identifier = trim( (string) $request->get_param( 'username' ) );
+		$password   = (string) $request->get_param( 'password' );
 
-		$user = wp_authenticate( $username, $password );
+		// Kullanici adi ya da Naber adresi ile giris.
+		if ( is_email( $identifier ) ) {
+			$found = get_user_by( 'email', $identifier );
+			if ( $found ) {
+				$identifier = $found->user_login;
+			}
+		}
+
+		$user = wp_authenticate( $identifier, $password );
 		if ( is_wp_error( $user ) ) {
 			return new WP_Error( 'naber_bad_credentials', 'Kullanici adi veya sifre hatali.', array( 'status' => 401 ) );
+		}
+		if ( Naber_Auth::is_banned( $user->ID ) ) {
+			$reason = Naber_Auth::ban_reason( $user->ID );
+			return new WP_Error( 'naber_banned', 'Hesabiniz yasaklandi.' . ( $reason ? ' Sebep: ' . $reason : '' ), array( 'status' => 403 ) );
 		}
 		if ( Naber_Auth::is_disabled( $user->ID ) ) {
 			return new WP_Error( 'naber_disabled', 'Hesabiniz devre disi birakilmis.', array( 'status' => 403 ) );
@@ -333,13 +254,18 @@ class Naber_REST {
 		if ( $media_id > 0 ) {
 			$media = Naber_Media::get( $media_id );
 			if ( $media && (int) $media['owner_id'] === $user_id ) {
-				update_user_meta( $user_id, 'naber_avatar_url', Naber_Media::url_for( $media ) );
-				update_user_meta( $user_id, 'naber_avatar_media_id', $media_id );
+				// Yalnizca medya kimligi saklanir; adres her istekte tazelenir.
+				update_user_meta( $user_id, Naber_Auth::META_AVATAR, $media_id );
+				delete_user_meta( $user_id, 'naber_avatar_url' );
 			}
 		}
 
 		return rest_ensure_response( array( 'user' => Naber_Auth::user_payload( $user_id, true ) ) );
 	}
+
+	// ------------------------------------------------------------------
+	// Kisiler
+	// ------------------------------------------------------------------
 
 	public function list_users( WP_REST_Request $request ) {
 		$search = sanitize_text_field( (string) $request->get_param( 'search' ) );
@@ -351,27 +277,102 @@ class Naber_REST {
 		);
 		if ( '' !== $search ) {
 			$args['search']         = '*' . $search . '*';
-			$args['search_columns'] = array( 'user_login', 'display_name', 'user_nicename' );
+			$args['search_columns'] = array( 'user_login', 'display_name', 'user_nicename', 'user_email' );
 		}
 
-		$users = array();
+		$contacts = Naber_Auth::contacts( get_current_user_id() );
+		$users    = array();
 		foreach ( get_users( $args ) as $user ) {
-			if ( Naber_Auth::is_disabled( $user->ID ) ) {
+			if ( Naber_Auth::is_disabled( $user->ID ) || Naber_Auth::is_banned( $user->ID ) ) {
 				continue;
 			}
-			$users[] = Naber_Auth::user_payload( $user );
+			$payload                = Naber_Auth::user_payload( $user );
+			$payload['is_contact']  = in_array( (int) $user->ID, $contacts, true );
+			$users[]                = $payload;
 		}
 		return rest_ensure_response( array( 'users' => $users ) );
 	}
 
+	/** Naber adresi (veya kullanici adi) ile tek kullanici bulur. */
+	public function lookup_user( WP_REST_Request $request ) {
+		$query = trim( (string) $request->get_param( 'q' ) );
+		if ( '' === $query ) {
+			return new WP_Error( 'naber_query_required', 'Aranacak adres veya kullanici adi gerekli.', array( 'status' => 400 ) );
+		}
+
+		$user = is_email( $query ) ? get_user_by( 'email', $query ) : get_user_by( 'login', $query );
+		if ( ! $user ) {
+			// Adres yazilirken alan adi unutulmus olabilir.
+			$user = get_user_by( 'email', $query . '@' . Naber_Auth::email_domain() );
+		}
+		if ( ! $user || (int) $user->ID === get_current_user_id() ) {
+			return new WP_Error( 'naber_user_not_found', 'Bu adrese sahip bir kullanici bulunamadi.', array( 'status' => 404 ) );
+		}
+		if ( Naber_Auth::is_banned( $user->ID ) || Naber_Auth::is_disabled( $user->ID ) ) {
+			return new WP_Error( 'naber_user_not_found', 'Bu kullanici su anda erisilebilir degil.', array( 'status' => 404 ) );
+		}
+
+		$payload               = Naber_Auth::user_payload( $user );
+		$payload['is_contact'] = in_array( (int) $user->ID, Naber_Auth::contacts( get_current_user_id() ), true );
+		return rest_ensure_response( array( 'user' => $payload ) );
+	}
+
+	public function list_contacts() {
+		$user_id = get_current_user_id();
+		$out     = array();
+		foreach ( Naber_Auth::contacts( $user_id ) as $contact_id ) {
+			$payload = Naber_Auth::user_payload( $contact_id );
+			if ( $payload && ! Naber_Auth::is_banned( $contact_id ) ) {
+				$payload['is_contact'] = true;
+				$out[]                 = $payload;
+			}
+		}
+		return rest_ensure_response( array( 'users' => $out ) );
+	}
+
+	public function add_contact( WP_REST_Request $request ) {
+		$user_id = get_current_user_id();
+		$target  = (int) $request->get_param( 'user_id' );
+
+		if ( ! $target ) {
+			$email  = trim( (string) $request->get_param( 'email' ) );
+			$found  = is_email( $email ) ? get_user_by( 'email', $email ) : get_user_by( 'email', $email . '@' . Naber_Auth::email_domain() );
+			$target = $found ? (int) $found->ID : 0;
+		}
+
+		if ( $target <= 0 || $target === $user_id || ! get_userdata( $target ) ) {
+			return new WP_Error( 'naber_user_not_found', 'Kullanici bulunamadi.', array( 'status' => 404 ) );
+		}
+		if ( Naber_Auth::is_banned( $target ) ) {
+			return new WP_Error( 'naber_user_not_found', 'Bu kullanici su anda erisilebilir degil.', array( 'status' => 404 ) );
+		}
+
+		Naber_Auth::add_contact( $user_id, $target );
+		$conversation_id = Naber_Chat_Repo::ensure_conversation( $user_id, $target );
+
+		$payload               = Naber_Auth::user_payload( $target );
+		$payload['is_contact'] = true;
+
+		return rest_ensure_response( array(
+			'user'            => $payload,
+			'conversation_id' => is_wp_error( $conversation_id ) ? 0 : $conversation_id,
+		) );
+	}
+
+	public function remove_contact( WP_REST_Request $request ) {
+		Naber_Auth::remove_contact( get_current_user_id(), (int) $request['id'] );
+		return rest_ensure_response( array( 'ok' => true ) );
+	}
+
 	// ------------------------------------------------------------------
-	// Sohbet & mesaj
+	// Sohbetler
 	// ------------------------------------------------------------------
 
 	public function list_chats() {
+		$user_id = get_current_user_id();
 		return rest_ensure_response( array(
-			'chats'        => Naber_Chat_Repo::list_for_user( get_current_user_id() ),
-			'unread_total' => Naber_Chat_Repo::unread_total( get_current_user_id() ),
+			'chats'        => Naber_Chat_Repo::list_for_user( $user_id ),
+			'unread_total' => Naber_Chat_Repo::unread_total( $user_id ),
 		) );
 	}
 
@@ -386,20 +387,223 @@ class Naber_REST {
 		}
 		return rest_ensure_response( array(
 			'id'   => $conversation_id,
-			'peer' => Naber_Auth::user_payload( $peer_id ),
+			'chat' => Naber_Chat_Repo::conversation_payload( $conversation_id, get_current_user_id() ),
 		) );
 	}
 
-	/** Sohbete erisim kontrolu: kullanici katilimci degilse 403. */
-	private function authorized_conversation( $conversation_id ) {
-		$conversation = Naber_Chat_Repo::get_conversation( $conversation_id );
-		if ( ! $conversation ) {
-			return new WP_Error( 'naber_chat_not_found', 'Sohbet bulunamadi.', array( 'status' => 404 ) );
+	public function create_group( WP_REST_Request $request ) {
+		$user_id = get_current_user_id();
+		$members = (array) $request->get_param( 'members' );
+		$title   = (string) $request->get_param( 'title' );
+
+		$conversation_id = Naber_Chat_Repo::create_group(
+			$user_id,
+			$title,
+			$members,
+			(int) $request->get_param( 'avatar_media_id' ),
+			(string) $request->get_param( 'about' )
+		);
+		if ( is_wp_error( $conversation_id ) ) {
+			return $conversation_id;
 		}
-		if ( ! Naber_Chat_Repo::is_participant( $conversation, get_current_user_id() ) ) {
-			return new WP_Error( 'naber_forbidden', 'Bu sohbete erisim yetkiniz yok.', array( 'status' => 403 ) );
+
+		$me = Naber_Auth::user_payload( $user_id );
+		foreach ( Naber_Chat_Repo::member_ids( $conversation_id ) as $member_id ) {
+			if ( $member_id !== $user_id ) {
+				Naber_Push::send_to_user(
+					$member_id,
+					array( 'title' => $title, 'body' => $me['display_name'] . ' sizi gruba ekledi' ),
+					array( 'type' => 'group_added', 'conversation_id' => $conversation_id )
+				);
+			}
 		}
-		return $conversation;
+
+		return rest_ensure_response( array( 'chat' => Naber_Chat_Repo::conversation_payload( $conversation_id, $user_id, true ) ) );
+	}
+
+	public function chat_info( WP_REST_Request $request ) {
+		$conversation = $this->authorized_conversation( (int) $request['id'] );
+		if ( is_wp_error( $conversation ) ) {
+			return $conversation;
+		}
+		return rest_ensure_response( array(
+			'chat' => Naber_Chat_Repo::conversation_payload( $conversation, get_current_user_id(), true ),
+		) );
+	}
+
+	public function update_chat( WP_REST_Request $request ) {
+		$conversation = $this->authorized_conversation( (int) $request['id'] );
+		if ( is_wp_error( $conversation ) ) {
+			return $conversation;
+		}
+		if ( 'group' !== $conversation['type'] ) {
+			return new WP_Error( 'naber_not_group', 'Yalnizca gruplar duzenlenebilir.', array( 'status' => 400 ) );
+		}
+		if ( ! Naber_Chat_Repo::is_group_admin( (int) $conversation['id'], get_current_user_id() ) ) {
+			return new WP_Error( 'naber_forbidden', 'Grubu yalnizca yoneticiler duzenleyebilir.', array( 'status' => 403 ) );
+		}
+
+		$fields = array();
+		foreach ( array( 'title', 'about' ) as $key ) {
+			$value = $request->get_param( $key );
+			if ( null !== $value ) {
+				$fields[ $key ] = (string) $value;
+			}
+		}
+		$avatar = (int) $request->get_param( 'avatar_media_id' );
+		if ( $avatar > 0 ) {
+			$media = Naber_Media::get( $avatar );
+			if ( $media && (int) $media['owner_id'] === get_current_user_id() ) {
+				$fields['avatar_media_id'] = $avatar;
+			}
+		}
+
+		Naber_Chat_Repo::update_group( (int) $conversation['id'], $fields );
+		return rest_ensure_response( array(
+			'chat' => Naber_Chat_Repo::conversation_payload( (int) $conversation['id'], get_current_user_id(), true ),
+		) );
+	}
+
+	public function add_members( WP_REST_Request $request ) {
+		$conversation = $this->authorized_conversation( (int) $request['id'] );
+		if ( is_wp_error( $conversation ) ) {
+			return $conversation;
+		}
+		if ( 'group' !== $conversation['type'] ) {
+			return new WP_Error( 'naber_not_group', 'Yalnizca gruba uye eklenebilir.', array( 'status' => 400 ) );
+		}
+		if ( ! Naber_Chat_Repo::is_group_admin( (int) $conversation['id'], get_current_user_id() ) ) {
+			return new WP_Error( 'naber_forbidden', 'Uye eklemek icin yonetici olmalisiniz.', array( 'status' => 403 ) );
+		}
+
+		foreach ( (array) $request->get_param( 'members' ) as $member_id ) {
+			$member_id = (int) $member_id;
+			if ( $member_id > 0 && get_userdata( $member_id ) && ! Naber_Auth::is_banned( $member_id ) ) {
+				Naber_Chat_Repo::add_member( (int) $conversation['id'], $member_id, 'member' );
+			}
+		}
+
+		return rest_ensure_response( array(
+			'chat' => Naber_Chat_Repo::conversation_payload( (int) $conversation['id'], get_current_user_id(), true ),
+		) );
+	}
+
+	public function remove_member( WP_REST_Request $request ) {
+		$conversation = $this->authorized_conversation( (int) $request['id'] );
+		if ( is_wp_error( $conversation ) ) {
+			return $conversation;
+		}
+		$target = (int) $request['user'];
+		$check  = $this->can_moderate( $conversation, $target );
+		if ( is_wp_error( $check ) ) {
+			return $check;
+		}
+
+		Naber_Chat_Repo::remove_member( (int) $conversation['id'], $target );
+		return rest_ensure_response( array(
+			'chat' => Naber_Chat_Repo::conversation_payload( (int) $conversation['id'], get_current_user_id(), true ),
+		) );
+	}
+
+	public function set_member_role( WP_REST_Request $request ) {
+		$conversation = $this->authorized_conversation( (int) $request['id'] );
+		if ( is_wp_error( $conversation ) ) {
+			return $conversation;
+		}
+		if ( 'owner' !== Naber_Chat_Repo::role_of( (int) $conversation['id'], get_current_user_id() ) ) {
+			return new WP_Error( 'naber_forbidden', 'Yonetici atamayi yalnizca grup sahibi yapabilir.', array( 'status' => 403 ) );
+		}
+
+		$role = sanitize_key( (string) $request->get_param( 'role' ) );
+		if ( ! in_array( $role, array( 'admin', 'member' ), true ) ) {
+			return new WP_Error( 'naber_bad_role', 'Gecersiz rol.', array( 'status' => 400 ) );
+		}
+
+		$target = (int) $request['user'];
+		if ( ! Naber_Chat_Repo::member( (int) $conversation['id'], $target ) ) {
+			return new WP_Error( 'naber_not_member', 'Kullanici bu grubun uyesi degil.', array( 'status' => 404 ) );
+		}
+
+		Naber_Chat_Repo::set_role( (int) $conversation['id'], $target, $role );
+		return rest_ensure_response( array(
+			'chat' => Naber_Chat_Repo::conversation_payload( (int) $conversation['id'], get_current_user_id(), true ),
+		) );
+	}
+
+	/** Grup yoneticisi bir uyeyi sohbette susturabilir / susturmayi kaldirabilir. */
+	public function mute_member( WP_REST_Request $request ) {
+		$conversation = $this->authorized_conversation( (int) $request['id'] );
+		if ( is_wp_error( $conversation ) ) {
+			return $conversation;
+		}
+		$target = (int) $request['user'];
+		$check  = $this->can_moderate( $conversation, $target );
+		if ( is_wp_error( $check ) ) {
+			return $check;
+		}
+
+		$muted = rest_sanitize_boolean( $request->get_param( 'muted' ) );
+		Naber_Chat_Repo::set_chat_muted( (int) $conversation['id'], $target, $muted );
+
+		return rest_ensure_response( array(
+			'chat' => Naber_Chat_Repo::conversation_payload( (int) $conversation['id'], get_current_user_id(), true ),
+		) );
+	}
+
+	/** Yonetici mudahalesi icin ortak kontrol. */
+	private function can_moderate( $conversation, $target_id ) {
+		if ( 'group' !== $conversation['type'] ) {
+			return new WP_Error( 'naber_not_group', 'Bu islem yalnizca gruplarda yapilabilir.', array( 'status' => 400 ) );
+		}
+		$conversation_id = (int) $conversation['id'];
+		$actor_role      = Naber_Chat_Repo::role_of( $conversation_id, get_current_user_id() );
+		$target_role     = Naber_Chat_Repo::role_of( $conversation_id, $target_id );
+
+		if ( ! $target_role ) {
+			return new WP_Error( 'naber_not_member', 'Kullanici bu grubun uyesi degil.', array( 'status' => 404 ) );
+		}
+		if ( $target_id === get_current_user_id() ) {
+			return new WP_Error( 'naber_self_action', 'Bu islemi kendinize uygulayamazsiniz.', array( 'status' => 400 ) );
+		}
+		if ( ! Naber_Chat_Repo::can_act_on( $actor_role, $target_role ) ) {
+			return new WP_Error( 'naber_forbidden', 'Bu uye uzerinde yetkiniz yok.', array( 'status' => 403 ) );
+		}
+		return true;
+	}
+
+	public function leave_chat( WP_REST_Request $request ) {
+		$conversation = $this->authorized_conversation( (int) $request['id'] );
+		if ( is_wp_error( $conversation ) ) {
+			return $conversation;
+		}
+		if ( 'group' !== $conversation['type'] ) {
+			return new WP_Error( 'naber_not_group', 'Birebir sohbetten ayrilinamaz.', array( 'status' => 400 ) );
+		}
+
+		$user_id = get_current_user_id();
+		$role    = Naber_Chat_Repo::role_of( (int) $conversation['id'], $user_id );
+
+		Naber_Chat_Repo::remove_member( (int) $conversation['id'], $user_id );
+
+		// Sahip ayrilirsa yonetim en eski uyeye gecer.
+		if ( 'owner' === $role ) {
+			$remaining = Naber_Chat_Repo::member_ids( (int) $conversation['id'] );
+			if ( $remaining ) {
+				Naber_Chat_Repo::set_role( (int) $conversation['id'], $remaining[0], 'owner' );
+			}
+		}
+
+		return rest_ensure_response( array( 'ok' => true ) );
+	}
+
+	public function toggle_notifications( WP_REST_Request $request ) {
+		$conversation = $this->authorized_conversation( (int) $request['id'] );
+		if ( is_wp_error( $conversation ) ) {
+			return $conversation;
+		}
+		$muted = rest_sanitize_boolean( $request->get_param( 'muted' ) );
+		Naber_Chat_Repo::set_notify_muted( (int) $conversation['id'], get_current_user_id(), $muted );
+		return rest_ensure_response( array( 'muted' => $muted ) );
 	}
 
 	public function list_messages( WP_REST_Request $request ) {
@@ -407,16 +611,21 @@ class Naber_REST {
 		if ( is_wp_error( $conversation ) ) {
 			return $conversation;
 		}
+
+		$user_id  = get_current_user_id();
+		$is_group = 'group' === $conversation['type'];
+
 		$messages = Naber_Chat_Repo::messages( (int) $conversation['id'], array(
-			'limit'  => (int) $request->get_param( 'limit' ),
-			'before' => (int) $request->get_param( 'before' ),
-			'after'  => (int) $request->get_param( 'after' ),
+			'limit'    => (int) $request->get_param( 'limit' ),
+			'before'   => (int) $request->get_param( 'before' ),
+			'after'    => (int) $request->get_param( 'after' ),
+			'is_group' => $is_group,
 		) );
-		$peer_id = Naber_Chat_Repo::other_user( $conversation, get_current_user_id() );
+
 		return rest_ensure_response( array(
 			'messages' => $messages,
-			'peer'     => Naber_Auth::user_payload( $peer_id ),
-			'typing'   => Naber_Chat_Repo::typing_state( (int) $conversation['id'], $peer_id ),
+			'chat'     => Naber_Chat_Repo::conversation_payload( $conversation, $user_id, $is_group ),
+			'typing'   => Naber_Chat_Repo::typing_users( (int) $conversation['id'], $user_id ),
 		) );
 	}
 
@@ -434,7 +643,6 @@ class Naber_REST {
 			if ( is_wp_error( $conversation ) ) {
 				return $conversation;
 			}
-			$receiver_id = Naber_Chat_Repo::other_user( $conversation, $user_id );
 		} else {
 			$receiver_id = (int) $request->get_param( 'receiver_id' );
 			if ( $receiver_id <= 0 || ! get_userdata( $receiver_id ) ) {
@@ -444,7 +652,19 @@ class Naber_REST {
 			if ( is_wp_error( $conversation_id ) ) {
 				return $conversation_id;
 			}
+			$conversation = Naber_Chat_Repo::get_conversation( $conversation_id );
 		}
+
+		$conversation_id = (int) $conversation['id'];
+		$member          = Naber_Chat_Repo::member( $conversation_id, $user_id );
+
+		// Grup yoneticisi tarafindan susturulan uye mesaj gonderemez.
+		if ( $member && (int) $member['chat_muted'] === 1 ) {
+			return new WP_Error( 'naber_muted', 'Bu sohbette yonetici tarafindan susturuldunuz.', array( 'status' => 403 ) );
+		}
+
+		$is_group    = 'group' === $conversation['type'];
+		$receiver_id = $is_group ? 0 : Naber_Chat_Repo::other_user( $conversation, $user_id );
 
 		if ( 'image' === $type ) {
 			$media = Naber_Media::get( $media_id );
@@ -464,23 +684,57 @@ class Naber_REST {
 		}
 
 		$message = Naber_Chat_Repo::insert_message( $conversation_id, $user_id, $receiver_id, $type, $body, $media_id, $client );
+		if ( $is_group ) {
+			$message['sender_name'] = Naber_Auth::user_payload( $user_id )['display_name'];
+		}
 
 		$sender  = Naber_Auth::user_payload( $user_id );
 		$preview = 'image' === $type ? 'Fotograf' : wp_trim_words( $body, 12, '...' );
-		Naber_Push::send_to_user(
-			$receiver_id,
-			array( 'title' => $sender['display_name'], 'body' => $preview ),
-			array(
-				'type'            => 'message',
-				'conversation_id' => $conversation_id,
-				'message_id'      => $message['id'],
-				'sender_id'       => $user_id,
-				'sender_name'     => $sender['display_name'],
-				'preview'         => $preview,
-			)
-		);
+		$title   = $is_group ? (string) $conversation['title'] : $sender['display_name'];
+		$text    = $is_group ? $sender['display_name'] . ': ' . $preview : $preview;
+
+		foreach ( Naber_Chat_Repo::member_ids( $conversation_id ) as $member_id ) {
+			if ( $member_id === $user_id ) {
+				continue;
+			}
+			$target_member = Naber_Chat_Repo::member( $conversation_id, $member_id );
+			if ( $target_member && (int) $target_member['notify_muted'] === 1 ) {
+				continue;
+			}
+			Naber_Push::send_to_user(
+				$member_id,
+				array( 'title' => $title, 'body' => $text ),
+				array(
+					'type'            => 'message',
+					'conversation_id' => $conversation_id,
+					'message_id'      => $message['id'],
+					'sender_id'       => $user_id,
+					'sender_name'     => $sender['display_name'],
+					'preview'         => $text,
+				)
+			);
+		}
 
 		return rest_ensure_response( array( 'message' => $message ) );
+	}
+
+	public function delete_message( WP_REST_Request $request ) {
+		$message = Naber_Chat_Repo::get_message( (int) $request['id'] );
+		if ( ! $message ) {
+			return new WP_Error( 'naber_message_not_found', 'Mesaj bulunamadi.', array( 'status' => 404 ) );
+		}
+
+		$user_id      = get_current_user_id();
+		$conversation = Naber_Chat_Repo::get_conversation( (int) $message['conversation_id'] );
+		$is_own       = (int) $message['sender_id'] === $user_id;
+		$is_moderator = $conversation && Naber_Chat_Repo::is_group_admin( (int) $conversation['id'], $user_id );
+
+		if ( ! $is_own && ! $is_moderator && ! Naber_Auth::is_admin_user( $user_id ) ) {
+			return new WP_Error( 'naber_forbidden', 'Bu mesaji silemezsiniz.', array( 'status' => 403 ) );
+		}
+
+		Naber_Chat_Repo::delete_message( (int) $message['id'] );
+		return rest_ensure_response( array( 'ok' => true ) );
 	}
 
 	public function mark_read( WP_REST_Request $request ) {
@@ -558,7 +812,6 @@ class Naber_REST {
 		return rest_ensure_response( array( 'media' => Naber_Media::payload( $media ) ) );
 	}
 
-	/** Dogrudan yukleme calismazsa dosya WordPress uzerinden B2'ye aktarilir. */
 	public function media_proxy_upload( WP_REST_Request $request ) {
 		$files = $request->get_file_params();
 		if ( empty( $files['file'] ) || ! isset( $files['file']['tmp_name'] ) ) {
@@ -585,7 +838,7 @@ class Naber_REST {
 			return $uploaded;
 		}
 
-		$size  = getimagesize( $file['tmp_name'] );
+		$size     = getimagesize( $file['tmp_name'] );
 		$media_id = Naber_Media::create_pending( $user_id, $file_name, $mime, strlen( $content ), $size ? (int) $size[0] : 0, $size ? (int) $size[1] : 0 );
 		$media    = Naber_Media::complete( $media_id, $user_id, $uploaded['file_id'], strlen( $content ) );
 
@@ -597,20 +850,25 @@ class Naber_REST {
 		if ( ! $media ) {
 			return new WP_Error( 'naber_media_not_found', 'Medya bulunamadi.', array( 'status' => 404 ) );
 		}
+
 		global $wpdb;
 		$user_id = get_current_user_id();
-		// Sahibi ya da bu medyanin gonderildigi sohbetin katilimcisi gorebilir.
 		$allowed = (int) $media['owner_id'] === $user_id;
+
 		if ( ! $allowed ) {
-			$allowed = (bool) $wpdb->get_var(
+			$messages = Naber_DB::table( 'messages' );
+			$members  = Naber_DB::table( 'members' );
+			$allowed  = (bool) $wpdb->get_var(
 				$wpdb->prepare(
-					'SELECT COUNT(*) FROM ' . Naber_DB::table( 'messages' ) . ' WHERE media_id = %d AND (sender_id = %d OR receiver_id = %d)',
-					(int) $media['id'],
+					"SELECT COUNT(*) FROM {$messages} m
+					 INNER JOIN {$members} me ON me.conversation_id = m.conversation_id AND me.user_id = %d
+					 WHERE m.media_id = %d",
 					$user_id,
-					$user_id
+					(int) $media['id']
 				)
 			);
 		}
+
 		if ( ! $allowed ) {
 			return new WP_Error( 'naber_forbidden', 'Bu medyaya erisim yetkiniz yok.', array( 'status' => 403 ) );
 		}
@@ -618,7 +876,7 @@ class Naber_REST {
 	}
 
 	// ------------------------------------------------------------------
-	// Cihaz / bildirim
+	// Cihaz / olaylar
 	// ------------------------------------------------------------------
 
 	public function register_device( WP_REST_Request $request ) {
@@ -626,7 +884,8 @@ class Naber_REST {
 		if ( '' === $token ) {
 			return new WP_Error( 'naber_no_token', 'Cihaz jetonu gerekli.', array( 'status' => 400 ) );
 		}
-		Naber_Push::register_device( get_current_user_id(), $token, sanitize_key( (string) $request->get_param( 'platform' ) ) ?: 'android' );
+		$platform = sanitize_key( (string) $request->get_param( 'platform' ) );
+		Naber_Push::register_device( get_current_user_id(), $token, $platform ? $platform : 'android' );
 		return rest_ensure_response( array( 'ok' => true ) );
 	}
 
@@ -635,24 +894,18 @@ class Naber_REST {
 		return rest_ensure_response( array( 'ok' => true ) );
 	}
 
-	// ------------------------------------------------------------------
-	// Canli olay akisi (long-polling)
-	// WordPress hostinglerinde WebSocket calismadigi icin, tek baglantida
-	// en fazla ~25 saniye bekleyen hafif bir uzun yoklama kullanilir.
-	// ------------------------------------------------------------------
-
+	/**
+	 * Canli olay akisi (long-polling).
+	 * WordPress hostinglerinde WebSocket calismadigi icin istek sunucuda
+	 * en fazla 25 saniye bekler, yeni bir sey olunca hemen doner.
+	 */
 	public function events( WP_REST_Request $request ) {
-		$user_id     = get_current_user_id();
-		$since_msg   = (int) $request->get_param( 'since_message_id' );
-		$since_sig   = (int) $request->get_param( 'since_signal_id' );
-		$since_read  = (int) $request->get_param( 'since_read' );
-		$wait        = max( 0, min( 25, (int) $request->get_param( 'wait' ) ) );
-		$conv_id     = (int) $request->get_param( 'conversation_id' );
-		$deadline    = time() + $wait;
-
-		if ( $since_read <= 0 ) {
-			$since_read = time() - 60;
-		}
+		$user_id   = get_current_user_id();
+		$since_msg = (int) $request->get_param( 'since_message_id' );
+		$since_sig = (int) $request->get_param( 'since_signal_id' );
+		$wait      = max( 0, min( 25, (int) $request->get_param( 'wait' ) ) );
+		$conv_id   = (int) $request->get_param( 'conversation_id' );
+		$deadline  = time() + $wait;
 
 		do {
 			Naber_Auth::touch_presence( $user_id );
@@ -660,30 +913,21 @@ class Naber_REST {
 			$messages = Naber_Chat_Repo::messages_since( $user_id, $since_msg );
 			$signals  = Naber_Calls::signals_for( $user_id, $since_sig );
 			$incoming = Naber_Calls::active_incoming( $user_id );
-			$receipts = Naber_Chat_Repo::read_receipts( $user_id, $since_read );
 
-			$typing = null;
-			if ( $conv_id > 0 ) {
-				$conversation = Naber_Chat_Repo::get_conversation( $conv_id );
-				if ( $conversation && Naber_Chat_Repo::is_participant( $conversation, $user_id ) ) {
-					$peer   = Naber_Chat_Repo::other_user( $conversation, $user_id );
-					$typing = array(
-						'conversation_id' => $conv_id,
-						'user_id'         => $peer,
-						'typing'          => Naber_Chat_Repo::typing_state( $conv_id, $peer ),
-						'online'          => Naber_Auth::is_online( $peer ),
-					);
-				}
+			$typing = array();
+			if ( $conv_id > 0 && Naber_Chat_Repo::member( $conv_id, $user_id ) ) {
+				$typing = Naber_Chat_Repo::typing_users( $conv_id, $user_id );
 			}
 
-			$has_data = $messages || $signals || $incoming || $receipts || ( $typing && $typing['typing'] );
+			$has_data = $messages || $signals || $incoming || $typing;
 			if ( $has_data || time() >= $deadline ) {
 				return rest_ensure_response( array(
 					'messages'         => $messages,
 					'signals'          => $signals,
 					'incoming_call'    => $incoming,
-					'read_receipts'    => $receipts,
+					'read_states'      => Naber_Chat_Repo::read_states( $user_id ),
 					'typing'           => $typing,
+					'typing_conversation_id' => $conv_id,
 					'unread_total'     => Naber_Chat_Repo::unread_total( $user_id ),
 					'server_time'      => time(),
 					'since_message_id' => $messages ? (int) $messages[ count( $messages ) - 1 ]['id'] : $since_msg,
@@ -691,7 +935,6 @@ class Naber_REST {
 				) );
 			}
 
-			// Uzun yoklama sirasinda veritabani baglantisini mesgul etmemek icin kisa uyku.
 			usleep( 1500000 );
 		} while ( true );
 	}
@@ -701,37 +944,62 @@ class Naber_REST {
 	}
 
 	// ------------------------------------------------------------------
-	// Arama
+	// Aramalar
 	// ------------------------------------------------------------------
 
 	public function call_start( WP_REST_Request $request ) {
-		$callee_id = (int) $request->get_param( 'user_id' );
-		$user_id   = get_current_user_id();
-		if ( $callee_id <= 0 || $callee_id === $user_id || ! get_userdata( $callee_id ) ) {
-			return new WP_Error( 'naber_user_not_found', 'Aranacak kullanici bulunamadi.', array( 'status' => 404 ) );
+		$user_id         = get_current_user_id();
+		$conversation_id = (int) $request->get_param( 'conversation_id' );
+		$callee_id       = (int) $request->get_param( 'user_id' );
+
+		if ( $conversation_id > 0 ) {
+			$conversation = $this->authorized_conversation( $conversation_id );
+			if ( is_wp_error( $conversation ) ) {
+				return $conversation;
+			}
+			if ( 'group' === $conversation['type'] ) {
+				$call = Naber_Calls::start_group( $user_id, $conversation_id );
+			} else {
+				$call = Naber_Calls::start_direct( $user_id, Naber_Chat_Repo::other_user( $conversation, $user_id ) );
+			}
+		} else {
+			if ( $callee_id <= 0 || $callee_id === $user_id || ! get_userdata( $callee_id ) ) {
+				return new WP_Error( 'naber_user_not_found', 'Aranacak kullanici bulunamadi.', array( 'status' => 404 ) );
+			}
+			$call = Naber_Calls::start_direct( $user_id, $callee_id );
 		}
 
-		$call = Naber_Calls::start( $user_id, $callee_id );
 		if ( is_wp_error( $call ) ) {
 			return $call;
 		}
 
-		$caller = Naber_Auth::user_payload( $user_id );
-		Naber_Push::send_to_user(
-			$callee_id,
-			array( 'title' => $caller['display_name'], 'body' => 'Sesli arama' ),
-			array(
-				'type'        => 'call',
-				'call_id'     => $call['id'],
-				'caller_id'   => $user_id,
-				'caller_name' => $caller['display_name'],
-				'caller_avatar' => (string) $caller['avatar'],
-			),
-			true
-		);
+		$caller   = Naber_Auth::user_payload( $user_id );
+		$is_group = 'group' === $call['type'];
+		$title    = $is_group ? Naber_Calls::payload( $call )['group_title'] : $caller['display_name'];
+
+		foreach ( Naber_Calls::participants( (int) $call['id'] ) as $participant ) {
+			if ( (int) $participant['id'] === $user_id || 'ringing' !== $participant['call_status'] ) {
+				continue;
+			}
+			Naber_Push::send_to_user(
+				(int) $participant['id'],
+				array( 'title' => $title, 'body' => $is_group ? $caller['display_name'] . ' grup aramasi baslatti' : 'Sesli arama' ),
+				array(
+					'type'          => 'call',
+					'call_id'       => $call['id'],
+					'call_type'     => $call['type'],
+					'caller_id'     => $user_id,
+					'caller_name'   => $caller['display_name'],
+					'caller_avatar' => (string) $caller['avatar'],
+					'group_title'   => $title,
+				),
+				true
+			);
+		}
 
 		return rest_ensure_response( array(
-			'call'        => Naber_Calls::payload( $call ),
+			'call'        => Naber_Calls::payload( $call, true ),
+			'peers'       => Naber_Calls::joined_user_ids( (int) $call['id'], $user_id ),
 			'ice_servers' => Naber_Settings::ice_servers(),
 		) );
 	}
@@ -747,36 +1015,73 @@ class Naber_REST {
 		return $call;
 	}
 
+	public function call_info( WP_REST_Request $request ) {
+		$call = $this->authorized_call( (int) $request['id'] );
+		if ( is_wp_error( $call ) ) {
+			return $call;
+		}
+		return rest_ensure_response( array(
+			'call'  => Naber_Calls::payload( $call, true ),
+			'peers' => Naber_Calls::joined_user_ids( (int) $call['id'], get_current_user_id() ),
+		) );
+	}
+
 	public function call_action( WP_REST_Request $request ) {
 		$call = $this->authorized_call( (int) $request['id'] );
 		if ( is_wp_error( $call ) ) {
 			return $call;
 		}
 
-		$action  = (string) $request['action'];
-		$user_id = get_current_user_id();
+		$action   = (string) $request['action'];
+		$user_id  = get_current_user_id();
+		$call_id  = (int) $call['id'];
+		$is_group = 'group' === $call['type'];
 
-		if ( 'accept' === $action ) {
-			if ( (int) $call['callee_id'] !== $user_id ) {
-				return new WP_Error( 'naber_forbidden', 'Aramayi yalnizca aranan kisi kabul edebilir.', array( 'status' => 403 ) );
-			}
-			$call = Naber_Calls::set_status( (int) $call['id'], 'active' );
-		} elseif ( 'reject' === $action ) {
-			if ( (int) $call['callee_id'] !== $user_id ) {
-				return new WP_Error( 'naber_forbidden', 'Aramayi yalnizca aranan kisi reddedebilir.', array( 'status' => 403 ) );
-			}
-			$call = Naber_Calls::set_status( (int) $call['id'], 'rejected', 'declined' );
-		} else {
-			$reason = 'ringing' === $call['status'] && (int) $call['caller_id'] === $user_id ? 'cancelled' : 'hangup';
-			$status = 'ringing' === $call['status'] && (int) $call['caller_id'] === $user_id ? 'missed' : 'ended';
-			$call   = Naber_Calls::set_status( (int) $call['id'], $status, $reason );
+		$participant = Naber_Calls::participant( $call_id, $user_id );
+		if ( $participant && 'kicked' === $participant['status'] && in_array( $action, array( 'accept', 'join' ), true ) ) {
+			return new WP_Error( 'naber_kicked', 'Bu aramadan cikarildiniz.', array( 'status' => 403 ) );
 		}
 
-		$other = (int) $call['caller_id'] === $user_id ? (int) $call['callee_id'] : (int) $call['caller_id'];
-		Naber_Calls::add_signal( (int) $call['id'], $user_id, $other, 'state', wp_json_encode( array( 'status' => $call['status'] ) ) );
+		switch ( $action ) {
+			case 'accept':
+			case 'join':
+				Naber_Calls::set_participant_status( $call_id, $user_id, 'joined' );
+				$call = Naber_Calls::set_status( $call_id, 'active' );
+				Naber_Calls::broadcast( $call_id, $user_id, 'state', wp_json_encode( array( 'status' => 'joined', 'user_id' => $user_id ) ) );
+				break;
+
+			case 'reject':
+				Naber_Calls::set_participant_status( $call_id, $user_id, 'rejected' );
+				if ( ! $is_group ) {
+					$call = Naber_Calls::set_status( $call_id, 'rejected', 'declined' );
+				}
+				Naber_Calls::broadcast( $call_id, $user_id, 'state', wp_json_encode( array( 'status' => $is_group ? 'left' : 'rejected', 'user_id' => $user_id ) ) );
+				break;
+
+			case 'end':
+			case 'leave':
+			default:
+				Naber_Calls::set_participant_status( $call_id, $user_id, 'left' );
+				Naber_Calls::broadcast( $call_id, $user_id, 'state', wp_json_encode( array( 'status' => 'left', 'user_id' => $user_id ) ) );
+
+				$remaining = Naber_Calls::joined_user_ids( $call_id, 0 );
+				if ( ! $is_group || count( $remaining ) < 2 ) {
+					$reason = ( 'ringing' === $call['status'] && (int) $call['caller_id'] === $user_id ) ? 'cancelled' : 'hangup';
+					$status = ( 'ringing' === $call['status'] && ! $is_group && (int) $call['caller_id'] === $user_id ) ? 'missed' : 'ended';
+					$call   = Naber_Calls::set_status( $call_id, $status, $reason );
+					Naber_Calls::broadcast( $call_id, $user_id, 'state', wp_json_encode( array( 'status' => 'ended' ) ) );
+				} else {
+					$call = Naber_Calls::get( $call_id );
+				}
+				break;
+		}
+
 		Naber_Calls::cleanup_signals();
 
-		return rest_ensure_response( array( 'call' => Naber_Calls::payload( $call ) ) );
+		return rest_ensure_response( array(
+			'call'  => Naber_Calls::payload( $call, true ),
+			'peers' => Naber_Calls::joined_user_ids( $call_id, $user_id ),
+		) );
 	}
 
 	public function call_signal( WP_REST_Request $request ) {
@@ -800,9 +1105,17 @@ class Naber_REST {
 		}
 
 		$user_id = get_current_user_id();
-		$other   = (int) $call['caller_id'] === $user_id ? (int) $call['callee_id'] : (int) $call['caller_id'];
-		$id      = Naber_Calls::add_signal( (int) $call['id'], $user_id, $other, $type, $payload );
+		$target  = (int) $request->get_param( 'to' );
 
+		if ( $target <= 0 ) {
+			// Birebir aramada hedef bellidir.
+			$target = (int) $call['caller_id'] === $user_id ? (int) $call['callee_id'] : (int) $call['caller_id'];
+		}
+		if ( $target <= 0 || ! Naber_Calls::participant( (int) $call['id'], $target ) ) {
+			return new WP_Error( 'naber_bad_target', 'Signaling hedefi aramada degil.', array( 'status' => 400 ) );
+		}
+
+		$id = Naber_Calls::add_signal( (int) $call['id'], $user_id, $target, $type, $payload );
 		return rest_ensure_response( array( 'id' => $id ) );
 	}
 
@@ -813,8 +1126,64 @@ class Naber_REST {
 		}
 		return rest_ensure_response( array(
 			'signals' => Naber_Calls::signals_for( get_current_user_id(), (int) $request->get_param( 'since' ), (int) $call['id'] ),
-			'call'    => Naber_Calls::payload( $call ),
+			'call'    => Naber_Calls::payload( $call, true ),
+			'peers'   => Naber_Calls::joined_user_ids( (int) $call['id'], get_current_user_id() ),
 		) );
+	}
+
+	/** Grup aramasinda yonetici bir katilimciyi susturur (sureseiz) veya acar. */
+	public function call_mute_participant( WP_REST_Request $request ) {
+		$call = $this->authorized_call( (int) $request['id'] );
+		if ( is_wp_error( $call ) ) {
+			return $call;
+		}
+		$target = (int) $request['user'];
+		$check  = $this->can_moderate_call( $call, $target );
+		if ( is_wp_error( $check ) ) {
+			return $check;
+		}
+
+		$muted = rest_sanitize_boolean( $request->get_param( 'muted' ) );
+		Naber_Calls::set_participant_muted( (int) $call['id'], $target, $muted );
+		Naber_Calls::add_signal(
+			(int) $call['id'],
+			get_current_user_id(),
+			$target,
+			'state',
+			wp_json_encode( array( 'status' => $muted ? 'force_muted' : 'force_unmuted' ) )
+		);
+
+		return rest_ensure_response( array( 'call' => Naber_Calls::payload( $call, true ) ) );
+	}
+
+	/** Grup aramasinda yonetici bir katilimciyi sesten atar. */
+	public function call_kick_participant( WP_REST_Request $request ) {
+		$call = $this->authorized_call( (int) $request['id'] );
+		if ( is_wp_error( $call ) ) {
+			return $call;
+		}
+		$target = (int) $request['user'];
+		$check  = $this->can_moderate_call( $call, $target );
+		if ( is_wp_error( $check ) ) {
+			return $check;
+		}
+
+		Naber_Calls::set_participant_status( (int) $call['id'], $target, 'kicked' );
+		Naber_Calls::add_signal( (int) $call['id'], get_current_user_id(), $target, 'state', wp_json_encode( array( 'status' => 'kicked' ) ) );
+		Naber_Calls::broadcast( (int) $call['id'], get_current_user_id(), 'state', wp_json_encode( array( 'status' => 'left', 'user_id' => $target ) ) );
+
+		return rest_ensure_response( array( 'call' => Naber_Calls::payload( $call, true ) ) );
+	}
+
+	private function can_moderate_call( $call, $target_id ) {
+		if ( 'group' !== $call['type'] ) {
+			return new WP_Error( 'naber_not_group_call', 'Bu islem yalnizca grup aramalarinda yapilabilir.', array( 'status' => 400 ) );
+		}
+		$conversation = Naber_Chat_Repo::get_conversation( (int) $call['conversation_id'] );
+		if ( ! $conversation ) {
+			return new WP_Error( 'naber_chat_not_found', 'Grup bulunamadi.', array( 'status' => 404 ) );
+		}
+		return $this->can_moderate( $conversation, $target_id );
 	}
 
 	public function call_history() {
@@ -832,7 +1201,8 @@ class Naber_REST {
 
 		$total_messages = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$messages}" );
 		$today          = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$messages} WHERE created_at >= %s", gmdate( 'Y-m-d 00:00:00' ) ) );
-		$conversations  = (int) $wpdb->get_var( 'SELECT COUNT(*) FROM ' . Naber_DB::table( 'conversations' ) );
+		$conversations  = (int) $wpdb->get_var( 'SELECT COUNT(*) FROM ' . Naber_DB::table( 'conversations' ) . " WHERE type = 'direct'" );
+		$groups         = (int) $wpdb->get_var( 'SELECT COUNT(*) FROM ' . Naber_DB::table( 'conversations' ) . " WHERE type = 'group'" );
 
 		$recent = array();
 		foreach ( get_users( array( 'number' => 10, 'orderby' => 'registered', 'order' => 'DESC' ) ) as $user ) {
@@ -840,37 +1210,53 @@ class Naber_REST {
 		}
 
 		$online = 0;
-		foreach ( get_users( array( 'number' => 200, 'fields' => 'ID' ) ) as $uid ) {
+		$banned = 0;
+		foreach ( get_users( array( 'number' => 500, 'fields' => 'ID' ) ) as $uid ) {
 			if ( Naber_Auth::is_online( $uid ) ) {
 				$online++;
+			}
+			if ( Naber_Auth::is_banned( $uid ) ) {
+				$banned++;
 			}
 		}
 
 		return rest_ensure_response( array(
-			'users'          => array(
+			'users'           => array(
 				'total'  => (int) count_users()['total_users'],
 				'online' => $online,
+				'banned' => $banned,
 			),
-			'messages'       => array(
+			'messages'        => array(
 				'total' => $total_messages,
 				'today' => $today,
 			),
-			'conversations'  => $conversations,
-			'storage'        => $storage,
-			'calls'          => Naber_Calls::stats(),
-			'recent_users'   => $recent,
-			'storage_ready'  => Naber_Settings::b2_ready(),
-			'push_ready'     => Naber_Push::is_configured(),
-			'turn_configured'=> '' !== (string) Naber_Settings::get( 'turn_urls' ),
+			'conversations'   => $conversations,
+			'groups'          => $groups,
+			'storage'         => $storage,
+			'calls'           => Naber_Calls::stats(),
+			'recent_users'    => $recent,
+			'storage_ready'   => Naber_Settings::b2_ready(),
+			'push_ready'      => Naber_Push::is_configured(),
+			'turn_configured' => '' !== (string) Naber_Settings::get( 'turn_urls' ),
+			'server'          => home_url(),
+			'plugin_version'  => NABER_CHAT_VERSION,
+			'email_domain'    => Naber_Auth::email_domain(),
 		) );
 	}
 
-	public function admin_users() {
+	public function admin_users( WP_REST_Request $request ) {
+		$search = sanitize_text_field( (string) $request->get_param( 'search' ) );
+		$args   = array( 'number' => 300, 'orderby' => 'registered', 'order' => 'DESC' );
+		if ( '' !== $search ) {
+			$args['search']         = '*' . $search . '*';
+			$args['search_columns'] = array( 'user_login', 'display_name', 'user_email' );
+		}
+
 		$users = array();
-		foreach ( get_users( array( 'number' => 200, 'orderby' => 'registered', 'order' => 'DESC' ) ) as $user ) {
-			$payload            = Naber_Auth::user_payload( $user, true );
-			$payload['unread']  = Naber_Chat_Repo::unread_total( $user->ID );
-			$users[]            = $payload;
+		foreach ( get_users( $args ) as $user ) {
+			$payload           = Naber_Auth::user_payload( $user, true );
+			$payload['unread'] = Naber_Chat_Repo::unread_total( $user->ID );
+			$users[]           = $payload;
 		}
 		return rest_ensure_response( array( 'users' => $users ) );
 	}
@@ -881,18 +1267,48 @@ class Naber_REST {
 		if ( ! $user ) {
 			return new WP_Error( 'naber_user_not_found', 'Kullanici bulunamadi.', array( 'status' => 404 ) );
 		}
+		if ( $target === get_current_user_id() ) {
+			return new WP_Error( 'naber_self_action', 'Bu islemi kendi hesabinizda yapamazsiniz.', array( 'status' => 400 ) );
+		}
+
+		$banned = $request->get_param( 'banned' );
+		if ( null !== $banned ) {
+			Naber_Auth::set_banned( $target, rest_sanitize_boolean( $banned ), (string) $request->get_param( 'reason' ) );
+		}
 
 		$disabled = $request->get_param( 'disabled' );
 		if ( null !== $disabled ) {
-			if ( $target === get_current_user_id() ) {
-				return new WP_Error( 'naber_self_action', 'Kendi hesabinizi devre disi birakamazsiniz.', array( 'status' => 400 ) );
-			}
 			if ( rest_sanitize_boolean( $disabled ) ) {
 				update_user_meta( $target, 'naber_disabled', '1' );
-				delete_user_meta( $target, Naber_Auth::META_TOKENS );
+				Naber_Auth::revoke_all_tokens( $target );
 			} else {
 				delete_user_meta( $target, 'naber_disabled' );
 			}
+		}
+
+		$make_admin = $request->get_param( 'admin' );
+		if ( null !== $make_admin ) {
+			$wp_user = new WP_User( $target );
+			if ( rest_sanitize_boolean( $make_admin ) ) {
+				$wp_user->set_role( 'administrator' );
+			} else {
+				$wp_user->set_role( 'subscriber' );
+			}
+		}
+
+		$display = $request->get_param( 'display_name' );
+		if ( null !== $display && '' !== trim( (string) $display ) ) {
+			wp_update_user( array( 'ID' => $target, 'display_name' => sanitize_text_field( (string) $display ) ) );
+		}
+
+		$password = (string) $request->get_param( 'password' );
+		if ( strlen( $password ) >= 6 ) {
+			wp_set_password( $password, $target );
+			Naber_Auth::revoke_all_tokens( $target );
+		}
+
+		if ( rest_sanitize_boolean( $request->get_param( 'logout' ) ) ) {
+			Naber_Auth::revoke_all_tokens( $target );
 		}
 
 		return rest_ensure_response( array( 'user' => Naber_Auth::user_payload( $target, true ) ) );
@@ -911,11 +1327,75 @@ class Naber_REST {
 		return rest_ensure_response( array( 'ok' => true ) );
 	}
 
-	/**
-	 * Uygulama icindeki yonetim panelinden Backblaze ayarlarini sinar.
-	 * Istege bagli olarak gonderilen degerlerle deneme yapilabilir
-	 * (kaydetmeden once "dogru mu?" kontrolu).
-	 */
+	public function admin_chats() {
+		global $wpdb;
+		$conversations = Naber_DB::table( 'conversations' );
+		$messages      = Naber_DB::table( 'messages' );
+		$members       = Naber_DB::table( 'members' );
+
+		$rows = $wpdb->get_results(
+			"SELECT c.*,
+				(SELECT COUNT(*) FROM {$messages} m WHERE m.conversation_id = c.id) AS message_count,
+				(SELECT COUNT(*) FROM {$members} me WHERE me.conversation_id = c.id) AS member_count
+			 FROM {$conversations} c ORDER BY c.updated_at DESC LIMIT 100",
+			ARRAY_A
+		);
+
+		$out = array();
+		foreach ( (array) $rows as $row ) {
+			$title = (string) $row['title'];
+			if ( 'group' !== $row['type'] ) {
+				$one   = Naber_Auth::user_payload( (int) $row['user_one'] );
+				$two   = Naber_Auth::user_payload( (int) $row['user_two'] );
+				$title = ( $one ? $one['display_name'] : '?' ) . ' - ' . ( $two ? $two['display_name'] : '?' );
+			}
+			$out[] = array(
+				'id'            => (int) $row['id'],
+				'type'          => (string) $row['type'],
+				'title'         => $title,
+				'member_count'  => (int) $row['member_count'],
+				'message_count' => (int) $row['message_count'],
+				'updated_at'    => Naber_Chat_Repo::ts( $row['updated_at'] ),
+			);
+		}
+		return rest_ensure_response( array( 'chats' => $out ) );
+	}
+
+	public function admin_delete_chat( WP_REST_Request $request ) {
+		global $wpdb;
+		$conversation_id = (int) $request['id'];
+		if ( ! Naber_Chat_Repo::get_conversation( $conversation_id ) ) {
+			return new WP_Error( 'naber_chat_not_found', 'Sohbet bulunamadi.', array( 'status' => 404 ) );
+		}
+		$wpdb->delete( Naber_DB::table( 'messages' ), array( 'conversation_id' => $conversation_id ), array( '%d' ) );
+		$wpdb->delete( Naber_DB::table( 'members' ), array( 'conversation_id' => $conversation_id ), array( '%d' ) );
+		$wpdb->delete( Naber_DB::table( 'conversations' ), array( 'id' => $conversation_id ), array( '%d' ) );
+		return rest_ensure_response( array( 'ok' => true ) );
+	}
+
+	/** Uygulama ici yonetim panelinde gosterilen sunucu ayarlari (sirlar haric). */
+	public function admin_settings() {
+		$all = Naber_Settings::all();
+		return rest_ensure_response( array(
+			'server'             => home_url(),
+			'plugin_version'     => NABER_CHAT_VERSION,
+			'bucket_name'        => (string) $all['b2_bucket_name'],
+			'bucket_id'          => (string) $all['b2_bucket_id'],
+			'key_id'             => Naber_Settings::mask( (string) $all['b2_key_id'] ),
+			'path_prefix'        => (string) $all['b2_path_prefix'],
+			'max_upload_mb'      => (int) $all['b2_max_upload_mb'],
+			'link_ttl'           => (int) $all['b2_link_ttl'],
+			'public_base_url'    => (string) $all['b2_public_base_url'],
+			'turn_urls'          => (string) $all['turn_urls'],
+			'stun_urls'          => (string) $all['stun_urls'],
+			'fcm_project_id'     => (string) $all['fcm_project_id'],
+			'email_domain'       => Naber_Auth::email_domain(),
+			'allow_registration' => (bool) $all['allow_registration'],
+			'storage_ready'      => Naber_Settings::b2_ready(),
+			'push_ready'         => Naber_Push::is_configured(),
+		) );
+	}
+
 	public function admin_storage_test( WP_REST_Request $request ) {
 		$overrides = array();
 		foreach ( array( 'b2_key_id', 'b2_app_key', 'b2_bucket_name', 'b2_bucket_id', 'b2_path_prefix' ) as $field ) {
@@ -932,7 +1412,6 @@ class Naber_REST {
 		$b2       = new Naber_B2( $settings );
 		$result   = $b2->test_connection( $write_test );
 
-		// Test sirasinda bulunan bucket ID'sini kalici olarak sakla.
 		if ( $result['ok'] && $result['bucket_id'] && empty( $overrides ) ) {
 			Naber_Settings::update( array( 'b2_bucket_id' => $result['bucket_id'] ) );
 		}

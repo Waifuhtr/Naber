@@ -23,6 +23,9 @@ jobs:
       - name: Backblaze bucket testleri
         run: php wordpress-plugin/naber-chat/tests/test-b2-settings.php
 
+      - name: Kullanici ve grup testleri
+        run: php wordpress-plugin/naber-chat/tests/test-users-groups.php
+
   android:
     name: Android APK
     runs-on: ubuntu-latest

@@ -1,7 +1,6 @@
 <?php
 /**
- * Token tabanli oturum. WordPress kullanici sistemi aynen kullanilir;
- * ikinci bir kullanici tablosu olusturulmaz.
+ * Token tabanli oturum, kullanici gosterimi, Naber adresi (yapay e-posta) ve kisi listesi.
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -12,6 +11,8 @@ class Naber_Auth {
 
 	const META_TOKENS   = 'naber_tokens';
 	const META_LASTSEEN = 'naber_last_seen';
+	const META_AVATAR   = 'naber_avatar_media_id';
+	const META_CONTACTS = 'naber_contacts';
 	const MAX_TOKENS    = 5;
 	const TOKEN_TTL     = 7776000; // 90 gun.
 
@@ -55,7 +56,6 @@ class Naber_Auth {
 		return hash( 'sha256', $token );
 	}
 
-	/** Token -> user_id (gecersizse 0). */
 	public static function user_for_token( $token ) {
 		global $wpdb;
 		$hash  = self::hash_token( $token );
@@ -111,6 +111,72 @@ class Naber_Auth {
 		update_user_meta( $user_id, self::META_TOKENS, $tokens );
 	}
 
+	public static function revoke_all_tokens( $user_id ) {
+		delete_user_meta( $user_id, self::META_TOKENS );
+	}
+
+	// ------------------------------------------------------------------
+	// Naber adresi (uygulamaya ozel yapay e-posta)
+	// ------------------------------------------------------------------
+
+	/**
+	 * Kullanici adindan e-posta yerel kismini uretir.
+	 * Turkce karakterler sadelestirilir, gecersiz karakterler atilir.
+	 */
+	public static function email_local_part( $username ) {
+		$map = array(
+			'ç' => 'c', 'ğ' => 'g', 'ı' => 'i', 'ö' => 'o', 'ş' => 's', 'ü' => 'u',
+			'Ç' => 'c', 'Ğ' => 'g', 'İ' => 'i', 'Ö' => 'o', 'Ş' => 's', 'Ü' => 'u',
+		);
+		$local = strtr( (string) $username, $map );
+		$local = strtolower( $local );
+		$local = preg_replace( '/[^a-z0-9._-]/', '', $local );
+		$local = trim( (string) $local, '._-' );
+		if ( '' === $local ) {
+			$local = 'naber';
+		}
+		return substr( $local, 0, 40 );
+	}
+
+	public static function email_domain() {
+		$domain = trim( (string) Naber_Settings::get( 'email_domain', 'naber.com' ) );
+		return '' === $domain ? 'naber.com' : strtolower( $domain );
+	}
+
+	/**
+	 * Kullaniciya benzersiz bir Naber adresi uretir: kullaniciadi@naber.com
+	 * Adres doluysa sonuna sayi eklenir.
+	 *
+	 * @param callable|null $exists Test edilebilirlik icin: adres kullaniliyorsa true donen fonksiyon.
+	 */
+	public static function build_naber_email( $username, $exists = null ) {
+		$local  = self::email_local_part( $username );
+		$domain = self::email_domain();
+		if ( null === $exists ) {
+			$exists = function ( $candidate ) {
+				return (bool) email_exists( $candidate );
+			};
+		}
+
+		$candidate = $local . '@' . $domain;
+		$suffix    = 1;
+		while ( call_user_func( $exists, $candidate ) && $suffix < 500 ) {
+			$suffix++;
+			$candidate = $local . $suffix . '@' . $domain;
+		}
+		return $candidate;
+	}
+
+	/** Bu adres bizim uygulamamizin adresi mi? */
+	public static function is_naber_email( $email ) {
+		$email = strtolower( trim( (string) $email ) );
+		return '' !== $email && substr( $email, -strlen( '@' . self::email_domain() ) ) === '@' . self::email_domain();
+	}
+
+	// ------------------------------------------------------------------
+	// Durum bilgileri
+	// ------------------------------------------------------------------
+
 	public static function touch_presence( $user_id ) {
 		update_user_meta( $user_id, self::META_LASTSEEN, time() );
 	}
@@ -129,7 +195,63 @@ class Naber_Auth {
 		return '1' === (string) get_user_meta( $user_id, 'naber_disabled', true );
 	}
 
-	/** Uygulamaya donen kullanici gosterimi. */
+	/** Yasakli kullanici giris yapamaz ve listelerde gorunmez. */
+	public static function is_banned( $user_id ) {
+		return '1' === (string) get_user_meta( $user_id, 'naber_banned', true );
+	}
+
+	public static function ban_reason( $user_id ) {
+		return (string) get_user_meta( $user_id, 'naber_ban_reason', true );
+	}
+
+	public static function set_banned( $user_id, $banned, $reason = '' ) {
+		if ( $banned ) {
+			update_user_meta( $user_id, 'naber_banned', '1' );
+			update_user_meta( $user_id, 'naber_ban_reason', sanitize_text_field( $reason ) );
+			update_user_meta( $user_id, 'naber_banned_at', time() );
+			self::revoke_all_tokens( $user_id );
+		} else {
+			delete_user_meta( $user_id, 'naber_banned' );
+			delete_user_meta( $user_id, 'naber_ban_reason' );
+			delete_user_meta( $user_id, 'naber_banned_at' );
+		}
+	}
+
+	public static function avatar_url( $user_id ) {
+		$media_id = (int) get_user_meta( $user_id, self::META_AVATAR, true );
+		if ( $media_id > 0 ) {
+			// Imzali adres her cagride tazelenir; eskiyen baglanti sorunu olmaz.
+			return Naber_Media::url_for_id( $media_id );
+		}
+		return (string) get_user_meta( $user_id, 'naber_avatar_url', true );
+	}
+
+	// ------------------------------------------------------------------
+	// Kisi listesi
+	// ------------------------------------------------------------------
+
+	public static function contacts( $user_id ) {
+		$ids = get_user_meta( $user_id, self::META_CONTACTS, true );
+		return is_array( $ids ) ? array_values( array_unique( array_map( 'intval', $ids ) ) ) : array();
+	}
+
+	public static function add_contact( $user_id, $contact_id ) {
+		$ids = self::contacts( $user_id );
+		if ( ! in_array( (int) $contact_id, $ids, true ) ) {
+			$ids[] = (int) $contact_id;
+			update_user_meta( $user_id, self::META_CONTACTS, $ids );
+		}
+		return true;
+	}
+
+	public static function remove_contact( $user_id, $contact_id ) {
+		$ids = array_values( array_diff( self::contacts( $user_id ), array( (int) $contact_id ) ) );
+		update_user_meta( $user_id, self::META_CONTACTS, $ids );
+		return true;
+	}
+
+	// ------------------------------------------------------------------
+
 	public static function user_payload( $user, $include_private = false ) {
 		if ( is_numeric( $user ) ) {
 			$user = get_userdata( (int) $user );
@@ -142,16 +264,20 @@ class Naber_Auth {
 			'id'           => (int) $user->ID,
 			'username'     => $user->user_login,
 			'display_name' => $user->display_name,
-			'avatar'       => (string) get_user_meta( $user->ID, 'naber_avatar_url', true ),
+			'naber_email'  => $user->user_email,
+			'avatar'       => self::avatar_url( $user->ID ),
 			'about'        => (string) get_user_meta( $user->ID, 'naber_about', true ),
 			'last_seen'    => $last,
 			'online'       => self::is_online( $user->ID ),
 			'is_admin'     => self::is_admin_user( $user->ID ),
 		);
 		if ( $include_private ) {
-			$data['email']    = $user->user_email;
-			$data['roles']    = array_values( (array) $user->roles );
-			$data['disabled'] = self::is_disabled( $user->ID );
+			$data['email']      = $user->user_email;
+			$data['roles']      = array_values( (array) $user->roles );
+			$data['disabled']   = self::is_disabled( $user->ID );
+			$data['banned']     = self::is_banned( $user->ID );
+			$data['ban_reason'] = self::ban_reason( $user->ID );
+			$data['registered'] = strtotime( $user->user_registered . ' UTC' );
 		}
 		return $data;
 	}

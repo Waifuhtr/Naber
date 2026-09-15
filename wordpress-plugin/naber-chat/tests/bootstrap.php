@@ -84,9 +84,22 @@ function trailingslashit( $value ) {
 	return rtrim( (string) $value, '/\\' ) . '/';
 }
 
+function wp_strip_all_tags( $value ) {
+	return trim( strip_tags( (string) $value ) );
+}
+
+function email_exists( $email ) {
+	return isset( $GLOBALS['naber_test_emails'] ) && in_array( strtolower( $email ), $GLOBALS['naber_test_emails'], true );
+}
+
+$GLOBALS['naber_test_emails'] = array();
+
 require_once dirname( __DIR__ ) . '/includes/class-naber-settings.php';
 require_once dirname( __DIR__ ) . '/includes/class-naber-b2.php';
 require_once dirname( __DIR__ ) . '/includes/class-naber-media.php';
+require_once dirname( __DIR__ ) . '/includes/class-naber-db.php';
+require_once dirname( __DIR__ ) . '/includes/class-naber-auth.php';
+require_once dirname( __DIR__ ) . '/includes/class-naber-chat-repo.php';
 
 /**
  * Backblaze API'sini taklit eden HTTP katmani.

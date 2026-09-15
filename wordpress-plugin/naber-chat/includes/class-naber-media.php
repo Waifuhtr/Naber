@@ -132,6 +132,16 @@ class Naber_Media {
 		return implode( '/', array_map( 'rawurlencode', explode( '/', (string) $path ) ) );
 	}
 
+	/** Medya kimliginden dogrudan URL uretir (profil ve grup fotograflari icin). */
+	public static function url_for_id( $media_id ) {
+		$media_id = (int) $media_id;
+		if ( $media_id <= 0 ) {
+			return '';
+		}
+		$row = self::get( $media_id );
+		return $row ? self::url_for( $row ) : '';
+	}
+
 	public static function payload( $media_id ) {
 		$row = is_array( $media_id ) ? $media_id : self::get( $media_id );
 		if ( ! $row ) {

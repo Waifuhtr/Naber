@@ -40,6 +40,7 @@ class Naber_Settings {
 			'fcm_project_id'     => '',
 			'fcm_service_account' => '',
 			'allow_registration' => 1,
+			'email_domain'       => 'naber.com',
 		);
 	}
 
