@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="naber_primary">#FF0F6B5C</color>
+    <color name="naber_primary">#FF25B08B</color>
+    <color name="naber_background">#FF0B1016</color>
+    <color name="naber_topbar">#FF0F161D</color>
     <color name="naber_launcher_bg">#FF0F6B5C</color>
 </resources>

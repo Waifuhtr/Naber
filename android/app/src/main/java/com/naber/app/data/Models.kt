@@ -8,13 +8,32 @@ data class User(
     val id: Int,
     val username: String,
     val displayName: String,
+    val naberEmail: String,
     val avatar: String,
     val about: String,
     val lastSeen: Long,
     val online: Boolean,
     val isAdmin: Boolean,
-    val disabled: Boolean = false
+    val isContact: Boolean = false,
+    val disabled: Boolean = false,
+    val banned: Boolean = false,
+    val banReason: String = "",
+    val registered: Long = 0,
+    // Grup ve arama baglaminda dolan alanlar
+    val role: String = "",
+    val chatMuted: Boolean = false,
+    val callStatus: String = "",
+    val muted: Boolean = false
 ) {
+    val isGroupAdmin: Boolean get() = role == "owner" || role == "admin"
+
+    val roleLabel: String
+        get() = when (role) {
+            "owner" -> "Grup sahibi"
+            "admin" -> "Yonetici"
+            else -> ""
+        }
+
     companion object {
         fun from(json: JSONObject?): User? {
             if (json == null) return null
@@ -22,14 +41,25 @@ data class User(
                 id = json.optInt("id"),
                 username = json.optString("username"),
                 displayName = json.optString("display_name").ifBlank { json.optString("username") },
+                naberEmail = json.optString("naber_email"),
                 avatar = json.optString("avatar"),
                 about = json.optString("about"),
                 lastSeen = json.optLong("last_seen"),
                 online = json.optBoolean("online"),
                 isAdmin = json.optBoolean("is_admin"),
-                disabled = json.optBoolean("disabled")
+                isContact = json.optBoolean("is_contact"),
+                disabled = json.optBoolean("disabled"),
+                banned = json.optBoolean("banned"),
+                banReason = json.optString("ban_reason"),
+                registered = json.optLong("registered"),
+                role = json.optString("role"),
+                chatMuted = json.optBoolean("chat_muted"),
+                callStatus = json.optString("call_status"),
+                muted = json.optBoolean("muted")
             )
         }
+
+        fun listFrom(array: JSONArray?): List<User> = array.mapObjects { from(it) }
     }
 }
 
@@ -54,23 +84,33 @@ data class Media(
     }
 }
 
-enum class SendState { SENDING, SENT, READ, FAILED }
+enum class SendState { SENDING, SENT, FAILED }
 
 data class Message(
     val id: Int,
     val conversationId: Int,
     val senderId: Int,
-    val receiverId: Int,
     val type: String,
     val body: String,
     val clientId: String,
     val isRead: Boolean,
+    val deleted: Boolean,
     val createdAt: Long,
     val media: Media?,
+    val senderName: String = "",
+    val senderAvatar: String = "",
     val localImageUri: String? = null,
     val sendState: SendState = SendState.SENT,
     val uploadProgress: Int = 0
 ) {
+    val key: String get() = if (id > 0) "id-$id" else "c-$clientId"
+
+    /** Once yerel dosya gosterilir; boylece gorsel aninda ekranda olur. */
+    val displayImage: Any?
+        get() = localImageUri
+            ?: LocalMedia.uriFor(media?.id ?: 0, clientId)
+            ?: media?.url?.takeIf { it.isNotBlank() }
+
     companion object {
         fun from(json: JSONObject?): Message? {
             if (json == null) return null
@@ -78,63 +118,109 @@ data class Message(
                 id = json.optInt("id"),
                 conversationId = json.optInt("conversation_id"),
                 senderId = json.optInt("sender_id"),
-                receiverId = json.optInt("receiver_id"),
                 type = json.optString("type", "text"),
                 body = json.optString("body"),
                 clientId = json.optString("client_id"),
                 isRead = json.optBoolean("is_read"),
+                deleted = json.optBoolean("deleted"),
                 createdAt = json.optLong("created_at"),
-                media = Media.from(json.optJSONObject("media"))
+                media = Media.from(json.optJSONObject("media")),
+                senderName = json.optString("sender_name"),
+                senderAvatar = json.optString("sender_avatar")
             )
         }
+
+        fun listFrom(array: JSONArray?): List<Message> = array.mapObjects { from(it) }
     }
 }
 
-data class ChatSummary(
+data class Chat(
     val id: Int,
-    val peer: User,
+    val type: String,
+    val title: String,
+    val about: String,
+    val avatar: String,
+    val peer: User?,
+    val ownerId: Int,
+    val memberCount: Int,
+    val role: String,
+    val chatMuted: Boolean,
+    val notifyMuted: Boolean,
     val unread: Int,
     val updatedAt: Long,
-    val lastMessage: Message?
+    val lastMessage: Message?,
+    val readWatermark: Int,
+    val members: List<User> = emptyList()
 ) {
+    val isGroup: Boolean get() = type == "group"
+    val amAdmin: Boolean get() = role == "owner" || role == "admin"
+    val amOwner: Boolean get() = role == "owner"
+
     companion object {
-        fun from(json: JSONObject): ChatSummary? {
-            val peer = User.from(json.optJSONObject("peer")) ?: return null
-            return ChatSummary(
+        fun from(json: JSONObject?): Chat? {
+            if (json == null) return null
+            return Chat(
                 id = json.optInt("id"),
-                peer = peer,
+                type = json.optString("type", "direct"),
+                title = json.optString("title"),
+                about = json.optString("about"),
+                avatar = json.optString("avatar"),
+                peer = User.from(json.optJSONObject("peer")),
+                ownerId = json.optInt("owner_id"),
+                memberCount = json.optInt("member_count"),
+                role = json.optString("role"),
+                chatMuted = json.optBoolean("chat_muted"),
+                notifyMuted = json.optBoolean("notify_muted"),
                 unread = json.optInt("unread"),
                 updatedAt = json.optLong("updated_at"),
-                lastMessage = Message.from(json.optJSONObject("last_message"))
+                lastMessage = Message.from(json.optJSONObject("last_message")),
+                readWatermark = json.optInt("read_watermark"),
+                members = User.listFrom(json.optJSONArray("members"))
             )
         }
+
+        fun listFrom(array: JSONArray?): List<Chat> = array.mapObjects { from(it) }
     }
 }
 
 data class CallInfo(
     val id: Int,
+    val type: String,
+    val conversationId: Int,
+    val groupTitle: String,
+    val caller: User?,
+    val callee: User?,
     val callerId: Int,
     val calleeId: Int,
     val status: String,
     val duration: Int,
     val createdAt: Long,
-    val caller: User?,
-    val callee: User?
+    val endReason: String,
+    val participants: List<User>
 ) {
+    val isGroup: Boolean get() = type == "group"
+
     companion object {
         fun from(json: JSONObject?): CallInfo? {
             if (json == null) return null
             return CallInfo(
                 id = json.optInt("id"),
+                type = json.optString("type", "direct"),
+                conversationId = json.optInt("conversation_id"),
+                groupTitle = json.optString("group_title"),
+                caller = User.from(json.optJSONObject("caller")),
+                callee = User.from(json.optJSONObject("callee")),
                 callerId = json.optInt("caller_id"),
                 calleeId = json.optInt("callee_id"),
                 status = json.optString("status"),
                 duration = json.optInt("duration"),
                 createdAt = json.optLong("created_at"),
-                caller = User.from(json.optJSONObject("caller")),
-                callee = User.from(json.optJSONObject("callee"))
+                endReason = json.optString("end_reason"),
+                participants = User.listFrom(json.optJSONArray("participants"))
             )
         }
+
+        fun listFrom(array: JSONArray?): List<CallInfo> = array.mapObjects { from(it) }
     }
 }
 
@@ -160,15 +246,17 @@ data class IceServer(val urls: List<String>, val username: String, val credentia
 
 data class Signal(val id: Int, val callId: Int, val senderId: Int, val type: String, val payload: String)
 
-/** Uzun yoklama (long-polling) sonucu. */
+data class ReadState(val conversationId: Int, val watermark: Int)
+
+data class TypingUser(val id: Int, val name: String)
+
 data class EventBatch(
     val messages: List<Message>,
     val signals: List<Signal>,
     val incomingCall: CallInfo?,
-    val readMessageIds: List<Int>,
-    val typing: Boolean,
+    val readStates: List<ReadState>,
+    val typing: List<TypingUser>,
     val typingConversationId: Int,
-    val peerOnline: Boolean?,
     val unreadTotal: Int,
     val sinceMessageId: Int,
     val sinceSignalId: Int
@@ -177,20 +265,65 @@ data class EventBatch(
 data class AdminStats(
     val totalUsers: Int,
     val onlineUsers: Int,
+    val bannedUsers: Int,
     val totalMessages: Int,
     val todayMessages: Int,
     val conversations: Int,
+    val groups: Int,
     val storageFiles: Int,
     val storageBytes: Long,
     val totalCalls: Int,
     val callSeconds: Int,
     val missedCalls: Int,
+    val groupCalls: Int,
     val storageReady: Boolean,
     val pushReady: Boolean,
     val turnConfigured: Boolean,
+    val server: String,
+    val pluginVersion: String,
+    val emailDomain: String,
     val recentUsers: List<User>
+)
+
+data class AdminChat(
+    val id: Int,
+    val type: String,
+    val title: String,
+    val memberCount: Int,
+    val messageCount: Int,
+    val updatedAt: Long
+)
+
+data class ServerSettings(
+    val server: String,
+    val pluginVersion: String,
+    val bucketName: String,
+    val bucketId: String,
+    val keyId: String,
+    val pathPrefix: String,
+    val maxUploadMb: Int,
+    val linkTtl: Int,
+    val publicBaseUrl: String,
+    val turnUrls: String,
+    val stunUrls: String,
+    val fcmProjectId: String,
+    val emailDomain: String,
+    val allowRegistration: Boolean,
+    val storageReady: Boolean,
+    val pushReady: Boolean
 )
 
 data class StorageTestStep(val label: String, val ok: Boolean, val message: String)
 
 data class StorageTestResult(val ok: Boolean, val message: String, val bucketId: String, val steps: List<StorageTestStep>)
+
+/** JSONArray -> List<T> kisayolu. */
+internal fun <T> JSONArray?.mapObjects(mapper: (JSONObject) -> T?): List<T> {
+    if (this == null) return emptyList()
+    val out = ArrayList<T>(length())
+    for (i in 0 until length()) {
+        val item = optJSONObject(i) ?: continue
+        mapper(item)?.let { out.add(it) }
+    }
+    return out
+}

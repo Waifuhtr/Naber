@@ -10,6 +10,7 @@ import com.naber.app.data.Signal
 import com.naber.app.data.User
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,10 +36,16 @@ enum class CallStage { IDLE, DIALING, INCOMING, CONNECTING, ACTIVE, ENDED }
 data class CallUiState(
     val stage: CallStage = CallStage.IDLE,
     val callId: Int = 0,
+    val isGroup: Boolean = false,
+    val title: String = "",
     val peer: User? = null,
+    val participants: List<User> = emptyList(),
+    val conversationId: Int = 0,
     val isCaller: Boolean = false,
     val muted: Boolean = false,
+    val forceMuted: Boolean = false,
     val speakerOn: Boolean = false,
+    val canModerate: Boolean = false,
     val startedAt: Long = 0L,
     val error: String? = null,
     val statusText: String = ""
@@ -47,8 +54,9 @@ data class CallUiState(
 /**
  * Sesli arama yonetimi.
  *
- * Ses trafigi dogrudan WebRTC ile gider; WordPress yalnizca offer/answer/ICE
- * mesajlarini tasiyan signaling gorevini yapar. P2P kurulamazsa sunucudan
+ * Birebir aramada tek, grup aramasinda her katilimci icin ayri bir WebRTC
+ * baglantisi kurulur (mesh). Ses dogrudan cihazlar arasinda akar; WordPress
+ * yalnizca offer/answer/ICE mesajlarini tasir. P2P kurulamazsa sunucudan
  * gelen TURN bilgileri devreye girer.
  */
 class CallManager(
@@ -62,14 +70,22 @@ class CallManager(
     val state: StateFlow<CallUiState> = _state.asStateFlow()
 
     private var factory: PeerConnectionFactory? = null
-    private var peerConnection: PeerConnection? = null
     private var audioSource: AudioSource? = null
     private var localTrack: AudioTrack? = null
     private var iceServers: List<IceServer> = emptyList()
-    private val pendingCandidates = mutableListOf<IceCandidate>()
-    private var remoteDescriptionSet = false
     private var audioManager: AudioManager? = null
     private var previousAudioMode = AudioManager.MODE_NORMAL
+    private var watchJob: Job? = null
+
+    private val peers = HashMap<Int, PeerSession>()
+    private val bufferedSignals = mutableListOf<Signal>()
+    private var ready = false
+
+    private inner class PeerSession(val userId: Int) {
+        var connection: PeerConnection? = null
+        var remoteSet = false
+        val pending = mutableListOf<IceCandidate>()
+    }
 
     init {
         scope.launch {
@@ -77,36 +93,51 @@ class CallManager(
         }
     }
 
-    private fun ensureFactory(): PeerConnectionFactory {
-        factory?.let { return it }
-        PeerConnectionFactory.initialize(
-            PeerConnectionFactory.InitializationOptions.builder(context)
-                .createInitializationOptions()
-        )
-        val audioModule = JavaAudioDeviceModule.builder(context)
-            .setUseHardwareAcousticEchoCanceler(true)
-            .setUseHardwareNoiseSuppressor(true)
-            .createAudioDeviceModule()
-        val created = PeerConnectionFactory.builder()
-            .setAudioDeviceModule(audioModule)
-            .createPeerConnectionFactory()
-        factory = created
-        return created
-    }
+    private fun myId(): Int = 0
 
     // ------------------------------------------------------------ disari acik
 
-    fun startOutgoing(peer: User) {
-        if (_state.value.stage != CallStage.IDLE && _state.value.stage != CallStage.ENDED) return
-        _state.value = CallUiState(stage = CallStage.DIALING, peer = peer, isCaller = true, statusText = "Araniyor...")
+    fun startOutgoing(peer: User) = startCall(peerUser = peer, conversationId = 0, groupTitle = "")
+
+    fun startGroupCall(conversationId: Int, title: String, canModerate: Boolean) =
+        startCall(peerUser = null, conversationId = conversationId, groupTitle = title, canModerate = canModerate)
+
+    private fun startCall(peerUser: User?, conversationId: Int, groupTitle: String, canModerate: Boolean = false) {
+        val current = _state.value.stage
+        if (current != CallStage.IDLE && current != CallStage.ENDED) return
+
+        _state.value = CallUiState(
+            stage = CallStage.DIALING,
+            isGroup = conversationId > 0 && peerUser == null,
+            title = if (peerUser != null) peerUser.displayName else groupTitle,
+            peer = peerUser,
+            conversationId = conversationId,
+            isCaller = true,
+            canModerate = canModerate,
+            statusText = "Araniyor..."
+        )
+
         scope.launch {
             try {
-                val (call, servers) = api.startCall(peer.id)
+                val (call, joinedPeers, servers) = api.startCall(
+                    userId = peerUser?.id ?: 0,
+                    conversationId = conversationId
+                )
                 iceServers = servers
-                _state.value = _state.value.copy(callId = call.id)
-                createPeerConnection()
-                createOffer(call.id)
-                watchCallStatus(call.id)
+                applyCall(call)
+                prepareAudio()
+
+                if (call.isGroup) {
+                    // Gruba katilirken halihazirda baglanti kurmus olanlara teklif gonderilir.
+                    joinedPeers.forEach { offerTo(it) }
+                    if (joinedPeers.isEmpty()) {
+                        _state.value = _state.value.copy(statusText = "Katilimcilar bekleniyor...")
+                    }
+                } else {
+                    offerTo(call.calleeId)
+                }
+
+                watchCall(call.id)
             } catch (e: Exception) {
                 fail(e.message ?: "Arama baslatilamadi.")
             }
@@ -114,13 +145,20 @@ class CallManager(
     }
 
     fun onIncoming(call: CallInfo) {
-        if (_state.value.stage != CallStage.IDLE && _state.value.stage != CallStage.ENDED) return
+        val current = _state.value.stage
+        if (current != CallStage.IDLE && current != CallStage.ENDED) return
+        if (_state.value.callId == call.id) return
+
         _state.value = CallUiState(
             stage = CallStage.INCOMING,
             callId = call.id,
+            isGroup = call.isGroup,
+            title = if (call.isGroup) call.groupTitle else (call.caller?.displayName ?: "Bilinmeyen"),
             peer = call.caller,
+            participants = call.participants,
+            conversationId = call.conversationId,
             isCaller = false,
-            statusText = "Gelen arama"
+            statusText = if (call.isGroup) "Grup aramasi" else "Gelen arama"
         )
     }
 
@@ -128,14 +166,21 @@ class CallManager(
         val current = _state.value
         if (current.stage != CallStage.INCOMING) return
         _state.value = current.copy(stage = CallStage.CONNECTING, statusText = "Baglaniyor...")
+
         scope.launch {
             try {
-                api.callAction(current.callId, "accept")
                 iceServers = api.iceServers()
-                createPeerConnection()
-                // Arayan tarafin offer'i signaling akisindan gelecek.
+                prepareAudio()
+                val (call, joinedPeers) = api.callAction(current.callId, "accept")
+                call?.let { applyCall(it) }
                 events.clearIncomingCall()
-                watchCallStatus(current.callId)
+
+                // Aramaya sonradan katilan taraf mevcut katilimcilara teklif gonderir.
+                joinedPeers.forEach { offerTo(it) }
+
+                // Yayinlanmis ama henuz islenmemis sinyalleri al.
+                drainServerSignals(current.callId)
+                watchCall(current.callId)
             } catch (e: Exception) {
                 fail(e.message ?: "Arama kabul edilemedi.")
             }
@@ -154,13 +199,14 @@ class CallManager(
     fun hangUp() {
         val current = _state.value
         scope.launch {
-            runCatching { api.callAction(current.callId, "end") }
+            runCatching { api.callAction(current.callId, if (current.isGroup) "leave" else "end") }
             events.clearIncomingCall()
-            cleanup("Arama sonlandirildi")
+            cleanup(if (current.isGroup) "Aramadan ayrildiniz" else "Arama sonlandirildi")
         }
     }
 
     fun toggleMute() {
+        if (_state.value.forceMuted) return
         val muted = !_state.value.muted
         localTrack?.setEnabled(!muted)
         _state.value = _state.value.copy(muted = muted)
@@ -172,7 +218,30 @@ class CallManager(
         _state.value = _state.value.copy(speakerOn = on)
     }
 
-    fun dismissError() {
+    /** Grup aramasinda yonetici: katilimciyi susturur / susturmayi kaldirir. */
+    fun moderateMute(userId: Int, muted: Boolean) {
+        val callId = _state.value.callId
+        scope.launch {
+            runCatching { api.muteParticipant(callId, userId, muted) }
+                .onSuccess { call -> call?.let { applyCall(it) } }
+                .onFailure { _state.value = _state.value.copy(error = it.message) }
+        }
+    }
+
+    /** Grup aramasinda yonetici: katilimciyi sesten atar. */
+    fun moderateKick(userId: Int) {
+        val callId = _state.value.callId
+        scope.launch {
+            runCatching { api.kickParticipant(callId, userId) }
+                .onSuccess { call ->
+                    closePeer(userId)
+                    call?.let { applyCall(it) }
+                }
+                .onFailure { _state.value = _state.value.copy(error = it.message) }
+        }
+    }
+
+    fun dismiss() {
         if (_state.value.stage == CallStage.ENDED) {
             _state.value = CallUiState()
         }
@@ -180,7 +249,49 @@ class CallManager(
 
     // ------------------------------------------------------------ WebRTC
 
-    private fun createPeerConnection() {
+    private fun ensureFactory(): PeerConnectionFactory {
+        factory?.let { return it }
+        PeerConnectionFactory.initialize(
+            PeerConnectionFactory.InitializationOptions.builder(context).createInitializationOptions()
+        )
+        val audioModule = JavaAudioDeviceModule.builder(context)
+            .setUseHardwareAcousticEchoCanceler(true)
+            .setUseHardwareNoiseSuppressor(true)
+            .createAudioDeviceModule()
+        val created = PeerConnectionFactory.builder()
+            .setAudioDeviceModule(audioModule)
+            .createPeerConnectionFactory()
+        factory = created
+        return created
+    }
+
+    private fun prepareAudio() {
+        if (localTrack != null) {
+            ready = true
+            return
+        }
+        val pcFactory = ensureFactory()
+        val constraints = MediaConstraints().apply {
+            mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl", "true"))
+        }
+        val source = pcFactory.createAudioSource(constraints)
+        audioSource = source
+        localTrack = pcFactory.createAudioTrack("naber_audio", source)
+        startAudioSession()
+        ready = true
+
+        // Hazir olmadan gelen sinyaller simdi islenir.
+        val buffered = bufferedSignals.toList()
+        bufferedSignals.clear()
+        buffered.forEach { handleSignal(it) }
+    }
+
+    private fun peerFor(userId: Int): PeerSession {
+        peers[userId]?.let { return it }
+
+        val session = PeerSession(userId)
         val rtcServers = iceServers.map { server ->
             PeerConnection.IceServer.builder(server.urls)
                 .setUsername(server.username)
@@ -197,8 +308,7 @@ class CallManager(
             continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
         }
 
-        val pcFactory = ensureFactory()
-        peerConnection = pcFactory.createPeerConnection(config, object : PeerConnection.Observer {
+        session.connection = ensureFactory().createPeerConnection(config, object : PeerConnection.Observer {
             override fun onSignalingChange(state: PeerConnection.SignalingState?) {}
 
             override fun onIceConnectionChange(state: PeerConnection.IceConnectionState?) {
@@ -206,11 +316,9 @@ class CallManager(
                     when (state) {
                         PeerConnection.IceConnectionState.CONNECTED,
                         PeerConnection.IceConnectionState.COMPLETED -> onConnected()
-                        PeerConnection.IceConnectionState.FAILED ->
-                            fail("Ses baglantisi kurulamadi. Aginiz P2P baglantiya izin vermiyor olabilir; TURN sunucusu tanimli degilse yoneticinizle gorusun.")
-                        PeerConnection.IceConnectionState.DISCONNECTED -> {
-                            _state.value = _state.value.copy(statusText = "Baglanti zayif...")
-                        }
+
+                        PeerConnection.IceConnectionState.FAILED -> onPeerFailed(userId)
+
                         else -> Unit
                     }
                 }
@@ -226,7 +334,7 @@ class CallManager(
                     .put("sdpMid", candidate.sdpMid)
                     .put("sdpMLineIndex", candidate.sdpMLineIndex)
                     .put("candidate", candidate.sdp)
-                sendSignal("ice", payload.toString())
+                sendSignal(userId, "ice", payload.toString())
             }
 
             override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>?) {}
@@ -244,27 +352,25 @@ class CallManager(
             }
         })
 
-        val constraints = MediaConstraints().apply {
-            mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation", "true"))
-            mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", "true"))
-            mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl", "true"))
+        localTrack?.let { track ->
+            session.connection?.addTrack(track, listOf("naber_stream_${myId()}"))
         }
-        val source = pcFactory.createAudioSource(constraints)
-        audioSource = source
-        val track = pcFactory.createAudioTrack("naber_audio", source)
-        localTrack = track
-        peerConnection?.addTrack(track, listOf("naber_stream"))
 
-        startAudioSession()
+        peers[userId] = session
+        return session
     }
 
-    private fun createOffer(callId: Int) {
-        val pc = peerConnection ?: return
-        pc.createOffer(object : SimpleSdpObserver() {
+    private fun offerTo(userId: Int) {
+        if (userId <= 0) return
+        prepareAudio()
+        val session = peerFor(userId)
+        val connection = session.connection ?: return
+
+        connection.createOffer(object : SimpleSdpObserver() {
             override fun onCreateSuccess(description: SessionDescription?) {
                 description ?: return
-                pc.setLocalDescription(SimpleSdpObserver(), description)
-                sendSignal("offer", JSONObject().put("sdp", description.description).toString(), callId)
+                connection.setLocalDescription(SimpleSdpObserver(), description)
+                sendSignal(userId, "offer", JSONObject().put("sdp", description.description).toString())
             }
         }, MediaConstraints())
     }
@@ -272,21 +378,28 @@ class CallManager(
     private fun handleSignal(signal: Signal) {
         val current = _state.value
         if (current.callId != 0 && signal.callId != current.callId) return
+        if (!ready && signal.type != "state") {
+            bufferedSignals.add(signal)
+            return
+        }
+
         val payload = runCatching { JSONObject(signal.payload) }.getOrElse { JSONObject() }
+        val from = signal.senderId
 
         when (signal.type) {
             "offer" -> {
-                val pc = peerConnection ?: return
+                val session = peerFor(from)
+                val connection = session.connection ?: return
                 val sdp = SessionDescription(SessionDescription.Type.OFFER, payload.optString("sdp"))
-                pc.setRemoteDescription(object : SimpleSdpObserver() {
+                connection.setRemoteDescription(object : SimpleSdpObserver() {
                     override fun onSetSuccess() {
-                        remoteDescriptionSet = true
-                        drainCandidates()
-                        pc.createAnswer(object : SimpleSdpObserver() {
+                        session.remoteSet = true
+                        drainCandidates(session)
+                        connection.createAnswer(object : SimpleSdpObserver() {
                             override fun onCreateSuccess(description: SessionDescription?) {
                                 description ?: return
-                                pc.setLocalDescription(SimpleSdpObserver(), description)
-                                sendSignal("answer", JSONObject().put("sdp", description.description).toString())
+                                connection.setLocalDescription(SimpleSdpObserver(), description)
+                                sendSignal(from, "answer", JSONObject().put("sdp", description.description).toString())
                             }
                         }, MediaConstraints())
                     }
@@ -294,74 +407,140 @@ class CallManager(
             }
 
             "answer" -> {
-                val pc = peerConnection ?: return
+                val session = peers[from] ?: return
+                val connection = session.connection ?: return
                 val sdp = SessionDescription(SessionDescription.Type.ANSWER, payload.optString("sdp"))
-                pc.setRemoteDescription(object : SimpleSdpObserver() {
+                connection.setRemoteDescription(object : SimpleSdpObserver() {
                     override fun onSetSuccess() {
-                        remoteDescriptionSet = true
-                        drainCandidates()
+                        session.remoteSet = true
+                        drainCandidates(session)
                     }
                 }, sdp)
             }
 
             "ice" -> {
+                val session = peers[from] ?: return
                 val candidate = IceCandidate(
                     payload.optString("sdpMid"),
                     payload.optInt("sdpMLineIndex"),
                     payload.optString("candidate")
                 )
-                if (remoteDescriptionSet) {
-                    peerConnection?.addIceCandidate(candidate)
+                if (session.remoteSet) {
+                    session.connection?.addIceCandidate(candidate)
                 } else {
-                    pendingCandidates.add(candidate)
+                    session.pending.add(candidate)
                 }
             }
 
-            "state" -> {
-                when (payload.optString("status")) {
-                    "active" -> if (_state.value.stage == CallStage.DIALING) {
-                        _state.value = _state.value.copy(stage = CallStage.CONNECTING, statusText = "Baglaniyor...")
-                    }
-                    "rejected" -> cleanup("Arama reddedildi")
-                    "ended", "missed", "failed" -> cleanup("Arama sonlandi")
-                }
-            }
+            "state" -> handleStateSignal(payload, from)
         }
     }
 
-    private fun drainCandidates() {
-        pendingCandidates.forEach { peerConnection?.addIceCandidate(it) }
-        pendingCandidates.clear()
+    private fun handleStateSignal(payload: JSONObject, from: Int) {
+        when (payload.optString("status")) {
+            "joined" -> {
+                if (_state.value.stage == CallStage.DIALING) {
+                    _state.value = _state.value.copy(stage = CallStage.CONNECTING, statusText = "Baglaniyor...")
+                }
+                refreshCall()
+            }
+
+            "force_muted" -> {
+                localTrack?.setEnabled(false)
+                _state.value = _state.value.copy(
+                    muted = true,
+                    forceMuted = true,
+                    statusText = "Yonetici mikrofonunuzu kapatti"
+                )
+            }
+
+            "force_unmuted" -> {
+                localTrack?.setEnabled(true)
+                _state.value = _state.value.copy(muted = false, forceMuted = false, statusText = "")
+            }
+
+            "kicked" -> {
+                scope.launch { runCatching { api.callAction(_state.value.callId, "leave") } }
+                cleanup("Yonetici sizi aramadan cikardi")
+            }
+
+            "left", "rejected" -> {
+                closePeer(from)
+                val userId = payload.optInt("user_id", from)
+                closePeer(userId)
+                if (!_state.value.isGroup) {
+                    cleanup(if (payload.optString("status") == "rejected") "Arama reddedildi" else "Arama sonlandi")
+                } else {
+                    refreshCall()
+                }
+            }
+
+            "ended" -> cleanup("Arama sonlandi")
+        }
     }
 
-    private fun sendSignal(type: String, payload: String, callId: Int = _state.value.callId) {
-        if (callId == 0) return
-        events.launchInScope { api.sendSignal(callId, type, payload) }
+    private fun drainCandidates(session: PeerSession) {
+        session.pending.forEach { session.connection?.addIceCandidate(it) }
+        session.pending.clear()
     }
 
-    /** Arama durumunu (kabul/red) takip eder; signaling gecikirse yedek kontrol. */
-    private fun watchCallStatus(callId: Int) {
-        scope.launch {
+    private fun sendSignal(to: Int, type: String, payload: String) {
+        val callId = _state.value.callId
+        if (callId == 0 || to <= 0) return
+        events.launchInScope { api.sendSignal(callId, to, type, payload) }
+    }
+
+    private suspend fun drainServerSignals(callId: Int) {
+        runCatching {
+            val (signals, call, _) = api.callSignals(callId, 0)
+            call?.let { applyCall(it) }
+            signals.forEach { handleSignal(it) }
+        }
+    }
+
+    /** Arama durumunu ve katilimci listesini duzenli olarak tazeler. */
+    private fun watchCall(callId: Int) {
+        watchJob?.cancel()
+        watchJob = scope.launch {
             var since = 0
-            while (_state.value.callId == callId &&
-                _state.value.stage != CallStage.ENDED &&
-                _state.value.stage != CallStage.IDLE
-            ) {
-                delay(2000)
+            while (_state.value.callId == callId && _state.value.stage != CallStage.ENDED && _state.value.stage != CallStage.IDLE) {
+                delay(2500)
                 runCatching {
-                    val (signals, info) = api.callSignals(callId, since)
+                    val (signals, call, _) = api.callSignals(callId, since)
                     signals.forEach {
                         since = maxOf(since, it.id)
                         handleSignal(it)
                     }
-                    when (info?.status) {
-                        "rejected" -> cleanup("Arama reddedildi")
-                        "ended", "missed" -> if (_state.value.stage != CallStage.ACTIVE) cleanup("Arama sonlandi")
-                        else -> Unit
+                    call?.let { info ->
+                        applyCall(info)
+                        if (!info.isGroup && info.status == "rejected") cleanup("Arama reddedildi")
+                        if (info.status == "ended" || info.status == "missed") {
+                            if (_state.value.stage != CallStage.ACTIVE || !info.isGroup) cleanup("Arama sonlandi")
+                        }
                     }
                 }
             }
         }
+    }
+
+    private fun refreshCall() {
+        val callId = _state.value.callId
+        if (callId == 0) return
+        scope.launch {
+            runCatching { api.callAction(callId, "join") }
+                .onSuccess { (call, _) -> call?.let { applyCall(it) } }
+        }
+    }
+
+    private fun applyCall(call: CallInfo) {
+        val me = _state.value
+        _state.value = me.copy(
+            callId = call.id,
+            isGroup = call.isGroup,
+            title = if (call.isGroup) call.groupTitle.ifBlank { me.title } else (call.caller?.displayName ?: me.title),
+            participants = call.participants.ifEmpty { me.participants },
+            conversationId = if (call.conversationId > 0) call.conversationId else me.conversationId
+        )
     }
 
     private fun onConnected() {
@@ -373,31 +552,49 @@ class CallManager(
         )
     }
 
+    private fun onPeerFailed(userId: Int) {
+        closePeer(userId)
+        if (_state.value.isGroup) {
+            if (peers.isEmpty()) {
+                _state.value = _state.value.copy(statusText = "Katilimcilarla baglanti kurulamadi")
+            }
+            return
+        }
+        fail("Ses baglantisi kurulamadi. Aginiz dogrudan baglantiya izin vermiyor olabilir; TURN sunucusu tanimli degilse yoneticinizle gorusun.")
+    }
+
     private fun fail(message: String) {
         _state.value = _state.value.copy(stage = CallStage.ENDED, error = message, statusText = message)
+        val callId = _state.value.callId
         releaseResources()
-        scope.launch {
-            runCatching { api.callAction(_state.value.callId, "end") }
-        }
+        scope.launch { runCatching { api.callAction(callId, "end") } }
     }
 
     private fun cleanup(reason: String) {
         releaseResources()
         _state.value = _state.value.copy(stage = CallStage.ENDED, statusText = reason)
         scope.launch {
-            delay(1200)
+            delay(1400)
             if (_state.value.stage == CallStage.ENDED) _state.value = CallUiState()
         }
     }
 
+    private fun closePeer(userId: Int) {
+        peers.remove(userId)?.let { session ->
+            runCatching { session.connection?.close() }
+        }
+    }
+
     private fun releaseResources() {
-        runCatching { peerConnection?.close() }
-        peerConnection = null
+        watchJob?.cancel()
+        watchJob = null
+        peers.values.forEach { runCatching { it.connection?.close() } }
+        peers.clear()
+        bufferedSignals.clear()
         runCatching { audioSource?.dispose() }
         audioSource = null
         localTrack = null
-        pendingCandidates.clear()
-        remoteDescriptionSet = false
+        ready = false
         stopAudioSession()
     }
 

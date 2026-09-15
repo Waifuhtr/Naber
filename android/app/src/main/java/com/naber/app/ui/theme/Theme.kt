@@ -1,91 +1,96 @@
 package com.naber.app.ui.theme
 
-import android.app.Activity
-import android.content.Context
-import android.content.ContextWrapper
-import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.Indication
+import androidx.compose.foundation.IndicationNodeFactory
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.interaction.InteractionSource
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LocalRippleConfiguration
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.graphics.drawscope.ContentDrawScope
+import androidx.compose.ui.node.DelegatableNode
+import androidx.compose.ui.node.DrawModifierNode
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
-import androidx.core.view.WindowCompat
 
-private val Emerald = Color(0xFF0F6B5C)
-private val EmeraldLight = Color(0xFF39A08B)
-private val Sand = Color(0xFFF6F3EE)
-
-private val LightColors = lightColorScheme(
-    primary = Emerald,
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFFD5EFE7),
-    onPrimaryContainer = Color(0xFF04281F),
-    secondary = Color(0xFF4F6F66),
-    onSecondary = Color.White,
-    secondaryContainer = Color(0xFFE3F0EA),
-    background = Sand,
-    onBackground = Color(0xFF191C1B),
-    surface = Color.White,
-    onSurface = Color(0xFF191C1B),
-    surfaceVariant = Color(0xFFEDEFEC),
-    onSurfaceVariant = Color(0xFF4A4F4C),
-    outline = Color(0xFFBFC6C2),
-    error = Color(0xFFB3261E)
-)
+/** Koyu tema paleti. */
+object NaberColors {
+    val Background = Color(0xFF0B1016)
+    val Surface = Color(0xFF131B24)
+    val SurfaceHigh = Color(0xFF1A242F)
+    val TopBar = Color(0xFF0F161D)
+    val Accent = Color(0xFF25B08B)
+    val AccentDim = Color(0xFF1B7F65)
+    val Bubble = Color(0xFF4C5FE8)
+    val BubbleIn = Color(0xFF1C2631)
+    val TextPrimary = Color(0xFFE8EDF3)
+    val TextSecondary = Color(0xFF8B99A8)
+    val Divider = Color(0xFF1E2934)
+    val Danger = Color(0xFFE5484D)
+    val Online = Color(0xFF3BD07F)
+    val Warning = Color(0xFFE8A33D)
+}
 
 private val DarkColors = darkColorScheme(
-    primary = EmeraldLight,
-    onPrimary = Color(0xFF00382C),
-    primaryContainer = Color(0xFF115043),
-    onPrimaryContainer = Color(0xFFD5EFE7),
-    secondary = Color(0xFFB2CCC3),
-    background = Color(0xFF101413),
-    onBackground = Color(0xFFE1E3E1),
-    surface = Color(0xFF171C1B),
-    onSurface = Color(0xFFE1E3E1),
-    surfaceVariant = Color(0xFF242A28),
-    onSurfaceVariant = Color(0xFFC3C9C5),
-    outline = Color(0xFF3C4542),
-    error = Color(0xFFF2B8B5)
+    primary = NaberColors.Accent,
+    onPrimary = Color(0xFF04120D),
+    primaryContainer = NaberColors.AccentDim,
+    onPrimaryContainer = Color.White,
+    secondary = NaberColors.Bubble,
+    onSecondary = Color.White,
+    background = NaberColors.Background,
+    onBackground = NaberColors.TextPrimary,
+    surface = NaberColors.Surface,
+    onSurface = NaberColors.TextPrimary,
+    surfaceVariant = NaberColors.SurfaceHigh,
+    onSurfaceVariant = NaberColors.TextSecondary,
+    outline = NaberColors.Divider,
+    error = NaberColors.Danger,
+    onError = Color.White,
+    errorContainer = Color(0xFF3A1417),
+    onErrorContainer = Color(0xFFFFB4AB)
 )
 
 private val NaberTypography = Typography(
-    titleLarge = TextStyle(fontSize = 22.sp, fontWeight = FontWeight.SemiBold),
-    titleMedium = TextStyle(fontSize = 17.sp, fontWeight = FontWeight.SemiBold),
-    bodyLarge = TextStyle(fontSize = 16.sp),
-    bodyMedium = TextStyle(fontSize = 14.sp),
+    titleLarge = TextStyle(fontSize = 22.sp, fontWeight = FontWeight.Bold),
+    titleMedium = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.SemiBold),
+    bodyLarge = TextStyle(fontSize = 15.5.sp),
+    bodyMedium = TextStyle(fontSize = 13.5.sp),
     labelSmall = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.Medium)
 )
 
-@Composable
-fun NaberTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
-    val colors = if (darkTheme) DarkColors else LightColors
-    val view = LocalView.current
-    if (!view.isInEditMode) {
-        SideEffect {
-            val activity = findActivity(view.context)
-            if (activity != null) {
-                @Suppress("DEPRECATION")
-                activity.window.statusBarColor = colors.primary.toArgb()
-                WindowCompat.getInsetsController(activity.window, view).isAppearanceLightStatusBars = false
-            }
-        }
+/** Dokunma dalgasini (ripple) tamamen kapatan bos efekt. */
+private class NoIndicationNode : Modifier.Node(), DrawModifierNode {
+    override fun ContentDrawScope.draw() {
+        drawContent()
     }
-    MaterialTheme(colorScheme = colors, typography = NaberTypography, content = content)
 }
 
-private fun findActivity(context: Context): Activity? {
-    var current = context
-    while (current is ContextWrapper) {
-        if (current is Activity) return current
-        current = current.baseContext
+object NoIndication : IndicationNodeFactory {
+    override fun create(interactionSource: InteractionSource): DelegatableNode = NoIndicationNode()
+    override fun equals(other: Any?): Boolean = other === this
+    override fun hashCode(): Int = -1
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun NaberTheme(content: @Composable () -> Unit) {
+    val indication: Indication = NoIndication
+    CompositionLocalProvider(
+        LocalIndication provides indication,
+        LocalRippleConfiguration provides null
+    ) {
+        MaterialTheme(
+            colorScheme = DarkColors,
+            typography = NaberTypography,
+            content = content
+        )
     }
-    return null
 }

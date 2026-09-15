@@ -6,7 +6,11 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -14,7 +18,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.core.view.WindowCompat
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -23,10 +28,11 @@ import com.naber.app.push.Notifications
 import com.naber.app.ui.screens.AdminScreen
 import com.naber.app.ui.screens.CallScreen
 import com.naber.app.ui.screens.ChatScreen
-import com.naber.app.ui.screens.ChatsScreen
+import com.naber.app.ui.screens.GroupCreateScreen
+import com.naber.app.ui.screens.GroupInfoScreen
+import com.naber.app.ui.screens.HomeScreen
 import com.naber.app.ui.screens.LoginScreen
-import com.naber.app.ui.screens.NewChatScreen
-import com.naber.app.ui.screens.ProfileScreen
+import com.naber.app.ui.theme.NaberColors
 import com.naber.app.ui.theme.NaberTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -36,14 +42,16 @@ class MainActivity : ComponentActivity() {
     private var pendingConversationId = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        WindowCompat.setDecorFitsSystemWindows(window, true)
         Naber.init(applicationContext)
         pendingConversationId = intent?.getIntExtra(EXTRA_CONVERSATION_ID, 0) ?: 0
 
         setContent {
             NaberTheme {
-                NaberRoot(startConversationId = pendingConversationId)
+                Box(modifier = Modifier.fillMaxSize().background(NaberColors.Background)) {
+                    NaberRoot(startConversationId = pendingConversationId)
+                }
             }
         }
 
@@ -63,7 +71,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onPause() {
         super.onPause()
-        // Arama surerken olay akisi acik kalmali.
         if (Naber.calls.state.value.stage == CallStage.IDLE) {
             Naber.events.stop()
         }
@@ -101,7 +108,7 @@ private fun NaberRoot(startConversationId: Int) {
     var loggedIn by remember { mutableStateOf(Naber.session.isLoggedIn) }
     val callState by Naber.calls.state.collectAsState()
     val incomingCall by Naber.events.incomingCall.collectAsState()
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
 
     LaunchedEffect(loggedIn) {
         if (loggedIn) {
@@ -114,10 +121,9 @@ private fun NaberRoot(startConversationId: Int) {
         }
     }
 
-    // Sunucudan gelen arama bilgisi arama ekranini acar.
     LaunchedEffect(incomingCall?.id) {
         val call = incomingCall
-        if (call != null && call.status == "ringing") {
+        if (call != null && (call.status == "ringing" || call.status == "active")) {
             Naber.calls.onIncoming(call)
         }
     }
@@ -131,36 +137,43 @@ private fun NaberRoot(startConversationId: Int) {
         return
     }
 
-    NavHost(navController = navController, startDestination = "chats") {
-        composable("chats") {
-            ChatsScreen(
+    NavHost(navController = navController, startDestination = "home") {
+        composable("home") {
+            HomeScreen(
                 startConversationId = startConversationId,
-                onOpenChat = { conversationId, peerId -> navController.navigate("chat/$conversationId/$peerId") },
-                onNewChat = { navController.navigate("users") },
-                onProfile = { navController.navigate("profile") },
+                onOpenChat = { conversationId -> navController.navigate("chat/$conversationId") },
+                onNewGroup = { navController.navigate("group/new") },
                 onAdmin = { navController.navigate("admin") },
                 onLoggedOut = { loggedIn = false }
             )
         }
-        composable("users") {
-            NewChatScreen(
+
+        composable("chat/{conversationId}") { entry ->
+            ChatScreen(
+                conversationId = entry.arguments?.getString("conversationId")?.toIntOrNull() ?: 0,
                 onBack = { navController.popBackStack() },
-                onOpenChat = { conversationId, peerId ->
+                onGroupInfo = { conversationId -> navController.navigate("group/$conversationId") }
+            )
+        }
+
+        composable("group/new") {
+            GroupCreateScreen(
+                onBack = { navController.popBackStack() },
+                onCreated = { conversationId ->
                     navController.popBackStack()
-                    navController.navigate("chat/$conversationId/$peerId")
+                    navController.navigate("chat/$conversationId")
                 }
             )
         }
-        composable("chat/{conversationId}/{peerId}") { entry ->
-            ChatScreen(
+
+        composable("group/{conversationId}") { entry ->
+            GroupInfoScreen(
                 conversationId = entry.arguments?.getString("conversationId")?.toIntOrNull() ?: 0,
-                peerId = entry.arguments?.getString("peerId")?.toIntOrNull() ?: 0,
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onLeft = { navController.popBackStack("home", inclusive = false) }
             )
         }
-        composable("profile") {
-            ProfileScreen(onBack = { navController.popBackStack() }, onLoggedOut = { loggedIn = false })
-        }
+
         composable("admin") {
             AdminScreen(onBack = { navController.popBackStack() })
         }

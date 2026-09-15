@@ -17,10 +17,9 @@ import kotlinx.coroutines.launch
 /**
  * Canli olay akisi.
  *
- * WordPress paylasimli hostinglerde WebSocket calismadigi icin uzun yoklama
- * (long-polling) kullanilir: tek bir istek sunucuda en fazla 25 saniye bekler,
- * yeni bir sey olunca hemen doner. Boylece surekli istek yagmuru olmaz ama
- * mesajlar aninda gelir.
+ * WordPress paylasimli hostinglerinde WebSocket calismadigi icin uzun yoklama
+ * kullanilir: tek istek sunucuda en fazla 25 saniye bekler, yeni bir sey
+ * olunca hemen doner.
  */
 class EventHub(private val api: ApiClient) {
 
@@ -33,11 +32,11 @@ class EventHub(private val api: ApiClient) {
     private val _signals = MutableSharedFlow<Signal>(extraBufferCapacity = 64)
     val signals: SharedFlow<Signal> = _signals.asSharedFlow()
 
-    private val _readReceipts = MutableSharedFlow<List<Int>>(extraBufferCapacity = 16)
-    val readReceipts: SharedFlow<List<Int>> = _readReceipts.asSharedFlow()
+    private val _readStates = MutableSharedFlow<List<ReadState>>(extraBufferCapacity = 16)
+    val readStates: SharedFlow<List<ReadState>> = _readStates.asSharedFlow()
 
-    private val _typing = MutableStateFlow(0 to false)
-    val typing: StateFlow<Pair<Int, Boolean>> = _typing.asStateFlow()
+    private val _typing = MutableStateFlow(0 to emptyList<TypingUser>())
+    val typing: StateFlow<Pair<Int, List<TypingUser>>> = _typing.asStateFlow()
 
     private val _incomingCall = MutableStateFlow<CallInfo?>(null)
     val incomingCall: StateFlow<CallInfo?> = _incomingCall.asStateFlow()
@@ -48,7 +47,7 @@ class EventHub(private val api: ApiClient) {
     private val _connected = MutableStateFlow(true)
     val connected: StateFlow<Boolean> = _connected.asStateFlow()
 
-    /** Acik olan sohbet; sunucudan "yaziyor" bilgisi bu sohbet icin istenir. */
+    /** Acik olan sohbet; "yaziyor" bilgisi bu sohbet icin istenir. */
     @Volatile
     var activeConversationId: Int = 0
 
@@ -67,7 +66,7 @@ class EventHub(private val api: ApiClient) {
                     _unreadTotal.value = batch.unreadTotal
                     batch.messages.forEach { _messages.emit(it) }
                     batch.signals.forEach { _signals.emit(it) }
-                    if (batch.readMessageIds.isNotEmpty()) _readReceipts.emit(batch.readMessageIds)
+                    if (batch.readStates.isNotEmpty()) _readStates.emit(batch.readStates)
                     _typing.value = batch.typingConversationId to batch.typing
                     _incomingCall.value = batch.incomingCall
                 } catch (e: Exception) {
@@ -87,13 +86,13 @@ class EventHub(private val api: ApiClient) {
         _incomingCall.value = null
     }
 
-    /** Oturum degistiginde sayaclari sifirla. */
     fun reset() {
         stop()
         sinceMessageId = 0
         sinceSignalId = 0
         _unreadTotal.value = 0
         _incomingCall.value = null
+        _typing.value = 0 to emptyList()
     }
 
     fun launchInScope(block: suspend () -> Unit) {

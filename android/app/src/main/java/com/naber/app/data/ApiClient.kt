@@ -15,10 +15,7 @@ import java.util.concurrent.TimeUnit
 
 class ApiException(message: String, val status: Int = 0) : Exception(message)
 
-/**
- * WordPress eklentisi ile konusan tek HTTP istemcisi.
- * Tum istekler Bearer token ile imzalanir.
- */
+/** WordPress eklentisi ile konusan tek HTTP istemcisi. */
 class ApiClient(private val session: Session) {
 
     private val client = OkHttpClient.Builder()
@@ -28,31 +25,22 @@ class ApiClient(private val session: Session) {
         .retryOnConnectionFailure(true)
         .build()
 
-    /** Uzun yoklama istekleri icin daha uzun okuma suresi. */
-    private val pollClient = client.newBuilder()
-        .readTimeout(45, TimeUnit.SECONDS)
-        .build()
+    private val pollClient = client.newBuilder().readTimeout(45, TimeUnit.SECONDS).build()
 
     private val jsonType = "application/json; charset=utf-8".toMediaType()
 
-    private fun endpoint(path: String): String {
-        val base = session.baseUrl
-        if (base.isEmpty()) throw ApiException("Sunucu adresi girilmemis.")
-        return "$base/wp-json/naber/v1$path"
-    }
+    private fun endpoint(path: String) = "${session.baseUrl}/wp-json/naber/v1$path"
 
-    private fun buildRequest(path: String, method: String, body: RequestBody?, query: Map<String, Any?> = emptyMap()): Request {
+    private fun buildRequest(path: String, method: String, body: RequestBody?, query: Map<String, Any?>): Request {
         val url = StringBuilder(endpoint(path))
         if (query.isNotEmpty()) {
-            url.append("?")
-            url.append(query.entries.filter { it.value != null }.joinToString("&") {
+            val encoded = query.entries.filter { it.value != null }.joinToString("&") {
                 "${it.key}=${java.net.URLEncoder.encode(it.value.toString(), "UTF-8")}"
-            })
+            }
+            if (encoded.isNotEmpty()) url.append("?").append(encoded)
         }
         val builder = Request.Builder().url(url.toString())
-        if (session.token.isNotEmpty()) {
-            builder.header("Authorization", "Bearer ${session.token}")
-        }
+        if (session.token.isNotEmpty()) builder.header("Authorization", "Bearer ${session.token}")
         builder.header("Accept", "application/json")
         return when (method) {
             "GET" -> builder.get().build()
@@ -76,9 +64,7 @@ class ApiClient(private val session: Session) {
                 val text = response.body?.string().orEmpty()
                 val json = runCatching { JSONObject(text) }.getOrElse { JSONObject() }
                 if (!response.isSuccessful) {
-                    val message = json.optString("message").ifBlank {
-                        "Sunucu hatasi (${response.code})"
-                    }
+                    val message = json.optString("message").ifBlank { "Sunucu hatasi (${response.code})" }
                     throw ApiException(message, response.code)
                 }
                 json
@@ -94,22 +80,22 @@ class ApiClient(private val session: Session) {
 
     suspend fun login(username: String, password: String): User {
         val json = call("/login", "POST", JSONObject().put("username", username).put("password", password).put("device", android.os.Build.MODEL))
-        session.token = json.optString("token")
-        val user = User.from(json.optJSONObject("user")) ?: throw ApiException("Kullanici bilgisi alinamadi.")
-        session.user = user
-        return user
+        return storeSession(json)
     }
 
-    suspend fun register(username: String, password: String, displayName: String, email: String): User {
+    suspend fun register(username: String, password: String, displayName: String): User {
         val json = call(
             "/register", "POST",
             JSONObject()
                 .put("username", username)
                 .put("password", password)
                 .put("display_name", displayName)
-                .put("email", email)
                 .put("device", android.os.Build.MODEL)
         )
+        return storeSession(json)
+    }
+
+    private fun storeSession(json: JSONObject): User {
         session.token = json.optString("token")
         val user = User.from(json.optJSONObject("user")) ?: throw ApiException("Kullanici bilgisi alinamadi.")
         session.user = user
@@ -119,6 +105,7 @@ class ApiClient(private val session: Session) {
     suspend fun logout() {
         runCatching { call("/logout", "POST", JSONObject().put("device_token", session.pushToken)) }
         session.clear()
+        LocalMedia.clear()
     }
 
     suspend fun me(): User {
@@ -139,61 +126,118 @@ class ApiClient(private val session: Session) {
         return user
     }
 
-    suspend fun users(search: String = ""): List<User> {
-        val json = call("/users", "GET", query = mapOf("search" to search.ifBlank { null }))
-        return json.optJSONArray("users").toList { User.from(it) }
+    // ----------------------------------------------------------- kisiler
+
+    suspend fun users(search: String = ""): List<User> =
+        User.listFrom(call("/users", "GET", query = mapOf("search" to search.ifBlank { null })).optJSONArray("users"))
+
+    suspend fun contacts(): List<User> = User.listFrom(call("/contacts").optJSONArray("users"))
+
+    /** Naber adresi (kullaniciadi@naber.com) veya kullanici adi ile arama. */
+    suspend fun lookup(query: String): User =
+        User.from(call("/users/lookup", "GET", query = mapOf("q" to query)).optJSONObject("user"))
+            ?: throw ApiException("Kullanici bulunamadi.")
+
+    suspend fun addContact(userId: Int = 0, email: String = ""): Pair<User, Int> {
+        val payload = JSONObject()
+        if (userId > 0) payload.put("user_id", userId) else payload.put("email", email)
+        val json = call("/contacts", "POST", payload)
+        val user = User.from(json.optJSONObject("user")) ?: throw ApiException("Kisi eklenemedi.")
+        return user to json.optInt("conversation_id")
     }
 
-    // ----------------------------------------------------------- sohbet
+    suspend fun removeContact(userId: Int) {
+        call("/contacts/$userId", "DELETE")
+    }
 
-    suspend fun chats(): Pair<List<ChatSummary>, Int> {
+    // ----------------------------------------------------------- sohbetler
+
+    suspend fun chats(): Pair<List<Chat>, Int> {
         val json = call("/chats")
-        val chats = json.optJSONArray("chats").toList { ChatSummary.from(it) }
-        return chats to json.optInt("unread_total")
+        return Chat.listFrom(json.optJSONArray("chats")) to json.optInt("unread_total")
     }
 
-    suspend fun openChat(userId: Int): Int {
-        val json = call("/chats", "POST", JSONObject().put("user_id", userId))
-        return json.optInt("id")
+    suspend fun openChat(userId: Int): Int = call("/chats", "POST", JSONObject().put("user_id", userId)).optInt("id")
+
+    suspend fun createGroup(title: String, memberIds: List<Int>, avatarMediaId: Int?, about: String = ""): Chat {
+        val payload = JSONObject()
+            .put("title", title)
+            .put("about", about)
+            .put("members", JSONArray(memberIds))
+        avatarMediaId?.let { payload.put("avatar_media_id", it) }
+        return Chat.from(call("/groups", "POST", payload).optJSONObject("chat")) ?: throw ApiException("Grup olusturulamadi.")
     }
 
-    suspend fun messages(conversationId: Int, before: Int? = null, limit: Int = 50): Triple<List<Message>, User?, Boolean> {
-        val json = call(
-            "/chats/$conversationId/messages", "GET",
-            query = mapOf("before" to before, "limit" to limit)
-        )
-        return Triple(
-            json.optJSONArray("messages").toList { Message.from(it) },
-            User.from(json.optJSONObject("peer")),
-            json.optBoolean("typing")
-        )
+    suspend fun chatInfo(conversationId: Int): Chat =
+        Chat.from(call("/chats/$conversationId").optJSONObject("chat")) ?: throw ApiException("Sohbet bulunamadi.")
+
+    suspend fun updateGroup(conversationId: Int, title: String?, about: String?, avatarMediaId: Int?): Chat {
+        val payload = JSONObject()
+        title?.let { payload.put("title", it) }
+        about?.let { payload.put("about", it) }
+        avatarMediaId?.let { payload.put("avatar_media_id", it) }
+        return Chat.from(call("/chats/$conversationId", "POST", payload).optJSONObject("chat"))
+            ?: throw ApiException("Grup guncellenemedi.")
     }
 
-    suspend fun sendText(conversationId: Int, receiverId: Int, body: String, clientId: String): Message {
-        val json = call(
-            "/messages", "POST",
-            JSONObject()
-                .put("conversation_id", conversationId)
-                .put("receiver_id", receiverId)
-                .put("type", "text")
-                .put("body", body)
-                .put("client_id", clientId)
-        )
-        return Message.from(json.optJSONObject("message")) ?: throw ApiException("Mesaj gonderilemedi.")
+    suspend fun addGroupMembers(conversationId: Int, memberIds: List<Int>): Chat =
+        Chat.from(call("/chats/$conversationId/members", "POST", JSONObject().put("members", JSONArray(memberIds))).optJSONObject("chat"))
+            ?: throw ApiException("Uye eklenemedi.")
+
+    suspend fun removeGroupMember(conversationId: Int, userId: Int): Chat =
+        Chat.from(call("/chats/$conversationId/members/$userId", "DELETE").optJSONObject("chat"))
+            ?: throw ApiException("Uye cikarilamadi.")
+
+    suspend fun setGroupRole(conversationId: Int, userId: Int, role: String): Chat =
+        Chat.from(call("/chats/$conversationId/members/$userId/role", "POST", JSONObject().put("role", role)).optJSONObject("chat"))
+            ?: throw ApiException("Rol degistirilemedi.")
+
+    /** Grup yoneticisi bir uyeyi sohbette susturur veya susturmayi kaldirir. */
+    suspend fun setMemberMuted(conversationId: Int, userId: Int, muted: Boolean): Chat =
+        Chat.from(call("/chats/$conversationId/members/$userId/mute", "POST", JSONObject().put("muted", muted)).optJSONObject("chat"))
+            ?: throw ApiException("Susturma degistirilemedi.")
+
+    suspend fun leaveGroup(conversationId: Int) {
+        call("/chats/$conversationId/leave", "POST")
     }
 
-    suspend fun sendImage(conversationId: Int, receiverId: Int, mediaId: Int, caption: String, clientId: String): Message {
-        val json = call(
-            "/messages", "POST",
-            JSONObject()
-                .put("conversation_id", conversationId)
-                .put("receiver_id", receiverId)
-                .put("type", "image")
-                .put("media_id", mediaId)
-                .put("body", caption)
-                .put("client_id", clientId)
-        )
-        return Message.from(json.optJSONObject("message")) ?: throw ApiException("Gorsel gonderilemedi.")
+    suspend fun setChatNotifications(conversationId: Int, muted: Boolean) {
+        call("/chats/$conversationId/notifications", "POST", JSONObject().put("muted", muted))
+    }
+
+    suspend fun messages(conversationId: Int, before: Int? = null, limit: Int = 50): Triple<List<Message>, Chat?, List<TypingUser>> {
+        val json = call("/chats/$conversationId/messages", "GET", query = mapOf("before" to before, "limit" to limit))
+        val typing = json.optJSONArray("typing").mapObjects { TypingUser(it.optInt("id"), it.optString("name")) }
+        return Triple(Message.listFrom(json.optJSONArray("messages")), Chat.from(json.optJSONObject("chat")), typing)
+    }
+
+    suspend fun sendText(conversationId: Int, body: String, clientId: String): Message =
+        Message.from(
+            call(
+                "/messages", "POST",
+                JSONObject()
+                    .put("conversation_id", conversationId)
+                    .put("type", "text")
+                    .put("body", body)
+                    .put("client_id", clientId)
+            ).optJSONObject("message")
+        ) ?: throw ApiException("Mesaj gonderilemedi.")
+
+    suspend fun sendImage(conversationId: Int, mediaId: Int, caption: String, clientId: String): Message =
+        Message.from(
+            call(
+                "/messages", "POST",
+                JSONObject()
+                    .put("conversation_id", conversationId)
+                    .put("type", "image")
+                    .put("media_id", mediaId)
+                    .put("body", caption)
+                    .put("client_id", clientId)
+            ).optJSONObject("message")
+        ) ?: throw ApiException("Gorsel gonderilemedi.")
+
+    suspend fun deleteMessage(messageId: Int) {
+        call("/messages/$messageId", "DELETE")
     }
 
     suspend fun markRead(conversationId: Int) {
@@ -207,11 +251,9 @@ class ApiClient(private val session: Session) {
     // ----------------------------------------------------------- medya
 
     /**
-     * Gorsel gonderme akisi:
-     *  1) sunucudan tek kullanimlik B2 upload adresi al
-     *  2) dosyayi dogrudan Backblaze'e yukle (ilerleme geri bildirimli)
-     *  3) sunucuda kaydi tamamla
-     * Secret key uygulamada tutulmaz; yalnizca kisa omurlu upload jetonu kullanilir.
+     * 1) sunucudan tek kullanimlik B2 upload adresi al
+     * 2) dosyayi dogrudan Backblaze'e yukle (ilerleme geri bildirimli)
+     * 3) sunucuda kaydi tamamla
      */
     suspend fun uploadImage(
         bytes: ByteArray,
@@ -229,8 +271,7 @@ class ApiClient(private val session: Session) {
         val uploadToken = prepare.optString("token")
         val fileName = prepare.optString("file_name")
 
-        val sha1 = MessageDigest.getInstance("SHA-1").digest(bytes)
-            .joinToString("") { "%02x".format(it) }
+        val sha1 = MessageDigest.getInstance("SHA-1").digest(bytes).joinToString("") { "%02x".format(it) }
 
         val progressBody = object : RequestBody() {
             override fun contentType() = mime.toMediaType()
@@ -259,9 +300,7 @@ class ApiClient(private val session: Session) {
         val uploadJson = try {
             client.newCall(request).execute().use { response ->
                 val text = response.body?.string().orEmpty()
-                if (!response.isSuccessful) {
-                    throw ApiException("Yukleme basarisiz (${response.code})", response.code)
-                }
+                if (!response.isSuccessful) throw ApiException("Yukleme basarisiz (${response.code})", response.code)
                 runCatching { JSONObject(text) }.getOrElse { JSONObject() }
             }
         } catch (e: ApiException) {
@@ -272,10 +311,7 @@ class ApiClient(private val session: Session) {
 
         val completed = call(
             "/media/complete", "POST",
-            JSONObject()
-                .put("media_id", mediaId)
-                .put("file_id", uploadJson.optString("fileId"))
-                .put("size", bytes.size)
+            JSONObject().put("media_id", mediaId).put("file_id", uploadJson.optString("fileId")).put("size", bytes.size)
         )
         Media.from(completed.optJSONObject("media")) ?: throw ApiException("Medya kaydi tamamlanamadi.")
     }
@@ -293,17 +329,17 @@ class ApiClient(private val session: Session) {
             ),
             longPoll = true
         )
-        val typing = json.optJSONObject("typing")
         return EventBatch(
-            messages = json.optJSONArray("messages").toList { Message.from(it) },
-            signals = json.optJSONArray("signals").toList {
+            messages = Message.listFrom(json.optJSONArray("messages")),
+            signals = json.optJSONArray("signals").mapObjects {
                 Signal(it.optInt("id"), it.optInt("call_id"), it.optInt("sender_id"), it.optString("type"), it.optString("payload"))
             },
             incomingCall = CallInfo.from(json.optJSONObject("incoming_call")),
-            readMessageIds = json.optJSONArray("read_receipts").toList { it.optInt("message_id") },
-            typing = typing?.optBoolean("typing") ?: false,
-            typingConversationId = typing?.optInt("conversation_id") ?: 0,
-            peerOnline = typing?.optBoolean("online"),
+            readStates = json.optJSONArray("read_states").mapObjects {
+                ReadState(it.optInt("conversation_id"), it.optInt("watermark"))
+            },
+            typing = json.optJSONArray("typing").mapObjects { TypingUser(it.optInt("id"), it.optString("name")) },
+            typingConversationId = json.optInt("typing_conversation_id"),
             unreadTotal = json.optInt("unread_total"),
             sinceMessageId = json.optInt("since_message_id", sinceMessageId),
             sinceSignalId = json.optInt("since_signal_id", sinceSignalId)
@@ -312,32 +348,41 @@ class ApiClient(private val session: Session) {
 
     // ----------------------------------------------------------- arama
 
-    suspend fun iceServers(): List<IceServer> =
-        IceServer.listFrom(call("/ice-servers").optJSONArray("ice_servers"))
+    suspend fun iceServers(): List<IceServer> = IceServer.listFrom(call("/ice-servers").optJSONArray("ice_servers"))
 
-    suspend fun startCall(userId: Int): Pair<CallInfo, List<IceServer>> {
-        val json = call("/calls/start", "POST", JSONObject().put("user_id", userId))
+    suspend fun startCall(userId: Int = 0, conversationId: Int = 0): Triple<CallInfo, List<Int>, List<IceServer>> {
+        val payload = JSONObject()
+        if (conversationId > 0) payload.put("conversation_id", conversationId) else payload.put("user_id", userId)
+        val json = call("/calls/start", "POST", payload)
         val info = CallInfo.from(json.optJSONObject("call")) ?: throw ApiException("Arama baslatilamadi.")
-        return info to IceServer.listFrom(json.optJSONArray("ice_servers"))
+        return Triple(info, json.optJSONArray("peers").toIntList(), IceServer.listFrom(json.optJSONArray("ice_servers")))
     }
 
-    suspend fun callAction(callId: Int, action: String): CallInfo? =
-        CallInfo.from(call("/calls/$callId/$action", "POST").optJSONObject("call"))
-
-    suspend fun sendSignal(callId: Int, type: String, payload: String) {
-        call("/calls/$callId/signal", "POST", JSONObject().put("type", type).put("payload", payload))
+    suspend fun callAction(callId: Int, action: String): Pair<CallInfo?, List<Int>> {
+        val json = call("/calls/$callId/$action", "POST")
+        return CallInfo.from(json.optJSONObject("call")) to json.optJSONArray("peers").toIntList()
     }
 
-    suspend fun callSignals(callId: Int, since: Int): Pair<List<Signal>, CallInfo?> {
+    suspend fun sendSignal(callId: Int, to: Int, type: String, payload: String) {
+        call("/calls/$callId/signal", "POST", JSONObject().put("type", type).put("payload", payload).put("to", to))
+    }
+
+    suspend fun callSignals(callId: Int, since: Int): Triple<List<Signal>, CallInfo?, List<Int>> {
         val json = call("/calls/$callId/signals", "GET", query = mapOf("since" to since))
-        val signals = json.optJSONArray("signals").toList {
+        val signals = json.optJSONArray("signals").mapObjects {
             Signal(it.optInt("id"), it.optInt("call_id"), it.optInt("sender_id"), it.optString("type"), it.optString("payload"))
         }
-        return signals to CallInfo.from(json.optJSONObject("call"))
+        return Triple(signals, CallInfo.from(json.optJSONObject("call")), json.optJSONArray("peers").toIntList())
     }
 
-    suspend fun callHistory(): List<CallInfo> =
-        call("/calls").optJSONArray("calls").toList { CallInfo.from(it) }
+    /** Grup aramasinda yonetici islemleri. */
+    suspend fun muteParticipant(callId: Int, userId: Int, muted: Boolean): CallInfo? =
+        CallInfo.from(call("/calls/$callId/participants/$userId/mute", "POST", JSONObject().put("muted", muted)).optJSONObject("call"))
+
+    suspend fun kickParticipant(callId: Int, userId: Int): CallInfo? =
+        CallInfo.from(call("/calls/$callId/participants/$userId/kick", "POST").optJSONObject("call"))
+
+    suspend fun callHistory(): List<CallInfo> = CallInfo.listFrom(call("/calls").optJSONArray("calls"))
 
     // ----------------------------------------------------------- cihaz
 
@@ -357,52 +402,109 @@ class ApiClient(private val session: Session) {
         return AdminStats(
             totalUsers = users.optInt("total"),
             onlineUsers = users.optInt("online"),
+            bannedUsers = users.optInt("banned"),
             totalMessages = messages.optInt("total"),
             todayMessages = messages.optInt("today"),
             conversations = json.optInt("conversations"),
+            groups = json.optInt("groups"),
             storageFiles = storage.optInt("files"),
             storageBytes = storage.optLong("bytes"),
             totalCalls = calls.optInt("total"),
             callSeconds = calls.optInt("seconds"),
             missedCalls = calls.optInt("missed"),
+            groupCalls = calls.optInt("group"),
             storageReady = json.optBoolean("storage_ready"),
             pushReady = json.optBoolean("push_ready"),
             turnConfigured = json.optBoolean("turn_configured"),
-            recentUsers = json.optJSONArray("recent_users").toList { User.from(it) }
+            server = json.optString("server"),
+            pluginVersion = json.optString("plugin_version"),
+            emailDomain = json.optString("email_domain"),
+            recentUsers = User.listFrom(json.optJSONArray("recent_users"))
         )
     }
 
-    suspend fun adminUsers(): List<User> = call("/admin/users").optJSONArray("users").toList { User.from(it) }
+    suspend fun adminUsers(search: String = ""): List<User> =
+        User.listFrom(call("/admin/users", "GET", query = mapOf("search" to search.ifBlank { null })).optJSONArray("users"))
 
-    suspend fun adminSetDisabled(userId: Int, disabled: Boolean): User? =
-        User.from(call("/admin/users/$userId", "POST", JSONObject().put("disabled", disabled)).optJSONObject("user"))
+    suspend fun adminUpdateUser(
+        userId: Int,
+        banned: Boolean? = null,
+        reason: String? = null,
+        disabled: Boolean? = null,
+        admin: Boolean? = null,
+        displayName: String? = null,
+        password: String? = null,
+        logout: Boolean? = null
+    ): User? {
+        val payload = JSONObject()
+        banned?.let { payload.put("banned", it) }
+        reason?.let { payload.put("reason", it) }
+        disabled?.let { payload.put("disabled", it) }
+        admin?.let { payload.put("admin", it) }
+        displayName?.let { payload.put("display_name", it) }
+        password?.let { payload.put("password", it) }
+        logout?.let { payload.put("logout", it) }
+        return User.from(call("/admin/users/$userId", "POST", payload).optJSONObject("user"))
+    }
 
     suspend fun adminDeleteUser(userId: Int) {
         call("/admin/users/$userId", "DELETE")
     }
 
-    /** Yonetici, bucket bilgilerinin dogru olup olmadigini uygulamadan da sinayabilir. */
+    suspend fun adminChats(): List<AdminChat> =
+        call("/admin/chats").optJSONArray("chats").mapObjects {
+            AdminChat(
+                id = it.optInt("id"),
+                type = it.optString("type"),
+                title = it.optString("title"),
+                memberCount = it.optInt("member_count"),
+                messageCount = it.optInt("message_count"),
+                updatedAt = it.optLong("updated_at")
+            )
+        }
+
+    suspend fun adminDeleteChat(conversationId: Int) {
+        call("/admin/chats/$conversationId", "DELETE")
+    }
+
+    suspend fun adminSettings(): ServerSettings {
+        val json = call("/admin/settings")
+        return ServerSettings(
+            server = json.optString("server"),
+            pluginVersion = json.optString("plugin_version"),
+            bucketName = json.optString("bucket_name"),
+            bucketId = json.optString("bucket_id"),
+            keyId = json.optString("key_id"),
+            pathPrefix = json.optString("path_prefix"),
+            maxUploadMb = json.optInt("max_upload_mb"),
+            linkTtl = json.optInt("link_ttl"),
+            publicBaseUrl = json.optString("public_base_url"),
+            turnUrls = json.optString("turn_urls"),
+            stunUrls = json.optString("stun_urls"),
+            fcmProjectId = json.optString("fcm_project_id"),
+            emailDomain = json.optString("email_domain"),
+            allowRegistration = json.optBoolean("allow_registration"),
+            storageReady = json.optBoolean("storage_ready"),
+            pushReady = json.optBoolean("push_ready")
+        )
+    }
+
     suspend fun adminStorageTest(writeTest: Boolean = true): StorageTestResult {
         val json = call("/admin/storage/test", "POST", JSONObject().put("write_test", writeTest))
-        val steps = json.optJSONArray("steps").toList {
-            StorageTestStep(it.optString("label"), it.optBoolean("ok"), it.optString("message"))
-        }
         return StorageTestResult(
             ok = json.optBoolean("ok"),
             message = json.optString("message"),
             bucketId = json.optString("bucket_id"),
-            steps = steps
+            steps = json.optJSONArray("steps").mapObjects {
+                StorageTestStep(it.optString("label"), it.optBoolean("ok"), it.optString("message"))
+            }
         )
     }
 }
 
-/** JSONArray -> List<T> kisayolu. */
-private fun <T> JSONArray?.toList(mapper: (JSONObject) -> T?): List<T> {
+private fun JSONArray?.toIntList(): List<Int> {
     if (this == null) return emptyList()
-    val out = ArrayList<T>(length())
-    for (i in 0 until length()) {
-        val item = optJSONObject(i) ?: continue
-        mapper(item)?.let { out.add(it) }
-    }
+    val out = ArrayList<Int>(length())
+    for (i in 0 until length()) out.add(optInt(i))
     return out
 }

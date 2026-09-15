@@ -1,22 +1,26 @@
 package com.naber.app.ui.screens
 
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -27,44 +31,44 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.naber.app.Naber
-import com.naber.app.data.Session
+import com.naber.app.ui.theme.NaberColors
 import kotlinx.coroutines.launch
 
+/**
+ * Giris ekrani.
+ * Sunucu adresi uygulamaya gomulu oldugu icin kullaniciya sorulmaz.
+ */
 @Composable
 fun LoginScreen(onLoggedIn: () -> Unit) {
     val scope = rememberCoroutineScope()
     var registerMode by remember { mutableStateOf(false) }
-    var serverUrl by remember { mutableStateOf(Naber.session.baseUrl) }
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var displayName by remember { mutableStateOf("") }
-    var email by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var info by remember { mutableStateOf<String?>(null) }
 
     fun submit() {
-        val normalized = Session.normalizeBaseUrl(serverUrl)
-        if (normalized.isEmpty()) {
-            error = "Sunucu adresini girin (orn. https://siteniz.com)"
-            return
-        }
         if (username.isBlank() || password.isBlank()) {
             error = "Kullanici adi ve sifre gerekli."
             return
         }
-        Naber.session.baseUrl = normalized
         busy = true
         error = null
         scope.launch {
             try {
                 if (registerMode) {
-                    Naber.api.register(username.trim(), password, displayName.trim().ifBlank { username.trim() }, email.trim())
+                    val user = Naber.api.register(username.trim(), password, displayName.trim().ifBlank { username.trim() })
+                    info = "Naber adresiniz: ${user.naberEmail}"
                 } else {
                     Naber.api.login(username.trim(), password)
                 }
@@ -77,56 +81,56 @@ fun LoginScreen(onLoggedIn: () -> Unit) {
         }
     }
 
-    Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxSize()) {
+    val fieldColors = OutlinedTextFieldDefaults.colors(
+        focusedContainerColor = NaberColors.Surface,
+        unfocusedContainerColor = NaberColors.Surface,
+        focusedBorderColor = NaberColors.Accent,
+        unfocusedBorderColor = NaberColors.Divider,
+        focusedLabelColor = NaberColors.Accent,
+        unfocusedLabelColor = NaberColors.TextSecondary
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(NaberColors.Background)
+            .navigationBarsPadding()
+            .imePadding()
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 28.dp, vertical = 48.dp),
+                .padding(horizontal = 26.dp, vertical = 56.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Box(
-                modifier = Modifier.size(84.dp),
+                modifier = Modifier
+                    .size(78.dp)
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(NaberColors.Accent),
                 contentAlignment = Alignment.Center
             ) {
-                Surface(
-                    color = MaterialTheme.colorScheme.primary,
-                    shape = MaterialTheme.shapes.large,
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text("N", color = MaterialTheme.colorScheme.onPrimary, style = MaterialTheme.typography.titleLarge)
-                    }
-                }
+                Text("N", color = NaberColors.Background, fontSize = 36.sp, fontWeight = FontWeight.Bold)
             }
 
-            Spacer(Modifier.height(20.dp))
-            Text("Naber", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(18.dp))
+            Text("Naber", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = NaberColors.TextPrimary)
             Text(
                 if (registerMode) "Yeni hesap olustur" else "Hesabiniza giris yapin",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = NaberColors.TextSecondary
             )
 
-            Spacer(Modifier.height(28.dp))
-
-            OutlinedTextField(
-                value = serverUrl,
-                onValueChange = { serverUrl = it },
-                label = { Text("WordPress adresi") },
-                placeholder = { Text("https://siteniz.com") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next),
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(30.dp))
 
             OutlinedTextField(
                 value = username,
                 onValueChange = { username = it },
-                label = { Text("Kullanici adi") },
+                label = { Text(if (registerMode) "Kullanici adi" else "Kullanici adi veya Naber adresi") },
                 singleLine = true,
+                shape = RoundedCornerShape(14.dp),
+                colors = fieldColors,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                 modifier = Modifier.fillMaxWidth()
             )
@@ -138,15 +142,8 @@ fun LoginScreen(onLoggedIn: () -> Unit) {
                     onValueChange = { displayName = it },
                     label = { Text("Gorunen ad") },
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
-                    value = email,
-                    onValueChange = { email = it },
-                    label = { Text("E-posta (istege bagli)") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = fieldColors,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -158,46 +155,60 @@ fun LoginScreen(onLoggedIn: () -> Unit) {
                 onValueChange = { password = it },
                 label = { Text("Sifre") },
                 singleLine = true,
+                shape = RoundedCornerShape(14.dp),
+                colors = fieldColors,
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
                 modifier = Modifier.fillMaxWidth()
             )
 
-            error?.let {
-                Spacer(Modifier.height(12.dp))
-                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+            if (registerMode) {
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "Kayit olunca size ozel bir Naber adresi olusturulur (ornek: ${username.trim().ifBlank { "kullaniciadi" }}@naber.com). Arkadaslariniz sizi bu adresle bulabilir.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = NaberColors.TextSecondary
+                )
             }
 
-            Spacer(Modifier.height(22.dp))
+            error?.let {
+                Spacer(Modifier.height(12.dp))
+                Text(it, color = NaberColors.Danger, style = MaterialTheme.typography.bodyMedium)
+            }
+            info?.let {
+                Spacer(Modifier.height(12.dp))
+                Text(it, color = NaberColors.Accent, style = MaterialTheme.typography.bodyMedium)
+            }
+
+            Spacer(Modifier.height(24.dp))
 
             Button(
                 onClick = { submit() },
                 enabled = !busy,
-                modifier = Modifier.fillMaxWidth().height(50.dp)
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = NaberColors.Accent,
+                    contentColor = NaberColors.Background
+                ),
+                modifier = Modifier.fillMaxWidth().height(52.dp)
             ) {
                 if (busy) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(20.dp),
-                        color = MaterialTheme.colorScheme.onPrimary,
+                        color = NaberColors.Background,
                         strokeWidth = 2.dp
                     )
                 } else {
-                    Text(if (registerMode) "Kayit ol" else "Giris yap")
+                    Text(if (registerMode) "Kayit ol" else "Giris yap", fontWeight = FontWeight.SemiBold)
                 }
             }
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(6.dp))
 
-            TextButton(onClick = { registerMode = !registerMode; error = null }) {
-                Text(if (registerMode) "Zaten hesabim var" else "Hesabim yok, kayit olmak istiyorum")
-            }
-
-            Spacer(Modifier.height(16.dp))
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            TextButton(onClick = { registerMode = !registerMode; error = null; info = null }) {
                 Text(
-                    "Sunucu adresi, Naber Chat eklentisinin kurulu oldugu WordPress sitesidir.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    if (registerMode) "Zaten hesabim var" else "Hesabim yok, kayit olmak istiyorum",
+                    color = NaberColors.Accent
                 )
             }
         }

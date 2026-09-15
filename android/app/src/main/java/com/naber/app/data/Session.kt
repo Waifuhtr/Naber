@@ -7,6 +7,9 @@ import org.json.JSONObject
 /**
  * Oturum bilgisi cihazda saklanir; uygulama kapanip acildiginda
  * kullanici tekrar giris yapmak zorunda kalmaz.
+ *
+ * Sunucu adresi uygulamaya gomulu gelir; kullaniciya sorulmaz.
+ * Yalnizca yonetim panelinden degistirilebilir.
  */
 class Session(context: Context) {
 
@@ -14,8 +17,18 @@ class Session(context: Context) {
         context.getSharedPreferences("naber_session", Context.MODE_PRIVATE)
 
     var baseUrl: String
-        get() = prefs.getString(KEY_BASE_URL, "") ?: ""
-        set(value) = prefs.edit().putString(KEY_BASE_URL, normalizeBaseUrl(value)).apply()
+        get() = prefs.getString(KEY_BASE_URL, null)?.takeIf { it.isNotBlank() } ?: DEFAULT_SERVER
+        set(value) {
+            val normalized = normalizeBaseUrl(value)
+            prefs.edit().putString(KEY_BASE_URL, normalized.ifBlank { DEFAULT_SERVER }).apply()
+        }
+
+    val isCustomServer: Boolean
+        get() = baseUrl != DEFAULT_SERVER
+
+    fun resetServer() {
+        prefs.edit().remove(KEY_BASE_URL).apply()
+    }
 
     var token: String
         get() = prefs.getString(KEY_TOKEN, "") ?: ""
@@ -35,6 +48,7 @@ class Session(context: Context) {
                 .put("id", value.id)
                 .put("username", value.username)
                 .put("display_name", value.displayName)
+                .put("naber_email", value.naberEmail)
                 .put("avatar", value.avatar)
                 .put("about", value.about)
                 .put("last_seen", value.lastSeen)
@@ -47,20 +61,28 @@ class Session(context: Context) {
         get() = prefs.getString(KEY_PUSH, "") ?: ""
         set(value) = prefs.edit().putString(KEY_PUSH, value).apply()
 
+    /** Profil fotografi degistiginde hemen gostermek icin yerel kopya. */
+    var localAvatar: String
+        get() = prefs.getString(KEY_LOCAL_AVATAR, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_LOCAL_AVATAR, value).apply()
+
     val isLoggedIn: Boolean
-        get() = token.isNotEmpty() && baseUrl.isNotEmpty()
+        get() = token.isNotEmpty()
 
     fun clear() {
-        prefs.edit().remove(KEY_TOKEN).remove(KEY_USER).apply()
+        prefs.edit().remove(KEY_TOKEN).remove(KEY_USER).remove(KEY_LOCAL_AVATAR).apply()
     }
 
     companion object {
+        /** Uygulamanin bagli oldugu WordPress sunucusu. */
+        const val DEFAULT_SERVER = "https://nhentr.riaslink.fun"
+
         private const val KEY_BASE_URL = "base_url"
         private const val KEY_TOKEN = "token"
         private const val KEY_USER = "user"
         private const val KEY_PUSH = "push_token"
+        private const val KEY_LOCAL_AVATAR = "local_avatar"
 
-        /** "ornek.com" -> "https://ornek.com" ; sondaki / temizlenir. */
         fun normalizeBaseUrl(input: String): String {
             var url = input.trim()
             if (url.isEmpty()) return ""
