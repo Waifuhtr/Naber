@@ -28,12 +28,13 @@ veya "yapildi" olarak isaretlenip commit mesajina referans verilir.
   - Bildirim turu ayri (`type: poke`), tiklaninca sohbete degil profile
     gitmeli.
 
-## Optimizasyon fikirleri (cihaza yuk bindirme / sunucu-tarafi azaltma)
+## Optimizasyonlar — KESIN YAPILACAK
 
+Kullanici onayladi, bunlar artik "fikir" degil onaylanmis is listesi.
 Zaten yapilanlar: hash ile tekrar yukleme onleme, on izleme uretimi,
 gorsel sikistirma, yerel onbellek (MediaStore + LocalStore).
 
-Ek fikirler:
+Yapilacaklar:
 
 1. **TURN kimlik bilgilerini onbellekleme** — Metered'dan her aramada
    yeni ICE sunucu bilgisi cekmek yerine, sure dolana kadar cihazda
@@ -78,8 +79,73 @@ Ek fikirler:
 15. **Sikistirilmis JSON / gzip** — sunucu yanitlarinda gzip acik degilse
     acilmasi (WordPress/Apache seviyesinde) veri kullanimini dusurur.
 
+## Genel ozellik onerileri (durtme disinda)
+
+Kucuk bir arkadas/aile grubu (~10 kisi) icin, karmasiklastirmadan asil
+deger katacak ozellikler. Kullanici sececek, hepsi zorunlu degil.
+
+**Mesajlasmada eksik olan cekirdek ozellikler:**
+
+- **Sesli mesaj (voice note)** — WhatsApp'in en cok kullanilan
+  ozelliklerinden biri; basili tutup kaydet, birak gonder.
+- **Mesaja yanit verme (reply/quote)** — hangi mesaja cevap
+  yazildigini gostermek, kalabalik sohbetlerde onemli.
+- **Mesaj iletme (forward)** — bir mesaji baska bir sohbete gondermek.
+- **Emoji reaksiyon** — mesaja basili tutup 👍❤️😂 gibi hizli tepki
+  birakmak; her seye yazili cevap yazmaktan kurtarir.
+- **Mesaj duzenleme** — gonderilen metni kisa bir sure icinde
+  duzeltebilme ("duzenlendi" etiketiyle).
+- **Belge/dosya gonderme** — su an sadece gorsel var; PDF, zip gibi
+  dosyalar da gonderilebilsin.
+- **Uygulama ici kamera** — galeriye gitmeden dogrudan fotograf
+  cekip gondermek (WhatsApp'taki gibi).
+
+**Sohbet yonetimi:**
+
+- **Sohbeti sabitleme (pin)** — onemli sohbetler listenin basinda
+  kalsin.
+- **Sureli sessize alma** — "8 saat / 1 hafta / surekli" gibi secenekler
+  (su an sadece acik/kapali gibi gorunuyor).
+- **Sohbet ici global arama** — tum sohbetlerde tek seferde arama
+  (belirli bir kisiden veya kelimeden gecen mesajlari bulmak).
+- **Kaybolan mesajlar** — secilirse mesajlar belirli sure sonra
+  otomatik silinir (gizlilik odakli sohbetler icin).
+
+**Grup ozellikleri:**
+
+- **@bahsetme (mention)** — grupta birinin adini yazinca ona ozel
+  bildirim gitmesi.
+- **Grup davet linki** — yeni birini eklemek icin manuel uye eklemek
+  yerine paylasilabilir bir link.
+- **Anket (poll)** — grup icinde hizli oylama.
+
+**Gizlilik / guvenlik:**
+
+- **Uygulama kilidi** — PIN veya parmak izi ile uygulamayi acma
+  (telefonu baskasi alirsa sohbetler gorunmesin).
+- **Kullanici engelleme** — istenmeyen kisiyi engelleme (10 kisilik
+  guvenilir grup icin dusuk oncelikli ama yine de faydali).
+- **Son gorulme / okundu bilgisini gizleme secenegi** — kullanici
+  isterse bu bilgileri paylasmasin.
+
+**Kisisellestirme:**
+
+- **Acik tema secenegi** — su an sadece koyu tema var; kullanici
+  secebilse iyi olur.
+- **Sohbet arka plani / renk teması** — her sohbete farkli bir gorunum.
+- **Konum paylasma** — anlik veya tek seferlik konum gonderme.
+
+**Onerilen oncelik (dustuğu yerden baslanabilir):**
+
+1. Mesaja yanit verme + emoji reaksiyon (en cok fark yaratacaklar, gorece kolay)
+2. Sesli mesaj
+3. Sohbeti sabitleme + sureli sessize alma
+4. Uygulama kilidi
+5. Digerleri kullaniciya gore
+
 ## Kodlamaya gecince siralama
 
 1. Tam ekran gorsel siyah ekran duzeltmesi (kucuk, hizli).
 2. Durtme ozelligi (sunucu + istemci).
-3. Onceliklendirilen optimizasyonlar (kullanicinin sececegi).
+3. Onaylanan optimizasyonlar (yukaridaki KESIN YAPILACAK listesi).
+4. Kullanicinin sectigi genel ozellikler.
