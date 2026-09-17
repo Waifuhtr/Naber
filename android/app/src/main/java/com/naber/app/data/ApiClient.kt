@@ -268,6 +268,19 @@ class ApiClient(private val session: Session) {
         return Triple(Message.listFrom(json.optJSONArray("messages")), Chat.from(json.optJSONObject("chat")), typing)
     }
 
+    /** Konum mesaji; govdesi "enlem,boylam" bicimindedir. */
+    suspend fun sendLocation(conversationId: Int, latitude: Double, longitude: Double, clientId: String): Message =
+        Message.from(
+            call(
+                "/messages", "POST",
+                JSONObject()
+                    .put("conversation_id", conversationId)
+                    .put("type", "location")
+                    .put("body", formatLocation(latitude, longitude))
+                    .put("client_id", clientId)
+            ).optJSONObject("message")
+        ) ?: throw ApiException("Konum gonderilemedi.")
+
     suspend fun sendText(conversationId: Int, body: String, clientId: String, replyTo: Int = 0): Message =
         Message.from(
             call(

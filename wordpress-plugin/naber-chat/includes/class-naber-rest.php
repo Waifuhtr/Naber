@@ -833,7 +833,7 @@ class Naber_REST {
 	public function send_message( WP_REST_Request $request ) {
 		$user_id  = get_current_user_id();
 		$type     = sanitize_key( (string) $request->get_param( 'type' ) );
-		$type     = in_array( $type, array( 'text', 'image' ), true ) ? $type : 'text';
+		$type     = in_array( $type, array( 'text', 'image', 'location' ), true ) ? $type : 'text';
 		$body     = (string) $request->get_param( 'body' );
 		$media_id = (int) $request->get_param( 'media_id' );
 		$client   = sanitize_text_field( (string) $request->get_param( 'client_id' ) );
@@ -891,6 +891,16 @@ class Naber_REST {
 
 		// Gorselin cok kucuk on izlemesi (base64 JPEG). Mesajla birlikte tasindigi
 		// icin alici, asil dosya inmeden once bulanik bir goruntu gorebilir.
+		if ( 'location' === $type ) {
+			// Konum mesajinin govdesi "enlem,boylam" bicimindedir; bozuk
+			// deger gelirse mesaj hic olusturulmaz.
+			$body = self::sanitize_location( $body );
+			if ( '' === $body ) {
+				return new WP_Error( 'naber_location_invalid', 'Konum bilgisi gecersiz.', array( 'status' => 400 ) );
+			}
+			$media_id = 0;
+		}
+
 		$thumb    = 'image' === $type ? self::sanitize_preview( $request->get_param( 'preview' ) ) : '';
 		$reply_to = (int) $request->get_param( 'reply_to' );
 		$message  = Naber_Chat_Repo::insert_message( $conversation_id, $user_id, $receiver_id, $type, $body, $media_id, $client, $thumb, $reply_to );
@@ -899,7 +909,7 @@ class Naber_REST {
 		}
 
 		$sender  = Naber_Auth::user_payload( $user_id );
-		$preview = 'image' === $type ? 'Fotograf' : wp_trim_words( $body, 12, '...' );
+		$preview = 'image' === $type ? 'Fotograf' : ( 'location' === $type ? 'Konum' : wp_trim_words( $body, 12, '...' ) );
 		$title   = $is_group ? (string) $conversation['title'] : $sender['display_name'];
 		$text    = $is_group ? $sender['display_name'] . ': ' . $preview : $preview;
 
@@ -1408,6 +1418,33 @@ class Naber_REST {
 	public static function sanitize_disappear_seconds( $value ) {
 		$seconds = (int) $value;
 		return in_array( $seconds, self::DISAPPEAR_OPTIONS, true ) ? $seconds : 0;
+	}
+
+	/**
+	 * Konum govdesini dogrular: "enlem,boylam" (saf fonksiyon).
+	 *
+	 * Gecersizse bos doner. Ondalik 6 haneye kirpilir; bu yaklasik 10 cm
+	 * hassasiyettir, daha fazlasi hem gereksiz hem de gercekte yok.
+	 */
+	public static function sanitize_location( $value ) {
+		$parts = explode( ',', trim( (string) $value ) );
+		if ( 2 !== count( $parts ) ) {
+			return '';
+		}
+
+		$lat = trim( $parts[0] );
+		$lon = trim( $parts[1] );
+		if ( ! is_numeric( $lat ) || ! is_numeric( $lon ) ) {
+			return '';
+		}
+
+		$lat = (float) $lat;
+		$lon = (float) $lon;
+		if ( $lat < -90 || $lat > 90 || $lon < -180 || $lon > 180 ) {
+			return '';
+		}
+
+		return sprintf( '%.6f,%.6f', $lat, $lon );
 	}
 
 	/** Gecen saniyeye gore mesaj hala duzenlenebilir mi? (saf fonksiyon) */

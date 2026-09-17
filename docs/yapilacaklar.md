@@ -124,7 +124,9 @@ listeden cikarildi, istenmiyor.**
 - [x] **Sohbet arka plani / renk temasi** — tamamlandi (sohbet
   menusunden 6 hazir arka plandan biri secilir; secim sohbete ozel ve
   yalnizca o cihazda saklanir. Koyu/acik tema icin ayri renkler).
-- [ ] **Konum paylasma** — henuz yapilmadi.
+- [x] **Konum paylasma** — tamamlandi (ek menude "Konum gonder";
+  mesaj turu "location", govdesi "enlem,boylam". Balona dokununca
+  telefonun harita uygulamasinda aciliyor).
 
 ## Ek ozellik onerileri (henuz onaylanmadi, degerlendirilecek)
 
@@ -151,20 +153,19 @@ duruyor:
 
 Tamamlanan: hata duzeltmesi (1/1), durtme ozelligi, optimizasyonlar
 (9/15 yapildi, 2 kasitli atlandi/ertelendi, 4 kaldi), genel ozellikler
-(16/19 yapildi: yanitla, duzenle, reaksiyon, iletme, kamera, sabitleme,
+(17/19 yapildi: yanitla, duzenle, reaksiyon, iletme, kamera, sabitleme,
 sureli sessize alma, davet kodu, uygulama kilidi, global arama,
 kaybolan mesajlar, engelleme, bahsetme, gizlilik secenekleri,
-acik tema, sohbet arka plani).
+acik tema, sohbet arka plani, konum paylasma).
 
-Eklenti surumu: 1.15.0. Toplam test: 225, hepsi geciyor.
+Eklenti surumu: 1.16.0. Toplam test: 236, hepsi geciyor.
 
-Kalan buyuk is: sesli mesaj, anket, konum paylasma, lazy medya
-indirme, delta senkronizasyon, WorkManager.
+Kalan buyuk is: sesli mesaj, anket, lazy medya indirme, delta senkronizasyon, WorkManager.
 
 ## Kodlamaya gecince siralama
 
 1. [x] Tam ekran gorsel siyah ekran duzeltmesi.
 2. [x] Durtme ozelligi (sunucu + istemci).
 3. Onaylanan optimizasyonlar — 9/15 yapildi, kalanlar surdurulecek.
-4. Onaylanan genel ozellikler — 16/19 yapildi, kalanlar surdurulecek.
+4. Onaylanan genel ozellikler — 17/19 yapildi, kalanlar surdurulecek.
 5. Ek oneriler arasindan kullanicinin sectikleri (henuz baslanmadi).

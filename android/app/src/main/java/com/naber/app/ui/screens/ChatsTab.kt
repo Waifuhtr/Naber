@@ -523,6 +523,7 @@ private fun ChatRow(chat: Chat, online: Boolean, onClick: () -> Unit) {
                 last == null -> "Sohbeti baslatin"
                 last.deleted -> "Bu mesaj silindi"
                 last.type == "image" -> "Fotograf"
+                last.type == "location" -> "Konum"
                 else -> last.body
             }
             val prefix = when {

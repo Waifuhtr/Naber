@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -50,6 +51,7 @@ import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.DoneAll
@@ -98,6 +100,10 @@ import com.naber.app.data.ChatWallpaper
 import com.naber.app.data.LocalFiles
 import com.naber.app.data.LocalMedia
 import com.naber.app.data.LocalStore
+import com.naber.app.data.Locations
+import com.naber.app.data.formatLocation
+import com.naber.app.data.mapsUri
+import com.naber.app.data.parseLocation
 import com.naber.app.data.MediaStore
 import com.naber.app.data.Message
 import com.naber.app.data.MessageReplySummary
@@ -196,6 +202,10 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
     var muteDialogOpen by remember { mutableStateOf(false) }
     var disappearDialogOpen by remember { mutableStateOf(false) }
     var wallpaperDialogOpen by remember { mutableStateOf(false) }
+    var locationBusy by remember { mutableStateOf(false) }
+    // Izin penceresinden donunce konumu gondermek icin kullanilir; izin
+    // sonucu, gondermeyi yapan fonksiyon tanimlanmadan once gelir.
+    val sendLocationRequest = remember { mutableStateOf(false) }
     var wallpaperId by remember(conversationId) { mutableStateOf(ChatWallpaper.idFor(context, conversationId)) }
     var infoTarget by remember { mutableStateOf<MessageInfo?>(null) }
     val retriedImages = remember { mutableStateListOf<Int>() }
@@ -210,6 +220,10 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
         } else {
             current.peer?.let { Naber.calls.startOutgoing(it) }
         }
+    }
+
+    val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) sendLocationRequest.value = true else error = "Konum izni verilmedi."
     }
 
     fun startCall() {
@@ -418,7 +432,11 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
             else -> chat?.peer?.displayName.orEmpty()
         },
         type = target.type,
-        body = if (target.type == "image") "Fotograf" else target.body,
+        body = when (target.type) {
+            "image" -> "Fotograf"
+            "location" -> "Konum"
+            else -> target.body
+        },
         deleted = target.deleted
     )
 
@@ -446,6 +464,56 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
         lastTypingSent[0] = 0L
         Naber.events.launchInScope { Naber.api.sendTyping(conversationId, false) }
         scope.launch { deliverText(clientId, body) }
+    }
+
+    fun sendLocation() {
+        if (locationBusy) return
+        locationBusy = true
+        scope.launch {
+            try {
+                val point = Locations.current(context)
+                if (point == null) {
+                    error = "Konum alinamadi. Konum servisini acip tekrar deneyin."
+                    return@launch
+                }
+                val clientId = UUID.randomUUID().toString()
+                val body = formatLocation(point.first, point.second)
+                messages = messages + Message(
+                    id = 0,
+                    conversationId = conversationId,
+                    senderId = myId,
+                    type = "location",
+                    body = body,
+                    clientId = clientId,
+                    isRead = false,
+                    deleted = false,
+                    createdAt = System.currentTimeMillis() / 1000,
+                    media = null,
+                    sendState = SendState.SENDING
+                )
+                runCatching { Naber.api.sendLocation(conversationId, point.first, point.second, clientId) }
+                    .onSuccess { sent ->
+                        messages = messages.map { if (it.clientId == clientId) sent else it }
+                    }
+                    .onFailure { failure ->
+                        error = failure.message
+                        messages = messages.map {
+                            if (it.clientId == clientId) it.copy(sendState = SendState.FAILED) else it
+                        }
+                    }
+            } finally {
+                locationBusy = false
+            }
+        }
+    }
+
+    // Izin penceresi kapandiktan sonra gonderme burada tetiklenir;
+    // launcher'in geri cagrisi sendLocation tanimlanmadan once kurulur.
+    LaunchedEffect(sendLocationRequest.value) {
+        if (sendLocationRequest.value) {
+            sendLocationRequest.value = false
+            sendLocation()
+        }
     }
 
     fun sendImage(uri: Uri) {
@@ -942,6 +1010,18 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
                             onClick = {
                                 attachMenuOpen = false
                                 imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Konum gonder") },
+                            leadingIcon = { Icon(Icons.Filled.LocationOn, null) },
+                            onClick = {
+                                attachMenuOpen = false
+                                val granted = ContextCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.ACCESS_FINE_LOCATION
+                                ) == PackageManager.PERMISSION_GRANTED
+                                if (granted) sendLocation() else locationPermission.launch(Manifest.permission.ACCESS_FINE_LOCATION)
                             }
                         )
                         DropdownMenuItem(
@@ -1491,6 +1571,7 @@ private fun MessageRow(
                         when {
                             reply.deleted -> "Bu mesaj silindi"
                             reply.type == "image" -> "Fotograf"
+                            reply.type == "location" -> "Konum"
                             else -> reply.body
                         },
                         fontSize = 12.5.sp,
@@ -1562,7 +1643,50 @@ private fun MessageRow(
                     }
                 }
 
-                if (message.body.isNotBlank()) {
+                val point = if (message.type == "location") parseLocation(message.body) else null
+                if (point != null) {
+                    val context = LocalContext.current
+                    Row(
+                        modifier = Modifier
+                            .width(220.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (mine) Color.White.copy(alpha = 0.12f) else NaberColors.SurfaceHigh)
+                            .clickable {
+                                // Harita uygulamasi yoksa acilmaz; uygulama
+                                // cokmemesi icin hata yutulur.
+                                runCatching {
+                                    context.startActivity(
+                                        Intent(Intent.ACTION_VIEW, mapsUri(point.first, point.second))
+                                    )
+                                }
+                            }
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Filled.LocationOn,
+                            contentDescription = null,
+                            tint = if (mine) Color.White else NaberColors.Accent,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                "Konum",
+                                fontSize = 14.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (mine) Color.White else NaberColors.TextPrimary
+                            )
+                            Text(
+                                "Haritada ac",
+                                fontSize = 12.sp,
+                                color = if (mine) Color.White.copy(alpha = 0.8f) else NaberColors.TextSecondary
+                            )
+                        }
+                    }
+                }
+
+                if (message.body.isNotBlank() && message.type != "location") {
                     Text(
                         mentionText(
                             message.body,
