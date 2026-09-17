@@ -10,6 +10,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -27,6 +29,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -86,17 +89,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -142,6 +150,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
+import kotlin.math.roundToInt
 
 /** Basili tutunca gosterilen hizli reaksiyon secenekleri. */
 private val QUICK_REACTIONS = listOf("👍", "❤️", "😂", "😮", "😢", "🙏")
@@ -1063,6 +1072,9 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
                             tick = tickFor(message, chat?.deliveredWatermark ?: 0, chat?.readWatermark ?: 0),
                             onImageClick = { fullScreen = it },
                             onLongPress = { actionTarget = message },
+                            onReply = {
+                                if (!message.deleted) replyTarget = message
+                            },
                             onImageError = {
                                 // Imzali adres eskimis olabilir; tazeleyip bir kez daha dene.
                                 val mediaId = message.media?.id ?: 0
@@ -1773,14 +1785,67 @@ private fun MessageRow(
     tick: TickState,
     onImageClick: (Any) -> Unit,
     onLongPress: () -> Unit,
+    /** Mesaj saga kaydirildiginda yanit moduna gecer. */
+    onReply: () -> Unit,
     onImageError: () -> Unit,
     onReact: (Message, String) -> Unit
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
-        verticalAlignment = Alignment.Bottom
-    ) {
+    // Saga kaydirarak yanitlama: uzun basip menuden "Yanitla" secmekten
+    // daha pratik. Esik gecilince titresim verilir, birakilinca balon
+    // yerine doner.
+    val haptics = LocalHapticFeedback.current
+    val density = LocalDensity.current
+    val swipe = remember(message.key) { Animatable(0f) }
+    val threshold = with(density) { 52.dp.toPx() }
+    val maxDrag = with(density) { 78.dp.toPx() }
+    var passedThreshold by remember(message.key) { mutableStateOf(false) }
+    val canReply = !message.deleted
+
+    Box(modifier = Modifier.fillMaxWidth()) {
+        // Kaydirma sirasinda balonun arkasinda gorunen yanit isareti.
+        if (swipe.value > 1f) {
+            Icon(
+                Icons.AutoMirrored.Filled.Reply,
+                contentDescription = null,
+                tint = if (passedThreshold) NaberColors.Accent else NaberColors.TextSecondary,
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .padding(start = 10.dp)
+                    .size(20.dp)
+                    .alpha((swipe.value / threshold).coerceIn(0f, 1f))
+            )
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .offset { IntOffset(swipe.value.roundToInt(), 0) }
+                .pointerInput(message.key, canReply) {
+                    if (!canReply) return@pointerInput
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
+                            val reached = swipe.value >= threshold
+                            passedThreshold = false
+                            launch { swipe.animateTo(0f) }
+                            if (reached) onReply()
+                        },
+                        onDragCancel = {
+                            passedThreshold = false
+                            launch { swipe.animateTo(0f) }
+                        }
+                    ) { _, dragAmount ->
+                        // Yalnizca saga: sola kaydirma listeyi kaydirmaya karismasin.
+                        val next = (swipe.value + dragAmount).coerceIn(0f, maxDrag)
+                        if (!passedThreshold && next >= threshold) {
+                            passedThreshold = true
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        }
+                        launch { swipe.snapTo(next) }
+                    }
+                },
+            horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
+            verticalAlignment = Alignment.Bottom
+        ) {
         if (!mine && isGroup) {
             SenderAvatar(
                 name = message.senderName,
@@ -2075,6 +2140,7 @@ private fun MessageRow(
                 }
             }
         }
+    }
     }
 }
 
