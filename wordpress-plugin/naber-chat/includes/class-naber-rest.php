@@ -82,6 +82,11 @@ class Naber_REST {
 		$this->route( $ns, '/messages/(?P<id>\d+)/pin', 'POST', 'pin_message', $user );
 		$this->route( $ns, '/polls/(?P<id>\d+)/vote', 'POST', 'vote_poll', $user );
 
+		// --- Cikartmalar ve ozel emojiler ---
+		$this->route( $ns, '/stickers', 'GET', 'list_stickers', $user );
+		$this->route( $ns, '/stickers', 'POST', 'add_sticker', $user );
+		$this->route( $ns, '/stickers/(?P<id>\d+)', 'DELETE', 'delete_sticker', $user );
+
 		// --- Medya ---
 		$this->route( $ns, '/media/find', 'POST', 'media_find', $user );
 		$this->route( $ns, '/media/upload-url', 'POST', 'media_upload_url', $user );
@@ -1050,7 +1055,7 @@ class Naber_REST {
 	public function send_message( WP_REST_Request $request ) {
 		$user_id  = get_current_user_id();
 		$type     = sanitize_key( (string) $request->get_param( 'type' ) );
-		$type     = in_array( $type, array( 'text', 'image', 'location', 'poll', 'audio' ), true ) ? $type : 'text';
+		$type     = in_array( $type, array( 'text', 'image', 'location', 'poll', 'audio', 'sticker' ), true ) ? $type : 'text';
 		$body     = (string) $request->get_param( 'body' );
 		$media_id = (int) $request->get_param( 'media_id' );
 		$client   = sanitize_text_field( (string) $request->get_param( 'client_id' ) );
@@ -1176,7 +1181,11 @@ class Naber_REST {
 		Naber_Chat_Repo::set_typing( $conversation_id, $user_id, false );
 
 		$sender  = Naber_Auth::user_payload( $user_id );
-		$preview = 'image' === $type ? 'Fotograf' : ( 'location' === $type ? 'Konum' : ( 'audio' === $type ? 'Sesli mesaj' : wp_trim_words( $body, 12, '...' ) ) );
+		$preview = 'image' === $type ? 'Fotograf'
+			: ( 'location' === $type ? 'Konum'
+			: ( 'audio' === $type ? 'Sesli mesaj'
+			: ( 'sticker' === $type ? 'Cikartma'
+			: wp_trim_words( $body, 12, '...' ) ) ) );
 		if ( 'poll' === $type ) {
 			$preview = 'Anket: ' . $preview;
 		}
@@ -2200,6 +2209,38 @@ class Naber_REST {
 			return new WP_Error( 'naber_chat_not_found', 'Grup bulunamadi.', array( 'status' => 404 ) );
 		}
 		return $this->can_moderate( $conversation, $target_id );
+	}
+
+	/** Butun cikartmalar ve ozel emojiler; istemci bunu onbellekler. */
+	public function list_stickers() {
+		return rest_ensure_response( array( 'stickers' => Naber_Stickers::all() ) );
+	}
+
+	/**
+	 * Cikartma ya da ozel emoji ekler. Gorsel once normal medya
+	 * yukleme yolundan gecer, burada yalnizca kaydi olusturulur.
+	 */
+	public function add_sticker( WP_REST_Request $request ) {
+		$result = Naber_Stickers::add(
+			sanitize_key( (string) $request->get_param( 'kind' ) ),
+			(string) $request->get_param( 'pack' ),
+			(string) $request->get_param( 'name' ),
+			(int) $request->get_param( 'media_id' ),
+			rest_sanitize_boolean( $request->get_param( 'animated' ) ),
+			get_current_user_id()
+		);
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+		return rest_ensure_response( array( 'sticker' => $result ) );
+	}
+
+	public function delete_sticker( WP_REST_Request $request ) {
+		$result = Naber_Stickers::remove( (int) $request['id'], get_current_user_id() );
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+		return rest_ensure_response( array( 'ok' => true ) );
 	}
 
 	public function call_history() {

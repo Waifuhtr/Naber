@@ -149,6 +149,7 @@ class ApiClient(private val session: Session) {
         session.clear()
         LocalMedia.clear()
         MemoryCache.clear()
+        StickerStore.clear()
     }
 
     suspend fun me(): User {
@@ -364,6 +365,48 @@ class ApiClient(private val session: Session) {
             ?: throw ApiException("Rol degistirilemedi.")
     }
 
+    // ------------------------------------------------- cikartma / ozel emoji
+
+    /** Butun cikartma ve ozel emojiler; liste kucuk oldugu icin tek seferde gelir. */
+    suspend fun stickers(): List<Sticker> {
+        val array = call("/stickers", "GET").optJSONArray("stickers")
+        val out = ArrayList<Sticker>()
+        for (i in 0 until (array?.length() ?: 0)) {
+            Sticker.from(array?.optJSONObject(i))?.let { out.add(it) }
+        }
+        return out
+    }
+
+    /** Onbellek bayatsa tazeler; degilse ag istegi yapmaz. */
+    suspend fun refreshStickers(force: Boolean = false) {
+        if (!force && !StickerStore.isStale()) return
+        runCatching { stickers() }.onSuccess { StickerStore.put(it) }
+    }
+
+    suspend fun addSticker(
+        kind: String,
+        pack: String,
+        name: String,
+        mediaId: Int,
+        animated: Boolean
+    ): Sticker {
+        val json = call(
+            "/stickers", "POST",
+            JSONObject()
+                .put("kind", kind)
+                .put("pack", pack)
+                .put("name", name)
+                .put("media_id", mediaId)
+                .put("animated", animated)
+        )
+        return Sticker.from(json.optJSONObject("sticker"))
+            ?: throw ApiException("Cikartma eklenemedi.")
+    }
+
+    suspend fun deleteSticker(id: Int) {
+        call("/stickers/$id", "DELETE")
+    }
+
     /** Mesaji sohbetin en ustune sabitler ya da sabitlemeyi kaldirir. */
     suspend fun pinMessage(messageId: Int, pinned: Boolean): Chat? =
         Chat.from(
@@ -504,6 +547,26 @@ class ApiClient(private val session: Session) {
                 urgent = true
             ).optJSONObject("message")
         ) ?: throw ApiException("Gorsel gonderilemedi.")
+
+    /** Cikartma gonderir; balon cizilmez, gorsel dogrudan gorunur. */
+    suspend fun sendSticker(
+        conversationId: Int,
+        mediaId: Int,
+        clientId: String,
+        replyTo: Int = 0
+    ): Message =
+        Message.from(
+            call(
+                "/messages", "POST",
+                JSONObject()
+                    .put("conversation_id", conversationId)
+                    .put("type", "sticker")
+                    .put("media_id", mediaId)
+                    .put("client_id", clientId)
+                    .put("reply_to", replyTo),
+                urgent = true
+            ).optJSONObject("message")
+        ) ?: throw ApiException("Cikartma gonderilemedi.")
 
     /** scope = "all" (herkesten sil) veya "me" (yalnizca bende gizle). */
     suspend fun deleteMessage(messageId: Int, scope: String = "all") {

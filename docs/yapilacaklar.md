@@ -231,9 +231,9 @@ duruyor:
 - **Kisiye ozel takma ad (nickname)**
 - **Gorunmez mod** (simetrik gizlilik)
 - **"Yaziyor" gostergesini kapatma secenegi**
-- **WhatsApp tarzi cikartma (sticker) paketi** (GIF/sticker destegi
+- [x] **WhatsApp tarzi cikartma (sticker) paketi** (GIF/sticker destegi
   fikri somutlastirildi)
-- **Discord tarzi ozel emoji** (statik + hareketli/animasyonlu; mesaj
+- [x] **Discord tarzi ozel emoji** (statik + hareketli/animasyonlu; mesaj
   ve reaksiyonlarda kullanilabilir)
 - **Medya galerisi gorunumu**
 - **Canli konum paylasimi**

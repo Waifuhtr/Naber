@@ -58,6 +58,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.EmojiEmotions
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LocationOn
@@ -105,10 +106,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -135,6 +133,8 @@ import com.naber.app.data.Message
 import com.naber.app.data.MessageReplySummary
 import com.naber.app.data.Poll
 import com.naber.app.data.SendState
+import com.naber.app.data.Sticker
+import com.naber.app.data.StickerStore
 import com.naber.app.data.MessageInfo
 import com.naber.app.data.TickState
 import com.naber.app.data.TypingUser
@@ -142,6 +142,10 @@ import com.naber.app.data.VoicePlayer
 import com.naber.app.data.VoiceRecorder
 import com.naber.app.data.User
 import com.naber.app.ui.SenderAvatar
+import com.naber.app.ui.MessageBodyText
+import com.naber.app.ui.StickerImage
+import com.naber.app.ui.StickerPickerDialog
+import com.naber.app.ui.AddStickerDialog
 import com.naber.app.ui.ThinDivider
 import com.naber.app.ui.ChatAvatar
 import com.naber.app.ui.EmptyState
@@ -175,30 +179,6 @@ private const val POLL_MAX_OPTIONS = 6
 
 /** Grubun tamamini kapsayan bahsetme sozcukleri; sunucu ile ayni olmali. */
 private val MENTION_ALL_TOKENS = listOf("herkes", "hepsi", "everyone")
-
-/**
- * "@isim" gecen yerleri vurgular.
- *
- * Isimler sohbetin uye listesinden gelir; boylece metindeki bir e-posta
- * adresi yanlislikla bahsetme gibi gorunmez.
- */
-private fun mentionText(body: String, names: List<String>, highlight: Color): AnnotatedString {
-    if (names.isEmpty() || !body.contains('@')) return AnnotatedString(body)
-    return buildAnnotatedString {
-        append(body)
-        val style = SpanStyle(color = highlight, fontWeight = FontWeight.SemiBold)
-        // Uzun isimler once: "@Ali Veli" yazilmisken yalnizca "Ali" kismi
-        // vurgulanip geri kalani duz kalmasin.
-        names.sortedByDescending { it.length }.forEach { name ->
-            val token = "@" + name
-            var index = body.indexOf(token, ignoreCase = true)
-            while (index >= 0) {
-                addStyle(style, index, index + token.length)
-                index = body.indexOf(token, index + token.length, ignoreCase = true)
-            }
-        }
-    }
-}
 
 /** Saniyeyi "1:05" bicimine cevirir. */
 private fun formatDuration(seconds: Int): String {
@@ -244,6 +224,8 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
     var menuOpen by remember { mutableStateOf(false) }
     var actionTarget by remember { mutableStateOf<Message?>(null) }
     var emojiTarget by remember { mutableStateOf<Message?>(null) }
+    var stickerPickerOpen by remember { mutableStateOf(false) }
+    var addStickerOpen by remember { mutableStateOf(false) }
     var replyTarget by remember { mutableStateOf<Message?>(null) }
     var editTarget by remember { mutableStateOf<Message?>(null) }
     var forwardTarget by remember { mutableStateOf<Message?>(null) }
@@ -319,6 +301,12 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
         } finally {
             loading = false
         }
+    }
+
+    // Cikartma ve ozel emoji katalogu: liste kucuk, bir kez cekilip
+    // surec boyunca bellekte tutulur; bayatlayinca tazelenir.
+    LaunchedEffect(Unit) {
+        runCatching { Naber.api.refreshStickers() }
     }
 
     LaunchedEffect(conversationId) {
@@ -739,6 +727,24 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
         )
         replyTarget = null
         scope.launch { deliverImage(clientId, uri) }
+    }
+
+    /** Cikartma gonderir; gorsel zaten sunucuda, yeniden yuklenmez. */
+    fun sendSticker(sticker: Sticker) {
+        val clientId = UUID.randomUUID().toString()
+        val reply = replyTarget?.let { buildReplySummary(it) }
+        replyTarget = null
+        scope.launch {
+            runCatching {
+                Naber.api.sendSticker(conversationId, sticker.mediaId, clientId, reply?.id ?: 0)
+            }
+                .onSuccess { sent ->
+                    messages = (messages.filterNot { it.clientId == clientId } + sent)
+                        .distinctBy { it.key }
+                        .sortedBy { it.createdAt }
+                }
+                .onFailure { error = it.message }
+        }
     }
 
     /**
@@ -1378,6 +1384,14 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
                             }
                         )
                         DropdownMenuItem(
+                            text = { Text("Cikartma") },
+                            leadingIcon = { Icon(Icons.Filled.EmojiEmotions, null) },
+                            onClick = {
+                                attachMenuOpen = false
+                                stickerPickerOpen = true
+                            }
+                        )
+                        DropdownMenuItem(
                             text = { Text("Anket olustur") },
                             leadingIcon = { Icon(Icons.Filled.Poll, null) },
                             onClick = {
@@ -1676,6 +1690,35 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
         }
     }
 
+    if (stickerPickerOpen) {
+        StickerPickerDialog(
+            onDismiss = { stickerPickerOpen = false },
+            onPickSticker = { sticker ->
+                stickerPickerOpen = false
+                sendSticker(sticker)
+            },
+            onPickEmoji = { sticker ->
+                // Ozel emoji metne eklenir; gonderilince gorsele donusur.
+                stickerPickerOpen = false
+                draft = (draft.trimEnd() + " " + sticker.token).trimStart()
+            },
+            onAdd = {
+                stickerPickerOpen = false
+                addStickerOpen = true
+            }
+        )
+    }
+
+    if (addStickerOpen) {
+        AddStickerDialog(
+            onDismiss = { addStickerOpen = false },
+            onSaved = {
+                addStickerOpen = false
+                stickerPickerOpen = true
+            }
+        )
+    }
+
     emojiTarget?.let { message ->
         EmojiPickerDialog(
             onDismiss = { emojiTarget = null },
@@ -1907,6 +1950,9 @@ private fun EmojiPickerDialog(onDismiss: () -> Unit, onPicked: (String) -> Unit)
         if (recent.isEmpty()) EmojiCatalog.CATEGORIES
         else listOf(EmojiCatalog.Category("Sik kullanilan", "🕘", recent)) + EmojiCatalog.CATEGORIES
     }
+    // Sunucudaki ozel emojiler ayri bir seritte gosterilir; tiklaninca
+    // ":ad:" olarak reaksiyon birakilir.
+    val customEmojis = StickerStore.emojis()
     val searching = query.isNotBlank()
     val shown = if (searching) EmojiCatalog.search(query)
     else tabs[tabIndex.coerceIn(0, tabs.size - 1)].emojis
@@ -1936,6 +1982,34 @@ private fun EmojiPickerDialog(onDismiss: () -> Unit, onPicked: (String) -> Unit)
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
             )
+            if (!searching && customEmojis.isNotEmpty()) {
+                Text(
+                    "Ozel emojiler",
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = NaberColors.TextSecondary,
+                    modifier = Modifier.padding(start = 20.dp, top = 10.dp)
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    customEmojis.forEach { custom ->
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { onPicked(custom.token) }
+                                .padding(3.dp)
+                        ) {
+                            StickerImage(custom, size = 28.dp)
+                        }
+                    }
+                }
+            }
             if (!searching) {
                 Row(
                     modifier = Modifier
@@ -2219,9 +2293,22 @@ private fun MessageRow(
                         bottomEnd = if (mine) 4.dp else 16.dp
                     )
                 )
-                .background(if (mine) NaberColors.Bubble else NaberColors.BubbleIn)
+                // Cikartmalarda balon cizilmez; gorsel serbest durur.
+                .background(
+                    when {
+                        message.type == "sticker" && !message.deleted -> Color.Transparent
+                        mine -> NaberColors.Bubble
+                        else -> NaberColors.BubbleIn
+                    }
+                )
                 .combinedClickable(onClick = {}, onLongClick = onLongPress)
-                .padding(if (message.type == "image" && !message.deleted) 4.dp else 10.dp)
+                .padding(
+                    when {
+                        message.type == "sticker" && !message.deleted -> 2.dp
+                        message.type == "image" && !message.deleted -> 4.dp
+                        else -> 10.dp
+                    }
+                )
         ) {
             if (isGroup && !mine && message.senderName.isNotBlank()) {
                 Text(
@@ -2274,7 +2361,24 @@ private fun MessageRow(
                     color = if (mine) Color.White.copy(alpha = 0.7f) else NaberColors.TextSecondary
                 )
             } else {
-                if (message.type == "image") {
+                if (message.type == "sticker") {
+                    // Cikartma balonsuz ve buyuk cizilir (WhatsApp'taki gibi).
+                    val sticker = message.media?.let {
+                        Sticker(
+                            id = 0,
+                            kind = "sticker",
+                            pack = "",
+                            name = "",
+                            mediaId = it.id,
+                            url = it.url,
+                            animated = it.mime.contains("gif") || it.mime.contains("webp"),
+                            uploaderId = 0
+                        )
+                    }
+                    if (sticker != null) {
+                        StickerImage(sticker = sticker, size = 132.dp)
+                    }
+                } else if (message.type == "image") {
                     // Olculer bilindiginde balon en bastan dogru boyutta cizilir,
                     // gorsel inerken bos dev bir kutu olusmaz.
                     val ratio = message.media?.let {
@@ -2388,13 +2492,12 @@ private fun MessageRow(
                 if (message.body.isNotBlank() && message.type != "location" && message.type != "poll" &&
                     message.type != "audio"
                 ) {
-                    Text(
-                        mentionText(
-                            message.body,
-                            mentionNames,
-                            if (mine) Color.White else NaberColors.Accent
-                        ),
-                        fontSize = 15.sp,
+                    // "@isim" vurgusu ve ":ad:" bicimindeki ozel emojiler
+                    // satir icinde gorsele donusur.
+                    MessageBodyText(
+                        body = message.body,
+                        mentionNames = mentionNames,
+                        highlight = if (mine) Color.White else NaberColors.Accent,
                         color = if (mine) Color.White else NaberColors.TextPrimary,
                         modifier = Modifier.padding(horizontal = 2.dp, vertical = if (message.type == "image") 4.dp else 0.dp)
                     )
@@ -2418,7 +2521,16 @@ private fun MessageRow(
                                 .padding(horizontal = 6.dp, vertical = 2.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(reaction.emoji, fontSize = 12.sp)
+                            // Reaksiyon bir ozel emoji (":ad:") olabilir;
+                            // o zaman metin yerine gorsel cizilir.
+                            val custom = StickerStore.emoji(
+                                reaction.emoji.trim(':').lowercase()
+                            )
+                            if (custom != null) {
+                                StickerImage(custom, size = 16.dp)
+                            } else {
+                                Text(reaction.emoji, fontSize = 12.sp)
+                            }
                             if (reaction.count > 1) {
                                 Spacer(Modifier.width(2.dp))
                                 Text(

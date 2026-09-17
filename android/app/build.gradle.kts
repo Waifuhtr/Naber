@@ -74,6 +74,8 @@ dependencies {
 	implementation(libs.androidx.navigation.compose)
 	implementation(libs.okhttp)
 	implementation(libs.coil.compose)
+	// Hareketli cikartma ve ozel emojiler (GIF / animasyonlu WebP).
+	implementation(libs.coil.gif)
 	implementation(libs.androidx.work.runtime)
 	implementation(libs.stream.webrtc)
 	implementation(platform(libs.firebase.bom))

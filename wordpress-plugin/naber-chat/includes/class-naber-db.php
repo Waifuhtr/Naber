@@ -9,7 +9,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class Naber_DB {
 
-	const DB_VERSION = '1.18.0';
+	const DB_VERSION = '1.19.0';
 
 	public static function table( $name ) {
 		global $wpdb;
@@ -35,6 +35,7 @@ class Naber_DB {
 		$polls         = self::table( 'polls' );
 		$poll_votes    = self::table( 'poll_votes' );
 		$join_requests = self::table( 'join_requests' );
+		$stickers      = self::table( 'stickers' );
 
 		$sql = array();
 
@@ -93,6 +94,22 @@ class Naber_DB {
 			PRIMARY KEY  (id),
 			UNIQUE KEY request (conversation_id,user_id),
 			KEY user_id (user_id)
+		) {$charset};";
+
+		// Cikartma paketleri ve ozel emojiler (statik + hareketli).
+		$sql[] = "CREATE TABLE {$stickers} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			kind varchar(10) NOT NULL DEFAULT 'sticker',
+			pack varchar(60) NOT NULL DEFAULT '',
+			name varchar(60) NOT NULL DEFAULT '',
+			media_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			animated tinyint(1) NOT NULL DEFAULT 0,
+			uploader_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			created_at datetime NOT NULL DEFAULT '0000-00-00 00:00:00',
+			PRIMARY KEY  (id),
+			UNIQUE KEY kind_name (kind,name),
+			KEY pack (kind,pack),
+			KEY uploader_id (uploader_id)
 		) {$charset};";
 
 		$sql[] = "CREATE TABLE {$messages} (
@@ -361,6 +378,7 @@ class Naber_DB {
 		$wpdb->delete( self::table( 'poll_votes' ), array( 'user_id' => $user_id ), array( '%d' ) );
 		$wpdb->delete( self::table( 'members' ), array( 'user_id' => $user_id ), array( '%d' ) );
 		$wpdb->delete( self::table( 'join_requests' ), array( 'user_id' => $user_id ), array( '%d' ) );
+		$wpdb->delete( self::table( 'stickers' ), array( 'uploader_id' => $user_id ), array( '%d' ) );
 		$wpdb->delete( self::table( 'call_participants' ), array( 'user_id' => $user_id ), array( '%d' ) );
 		$wpdb->query( $wpdb->prepare( 'DELETE FROM ' . self::table( 'signals' ) . ' WHERE sender_id = %d OR receiver_id = %d', $user_id, $user_id ) );
 		$wpdb->query( $wpdb->prepare( 'DELETE FROM ' . self::table( 'calls' ) . ' WHERE caller_id = %d OR callee_id = %d', $user_id, $user_id ) );
