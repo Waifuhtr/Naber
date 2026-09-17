@@ -212,10 +212,10 @@ Kullanicinin 17 Eylul istegi (Discord benzeri):
    - Not: Android'de bu SYSTEM_ALERT_WINDOW (diger uygulamalarin
      uzerinde gosterme) izni gerektirir; izin istenecek ve verilmezse
      ozellik kapali kalacak.
-2. [ ] **Grup aramasina katilma dugmesi.** Grup aramasi surerken grup
+2. [x] **Grup aramasina katilma dugmesi.** Grup aramasi surerken grup
    sohbetinde baslik yaninda "Katil" dugmesi gorunsun; arama bitene
    kadar dursun.
-3. [ ] **Aramadaki kisilerin seridi.** Basligin altinda kucuk bir
+3. [x] **Aramadaki kisilerin seridi.** Basligin altinda kucuk bir
    seritte aramada olanlarin minik profil fotograflari gorunsun (isim
    yok, yalnizca fotograflar).
 

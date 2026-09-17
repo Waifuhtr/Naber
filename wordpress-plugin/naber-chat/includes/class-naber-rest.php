@@ -1468,6 +1468,9 @@ class Naber_REST {
 		$client_typing   = $request->get_param( 'typing_signature' );
 		$client_presence = $request->get_param( 'presence_signature' );
 		$client_revision = $request->get_param( 'revision_signature' );
+		// Acik sohbetteki grup aramasinin durumu; degisirse "Katil"
+		// dugmesi beklemeden gorunsun/kaybolsun.
+		$client_call = $request->get_param( 'conversation_call_signature' );
 
 		$iteration = 0;
 
@@ -1483,6 +1486,9 @@ class Naber_REST {
 				}
 				if ( ! $changed && null !== $client_typing ) {
 					$changed = Naber_Chat_Repo::typing_signature( $conv_id, $user_id ) !== (string) $client_typing;
+				}
+				if ( ! $changed && null !== $client_call && $conv_id > 0 ) {
+					$changed = self::conversation_call_signature( $conv_id ) !== (string) $client_call;
 				}
 			}
 
@@ -1612,6 +1618,23 @@ class Naber_REST {
 		return md5( implode( ',', $parts ) );
 	}
 
+	/**
+	 * Sohbetteki grup aramasinin kimlik + durum imzasi.
+	 * Arama baslar, biter ya da katilimcilar degisirse imza degisir.
+	 */
+	public static function conversation_call_signature( $conv_id ) {
+		if ( $conv_id <= 0 ) {
+			return '';
+		}
+		$row = Naber_Calls::active_group_call( (int) $conv_id );
+		if ( ! $row ) {
+			return '0';
+		}
+		$joined = Naber_Calls::joined_user_ids( (int) $row['id'] );
+		sort( $joined );
+		return (int) $row['id'] . ':' . (string) $row['status'] . ':' . implode( ',', $joined );
+	}
+
 	private function build_events_payload( $user_id, $since_msg, $since_sig, $conv_id ) {
 		Naber_Auth::touch_presence( $user_id );
 
@@ -1636,16 +1659,28 @@ class Naber_REST {
 			);
 		}
 
+		// Acik sohbette suren grup aramasi: sohbet basliginda "Katil"
+		// dugmesi ve katilimci seridi bunu kullanir.
+		$conversation_call = null;
+		if ( $conv_id > 0 && Naber_Chat_Repo::member( $conv_id, $user_id ) ) {
+			$row = Naber_Calls::active_group_call( $conv_id );
+			if ( $row ) {
+				$conversation_call = Naber_Calls::payload( $row, true );
+			}
+		}
+
 		return array(
 			'messages'               => $messages,
 			'signals'                => $signals,
 			'incoming_call'          => $incoming,
+			'conversation_call'      => $conversation_call,
 			'read_states'            => Naber_Chat_Repo::read_states( $user_id ),
 			'typing'                 => $typing,
 			'typing_conversation_id' => $conv_id,
 			'presence'               => $presence,
 			'chat_revisions'         => Naber_Chat_Repo::revisions( $user_id ),
 			'typing_signature'       => Naber_Chat_Repo::typing_signature( $conv_id, $user_id ),
+			'conversation_call_signature' => self::conversation_call_signature( $conv_id ),
 			'presence_signature'     => self::presence_signature( $user_id ),
 			'revision_signature'     => self::revision_signature( $user_id ),
 			'unread_total'           => Naber_Chat_Repo::unread_total( $user_id ),

@@ -594,6 +594,7 @@ class ApiClient(private val session: Session) {
         sinceSignalId: Int,
         conversationId: Int?,
         typingSignature: String,
+        conversationCallSignature: String,
         presenceSignature: String,
         revisionSignature: String,
         wait: Int = 25
@@ -605,6 +606,7 @@ class ApiClient(private val session: Session) {
                 "since_signal_id" to sinceSignalId,
                 "conversation_id" to conversationId,
                 "typing_signature" to typingSignature,
+                "conversation_call_signature" to conversationCallSignature,
                 "presence_signature" to presenceSignature,
                 "revision_signature" to revisionSignature,
                 "wait" to wait
@@ -617,6 +619,7 @@ class ApiClient(private val session: Session) {
                 Signal(it.optInt("id"), it.optInt("call_id"), it.optInt("sender_id"), it.optString("type"), it.optString("payload"))
             },
             incomingCall = CallInfo.from(json.optJSONObject("incoming_call")),
+            conversationCall = CallInfo.from(json.optJSONObject("conversation_call")),
             readStates = json.optJSONArray("read_states").mapObjects {
                 ReadState(it.optInt("conversation_id"), it.optInt("watermark"), it.optInt("delivered"))
             },
@@ -629,6 +632,7 @@ class ApiClient(private val session: Session) {
                 ChatRevision(it.optInt("id"), it.optLong("updated_at"))
             },
             typingSignature = json.optString("typing_signature"),
+            conversationCallSignature = json.optString("conversation_call_signature"),
             presenceSignature = json.optString("presence_signature"),
             revisionSignature = json.optString("revision_signature"),
             unreadTotal = json.optInt("unread_total"),

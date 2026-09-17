@@ -55,6 +55,10 @@ class EventHub(
     private val _incomingCall = MutableStateFlow<CallInfo?>(null)
     val incomingCall: StateFlow<CallInfo?> = _incomingCall.asStateFlow()
 
+    /** Acik sohbette suren grup aramasi; "Katil" dugmesi bunu dinler. */
+    private val _conversationCall = MutableStateFlow<CallInfo?>(null)
+    val conversationCall: StateFlow<CallInfo?> = _conversationCall.asStateFlow()
+
     private val _unreadTotal = MutableStateFlow(0)
     val unreadTotal: StateFlow<Int> = _unreadTotal.asStateFlow()
 
@@ -68,6 +72,7 @@ class EventHub(
     private var sinceMessageId = 0
     private var sinceSignalId = 0
     private var typingSignature = ""
+    private var conversationCallSignature = ""
     private var presenceSignature = ""
     private var revisionSignature = ""
 
@@ -88,6 +93,7 @@ class EventHub(
                         sinceSignalId = sinceSignalId,
                         conversationId = conversationId,
                         typingSignature = typingSignature,
+                        conversationCallSignature = conversationCallSignature,
                         presenceSignature = presenceSignature,
                         revisionSignature = revisionSignature,
                         wait = waitSeconds
@@ -96,6 +102,7 @@ class EventHub(
                     sinceMessageId = maxOf(sinceMessageId, batch.sinceMessageId)
                     sinceSignalId = maxOf(sinceSignalId, batch.sinceSignalId)
                     typingSignature = batch.typingSignature
+                    conversationCallSignature = batch.conversationCallSignature
                     presenceSignature = batch.presenceSignature
                     revisionSignature = batch.revisionSignature
                     _unreadTotal.value = batch.unreadTotal
@@ -119,6 +126,7 @@ class EventHub(
                         _revisions.value = batch.revisions.associate { it.id to it.updatedAt }
                     }
                     _incomingCall.value = batch.incomingCall
+                    _conversationCall.value = batch.conversationCall
                 } catch (e: Exception) {
                     _connected.value = false
                     delay(3000)
@@ -153,10 +161,12 @@ class EventHub(
         sinceMessageId = 0
         sinceSignalId = 0
         typingSignature = ""
+        conversationCallSignature = ""
         presenceSignature = ""
         revisionSignature = ""
         _unreadTotal.value = 0
         _incomingCall.value = null
+        _conversationCall.value = null
         _typing.value = TypingState()
         _presence.value = emptyMap()
         _revisions.value = emptyMap()
@@ -166,6 +176,9 @@ class EventHub(
     fun clearTyping() {
         _typing.value = TypingState()
         typingSignature = ""
+        // Onceki sohbetin aramasi yeni sohbette gorunmesin.
+        _conversationCall.value = null
+        conversationCallSignature = ""
     }
 
     fun launchInScope(block: suspend () -> Unit) {

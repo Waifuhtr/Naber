@@ -115,6 +115,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import com.naber.app.Naber
+import com.naber.app.call.CallStage
 import com.naber.app.data.Chat
 import com.naber.app.data.ChatWallpaper
 import com.naber.app.data.EmojiCatalog
@@ -855,6 +856,16 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
 
     val typingActive = typing.isNotEmpty() && (tick - typingAt) < 6000
     val peerPresence = current?.peer?.id?.let { presenceMap[it] }
+    // Grup aramasi suruyorsa baslikta "Katil" dugmesi ve altinda
+    // aramadakilerin minik profilleri gorunur.
+    val conversationCall by Naber.events.conversationCall.collectAsState()
+    val myCallStage = Naber.calls.state.collectAsState().value.stage
+    val groupCall = conversationCall?.takeIf {
+        it.isGroup && it.conversationId == conversationId && current?.isGroup == true
+    }
+    val callPeople = groupCall?.participants?.filter { it.callStatus == "joined" }.orEmpty()
+    val showJoin = groupCall != null && myCallStage == CallStage.IDLE
+
     val peerOnline = peerPresence?.online ?: (current?.peer?.online == true)
     val peerLastSeen = peerPresence?.lastSeen ?: (current?.peer?.lastSeen ?: 0L)
     val subtitle = when {
@@ -912,15 +923,67 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
                         if (c.isGroup) onGroupInfo(c.id) else c.peer?.let { onOpenProfile(it.id) }
                     }
             ) {
-                Text(
-                    current?.title.orEmpty(),
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = NaberColors.TextPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                if (subtitle.isNotBlank()) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        current?.title.orEmpty(),
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = NaberColors.TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (showJoin) {
+                        Spacer(Modifier.width(8.dp))
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(NaberColors.Accent)
+                                .clickable { startCall() }
+                                .padding(horizontal = 8.dp, vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Filled.Call,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                "Katil",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+                if (callPeople.isNotEmpty()) {
+                    // Aramadakilerin seridi: yalnizca fotograflar, isim yok.
+                    Row(
+                        modifier = Modifier.padding(top = 3.dp),
+                        horizontalArrangement = Arrangement.spacedBy((-6).dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        callPeople.take(5).forEach { person ->
+                            SenderAvatar(
+                                name = person.displayName,
+                                url = person.avatar,
+                                id = person.id,
+                                size = 18.dp
+                            )
+                        }
+                        if (callPeople.size > 5) {
+                            Spacer(Modifier.width(10.dp))
+                            Text(
+                                "+${callPeople.size - 5}",
+                                fontSize = 11.sp,
+                                color = NaberColors.TextSecondary
+                            )
+                        }
+                    }
+                } else if (subtitle.isNotBlank()) {
                     Text(
                         subtitle,
                         fontSize = 12.sp,
