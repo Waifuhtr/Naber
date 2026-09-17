@@ -839,11 +839,31 @@ class Naber_Chat_Repo {
 	/** Diger uyelerin hepsinin okudugu en yuksek mesaj kimligi. */
 	public static function read_watermark( $conversation_id, $user_id ) {
 		global $wpdb;
-		$table = Naber_DB::table( 'members' );
-		$value = $wpdb->get_var(
-			$wpdb->prepare( "SELECT MIN(last_read_id) FROM {$table} WHERE conversation_id = %d AND user_id <> %d", (int) $conversation_id, (int) $user_id )
+		// Okundu bilgisini gizleyen kullanici baskalarininkini de goremez.
+		if ( Naber_Auth::hides_read( $user_id ) ) {
+			return 0;
+		}
+
+		$table  = Naber_DB::table( 'members' );
+		$hidden = self::hidden_read_filter();
+		$value  = $wpdb->get_var(
+			$wpdb->prepare( "SELECT MIN(last_read_id) FROM {$table} WHERE conversation_id = %d AND user_id <> %d{$hidden}", (int) $conversation_id, (int) $user_id )
 		);
 		return null === $value ? 0 : (int) $value;
+	}
+
+	/**
+	 * Okundu bilgisini gizleyen kullanicilari sorgudan cikaran SQL parcasi.
+	 *
+	 * Gizleyen biri sohbette varsa MIN(last_read_id) hesabina katilmaz;
+	 * birebir sohbette bu, hic okundu bilgisi gonderilmemesi demektir.
+	 */
+	private static function hidden_read_filter( $column = 'user_id' ) {
+		$ids = Naber_Auth::hidden_read_ids();
+		if ( ! $ids ) {
+			return '';
+		}
+		return ' AND ' . $column . ' NOT IN (' . implode( ',', array_map( 'intval', $ids ) ) . ')';
 	}
 
 	/** Diger uyelerin hepsinin cihazina ulasan en yuksek mesaj kimligi. */
@@ -980,13 +1000,18 @@ class Naber_Chat_Repo {
 	public static function read_states( $user_id ) {
 		global $wpdb;
 		$members = Naber_DB::table( 'members' );
-		$rows    = $wpdb->get_results(
+		// Okundu bilgisini gizleyen kullanici baskalarininkini de goremez.
+		if ( Naber_Auth::hides_read( $user_id ) ) {
+			return array();
+		}
+		$hidden = self::hidden_read_filter( 'others.user_id' );
+		$rows   = $wpdb->get_results(
 			$wpdb->prepare(
 				"SELECT mine.conversation_id,
 					COALESCE(MIN(others.last_read_id), 0) AS watermark,
 					COALESCE(MIN(others.delivered_id), 0) AS delivered
 				 FROM {$members} mine
-				 LEFT JOIN {$members} others ON others.conversation_id = mine.conversation_id AND others.user_id <> mine.user_id
+				 LEFT JOIN {$members} others ON others.conversation_id = mine.conversation_id AND others.user_id <> mine.user_id{$hidden}
 				 WHERE mine.user_id = %d
 				 GROUP BY mine.conversation_id
 				 LIMIT 200",

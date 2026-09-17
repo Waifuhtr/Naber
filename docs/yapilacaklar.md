@@ -112,8 +112,9 @@ listeden cikarildi, istenmiyor.**
 - [x] **Kullanici engelleme** — tamamlandi (naber_blocks tablosu;
   engel karsilikli etki eder: iki taraf da mesaj gonderemez, arayamaz,
   durtemez. Ortak gruplar etkilenmez. Profil ekranindan acilir).
-- [ ] **Son gorulme / okundu bilgisini gizleme secenegi** — henuz
-  yapilmadi.
+- [x] **Son gorulme / okundu bilgisini gizleme secenegi** — tamamlandi
+  (profildeki iki anahtar). Ikisi de simetrik: gizleyen kisi
+  baskalarininkini de goremez.
 
 **Kisisellestirme:**
 
@@ -146,14 +147,13 @@ duruyor:
 
 Tamamlanan: hata duzeltmesi (1/1), durtme ozelligi, optimizasyonlar
 (9/15 yapildi, 2 kasitli atlandi/ertelendi, 4 kaldi), genel ozellikler
-(13/19 yapildi: yanitla, duzenle, reaksiyon, iletme, kamera, sabitleme,
+(14/19 yapildi: yanitla, duzenle, reaksiyon, iletme, kamera, sabitleme,
 sureli sessize alma, davet kodu, uygulama kilidi, global arama,
-kaybolan mesajlar, engelleme, bahsetme).
+kaybolan mesajlar, engelleme, bahsetme, gizlilik secenekleri).
 
-Eklenti surumu: 1.14.0. Toplam test: 217, hepsi geciyor.
+Eklenti surumu: 1.15.0. Toplam test: 225, hepsi geciyor.
 
-Kalan buyuk is: sesli mesaj, anket, gizlilik secenekleri,
-acik tema, sohbet arka plani, konum paylasma, lazy medya indirme,
+Kalan buyuk is: sesli mesaj, anket, acik tema, sohbet arka plani, konum paylasma, lazy medya indirme,
 delta senkronizasyon, WorkManager.
 
 ## Kodlamaya gecince siralama
@@ -161,5 +161,5 @@ delta senkronizasyon, WorkManager.
 1. [x] Tam ekran gorsel siyah ekran duzeltmesi.
 2. [x] Durtme ozelligi (sunucu + istemci).
 3. Onaylanan optimizasyonlar — 9/15 yapildi, kalanlar surdurulecek.
-4. Onaylanan genel ozellikler — 13/19 yapildi, kalanlar surdurulecek.
+4. Onaylanan genel ozellikler — 14/19 yapildi, kalanlar surdurulecek.
 5. Ek oneriler arasindan kullanicinin sectikleri (henuz baslanmadi).

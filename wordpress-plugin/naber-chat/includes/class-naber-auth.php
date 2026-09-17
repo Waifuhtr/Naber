@@ -15,6 +15,10 @@ class Naber_Auth {
 	const ONLINE_WINDOW     = 45;
 	const META_AVATAR   = 'naber_avatar_media_id';
 	const META_CONTACTS = 'naber_contacts';
+	/** Son gorulme/cevrimici bilgisini gizle. */
+	const META_HIDE_LAST_SEEN = 'naber_hide_last_seen';
+	/** Okundu bilgisini (mavi tik) gizle. */
+	const META_HIDE_READ = 'naber_hide_read';
 	const MAX_TOKENS    = 5;
 
 	/** @var array Istek suresince kullanici gosterimlerini onbellekler. */
@@ -224,6 +228,60 @@ class Naber_Auth {
 	 *
 	 * @return array user_id => array('online' => bool, 'last_seen' => int)
 	 */
+	/** Kullanici son gorulme bilgisini gizliyor mu? */
+	public static function hides_last_seen( $user_id ) {
+		return (bool) (int) get_user_meta( (int) $user_id, self::META_HIDE_LAST_SEEN, true );
+	}
+
+	/** Kullanici okundu bilgisini gizliyor mu? */
+	public static function hides_read( $user_id ) {
+		return (bool) (int) get_user_meta( (int) $user_id, self::META_HIDE_READ, true );
+	}
+
+	/**
+	 * Son gorulme gorunur mu? (saf fonksiyon)
+	 *
+	 * Simetrik kural: kendi bilgisini gizleyen baskalarinkini de goremez.
+	 * Yoksa herkes gizler ama herkesi gormeye devam ederdi.
+	 */
+	public static function can_see_last_seen( $viewer_hides, $target_hides ) {
+		return ! $viewer_hides && ! $target_hides;
+	}
+
+	/** Okundu bilgisi gorunur mu? (saf fonksiyon, ayni simetrik kural) */
+	public static function can_see_read( $viewer_hides, $target_hides ) {
+		return ! $viewer_hides && ! $target_hides;
+	}
+
+	/** Gizlilik ayarlarini kaydeder. */
+	public static function set_privacy( $user_id, $hide_last_seen, $hide_read ) {
+		update_user_meta( (int) $user_id, self::META_HIDE_LAST_SEEN, $hide_last_seen ? 1 : 0 );
+		update_user_meta( (int) $user_id, self::META_HIDE_READ, $hide_read ? 1 : 0 );
+		self::flush_payload_cache();
+	}
+
+	/** Son gorulme bilgisini gizleyen kullanicilarin kimlikleri. */
+	public static function hidden_last_seen_ids() {
+		return self::ids_with_flag( self::META_HIDE_LAST_SEEN );
+	}
+
+	/** Okundu bilgisini gizleyen kullanicilarin kimlikleri. */
+	public static function hidden_read_ids() {
+		return self::ids_with_flag( self::META_HIDE_READ );
+	}
+
+	/** Verilen gizlilik bayragi acik olan kullanicilar (tek sorgu). */
+	private static function ids_with_flag( $meta_key ) {
+		global $wpdb;
+		$ids = $wpdb->get_col(
+			$wpdb->prepare(
+				"SELECT user_id FROM {$wpdb->usermeta} WHERE meta_key = %s AND meta_value = '1'",
+				$meta_key
+			)
+		);
+		return array_map( 'intval', (array) $ids );
+	}
+
 	public static function presence_of( array $ids ) {
 		global $wpdb;
 
@@ -249,14 +307,26 @@ class Naber_Auth {
 			}
 		}
 
+		// Gizlilik burada da uygulanir: bu liste user_payload'dan gecmez.
+		$viewer       = (int) get_current_user_id();
+		$viewer_hides = self::hides_last_seen( $viewer );
+		$hidden       = $viewer_hides ? array() : self::hidden_last_seen_ids();
+
 		$now = time();
 		$out = array();
 		foreach ( $ids as $id ) {
 			$seen         = isset( $last[ $id ] ) ? $last[ $id ] : 0;
 			$online_until = isset( $until[ $id ] ) ? $until[ $id ] : 0;
-			$out[ $id ]   = array(
+			$online       = $online_until > 0 ? ( $online_until > $now ) : ( $seen > 0 && ( $now - $seen ) < self::ONLINE_WINDOW );
+
+			if ( $id !== $viewer && ( $viewer_hides || in_array( $id, $hidden, true ) ) ) {
+				$seen   = 0;
+				$online = false;
+			}
+
+			$out[ $id ] = array(
 				// Eski kurulumlarda online_until yoksa son gorulme zamanina bakilir.
-				'online'    => $online_until > 0 ? ( $online_until > $now ) : ( $seen > 0 && ( $now - $seen ) < self::ONLINE_WINDOW ),
+				'online'    => $online,
 				'last_seen' => $seen,
 			);
 		}
@@ -378,6 +448,21 @@ class Naber_Auth {
 			'online'       => self::is_online( $user->ID ),
 			'is_admin'     => self::is_admin_user( $user->ID ),
 		);
+		// Gizlilik simetriktir: kendi son gorulmesini gizleyen, baskalarinin
+		// son gorulmesini de goremez. Yonetim panelinde (include_private)
+		// gercek deger gosterilir.
+		$viewer = get_current_user_id();
+		if ( ! $include_private && (int) $user->ID !== (int) $viewer
+			&& ! self::can_see_last_seen( self::hides_last_seen( $viewer ), self::hides_last_seen( (int) $user->ID ) ) ) {
+			$data['last_seen'] = 0;
+			$data['online']    = false;
+		}
+
+		if ( $include_private || (int) $user->ID === (int) $viewer ) {
+			$data['hide_last_seen'] = self::hides_last_seen( (int) $user->ID );
+			$data['hide_read']      = self::hides_read( (int) $user->ID );
+		}
+
 		if ( $include_private ) {
 			$data['email']      = $user->user_email;
 			$data['roles']      = array_values( (array) $user->roles );

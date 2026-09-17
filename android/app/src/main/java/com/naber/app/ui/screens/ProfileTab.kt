@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.AlternateEmail
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
@@ -34,10 +35,13 @@ import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -89,6 +93,17 @@ fun ProfileTab(onAdmin: () -> Unit, onLoggedOut: () -> Unit) {
     var avatarVersion by remember { mutableStateOf(0) }
     // Temizlik sonrasi sayilar yeniden hesaplansin diye artirilir.
     var storageVersion by remember { mutableStateOf(0) }
+
+    fun savePrivacy(
+        hideLastSeen: Boolean = user?.hideLastSeen == true,
+        hideRead: Boolean = user?.hideRead == true
+    ) {
+        scope.launch {
+            runCatching { Naber.api.setPrivacy(hideLastSeen, hideRead) }
+                .onSuccess { user = it }
+                .onFailure { message = it.message }
+        }
+    }
 
     val storageBytes = remember(storageVersion) { MediaStore.totalBytes(context) }
     val storageFiles = remember(storageVersion) { MediaStore.fileCount(context) }
@@ -265,6 +280,47 @@ fun ProfileTab(onAdmin: () -> Unit, onLoggedOut: () -> Unit) {
                     tint = NaberColors.TextSecondary
                 )
             }
+        }
+
+        Spacer(Modifier.height(14.dp))
+
+        // Gizlilik: iki ayar da simetriktir. Kendi bilgisini gizleyen
+        // baskalarininkini de goremez; yoksa herkes gizler ama herkesi
+        // gormeye devam ederdi.
+        NaberCard(modifier = Modifier.padding(horizontal = 14.dp)) {
+            SettingsRow(
+                icon = Icons.Filled.VisibilityOff,
+                title = "Son gorulmeyi gizle",
+                subtitle = if (user?.hideLastSeen == true) {
+                    "Acik - siz de baskalarinin son gorulmesini goremezsiniz"
+                } else {
+                    "Kapali"
+                },
+                trailing = {
+                    Switch(
+                        checked = user?.hideLastSeen == true,
+                        onCheckedChange = { value -> savePrivacy(hideLastSeen = value) },
+                        colors = SwitchDefaults.colors(checkedTrackColor = NaberColors.Accent)
+                    )
+                }
+            )
+            ThinDivider(startIndent = 54.dp)
+            SettingsRow(
+                icon = Icons.Filled.DoneAll,
+                title = "Okundu bilgisini gizle",
+                subtitle = if (user?.hideRead == true) {
+                    "Acik - siz de karsi tarafin okudugunu goremezsiniz"
+                } else {
+                    "Kapali"
+                },
+                trailing = {
+                    Switch(
+                        checked = user?.hideRead == true,
+                        onCheckedChange = { value -> savePrivacy(hideRead = value) },
+                        colors = SwitchDefaults.colors(checkedTrackColor = NaberColors.Accent)
+                    )
+                }
+            )
         }
 
         Spacer(Modifier.height(14.dp))

@@ -19,6 +19,9 @@ data class User(
     val online: Boolean,
     val isAdmin: Boolean,
     val isContact: Boolean = false,
+    /** Gizlilik ayarlari yalnizca kullanicinin kendi bilgisinde dolu gelir. */
+    val hideLastSeen: Boolean = false,
+    val hideRead: Boolean = false,
     val disabled: Boolean = false,
     val banned: Boolean = false,
     val banReason: String = "",
@@ -53,6 +56,8 @@ data class User(
                 online = json.optBoolean("online"),
                 isAdmin = json.optBoolean("is_admin"),
                 isContact = json.optBoolean("is_contact"),
+                hideLastSeen = json.optBoolean("hide_last_seen"),
+                hideRead = json.optBoolean("hide_read"),
                 disabled = json.optBoolean("disabled"),
                 banned = json.optBoolean("banned"),
                 banReason = json.optString("ban_reason"),

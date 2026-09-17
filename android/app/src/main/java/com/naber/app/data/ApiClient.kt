@@ -126,6 +126,17 @@ class ApiClient(private val session: Session) {
         return user
     }
 
+    /** Gizlilik ayarlari; ikisi de simetriktir (gizleyen baskasininkini goremez). */
+    suspend fun setPrivacy(hideLastSeen: Boolean, hideRead: Boolean): User {
+        val json = call(
+            "/me/privacy", "POST",
+            JSONObject().put("hide_last_seen", hideLastSeen).put("hide_read", hideRead)
+        )
+        val user = User.from(json.optJSONObject("user")) ?: throw ApiException("Ayar kaydedilemedi.")
+        session.user = user
+        return user
+    }
+
     // ----------------------------------------------------------- kisiler
 
     suspend fun users(search: String = ""): List<User> =

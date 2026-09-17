@@ -36,6 +36,7 @@ class Naber_REST {
 		$this->route( $ns, '/logout', 'POST', 'logout', $user );
 		$this->route( $ns, '/me', 'GET', 'get_me', $user );
 		$this->route( $ns, '/me', 'POST', 'update_me', $user );
+		$this->route( $ns, '/me/privacy', 'POST', 'update_privacy', $user );
 
 		// --- Kisiler ---
 		$this->route( $ns, '/users', 'GET', 'list_users', $user );
@@ -261,6 +262,21 @@ class Naber_REST {
 			'user'         => Naber_Auth::user_payload( get_current_user_id(), true ),
 			'unread_total' => Naber_Chat_Repo::unread_total( get_current_user_id() ),
 		) );
+	}
+
+	/**
+	 * Gizlilik ayarlari: son gorulme ve okundu bilgisini gizleme.
+	 *
+	 * Ikisi de simetriktir: gizleyen kisi baskalarininkini de goremez.
+	 */
+	public function update_privacy( WP_REST_Request $request ) {
+		$user_id = get_current_user_id();
+		Naber_Auth::set_privacy(
+			$user_id,
+			rest_sanitize_boolean( $request->get_param( 'hide_last_seen' ) ),
+			rest_sanitize_boolean( $request->get_param( 'hide_read' ) )
+		);
+		return rest_ensure_response( array( 'user' => Naber_Auth::user_payload( $user_id, true ) ) );
 	}
 
 	public function update_me( WP_REST_Request $request ) {
