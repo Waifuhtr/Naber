@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.AlternateEmail
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
@@ -63,6 +64,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.naber.app.Naber
 import com.naber.app.data.AppLock
+import com.naber.app.data.Appearance
 import com.naber.app.data.LocalFiles
 import com.naber.app.data.LocalMedia
 import com.naber.app.data.LocalStore
@@ -88,6 +90,7 @@ fun ProfileTab(onAdmin: () -> Unit, onLoggedOut: () -> Unit) {
     var confirmLogout by remember { mutableStateOf(false) }
     var confirmClearMedia by remember { mutableStateOf(false) }
     var lockEnabled by remember { mutableStateOf(AppLock.isEnabled(context)) }
+    var darkTheme by remember { mutableStateOf(Appearance.isDark()) }
     var setPinDialog by remember { mutableStateOf(false) }
     var lockOptions by remember { mutableStateOf(false) }
     var avatarVersion by remember { mutableStateOf(0) }
@@ -255,6 +258,22 @@ fun ProfileTab(onAdmin: () -> Unit, onLoggedOut: () -> Unit) {
                 icon = Icons.Filled.Notifications,
                 title = "Bildirimler",
                 subtitle = "Sohbet basina sohbet ekranindan ayarlanir"
+            )
+            ThinDivider(startIndent = 54.dp)
+            SettingsRow(
+                icon = Icons.Filled.DarkMode,
+                title = "Koyu tema",
+                subtitle = if (darkTheme) "Acik" else "Kapali - acik tema kullaniliyor",
+                trailing = {
+                    Switch(
+                        checked = darkTheme,
+                        onCheckedChange = { value ->
+                            Appearance.setDark(context, value)
+                            darkTheme = value
+                        },
+                        colors = SwitchDefaults.colors(checkedTrackColor = NaberColors.Accent)
+                    )
+                }
             )
             ThinDivider(startIndent = 54.dp)
             SettingsRow(

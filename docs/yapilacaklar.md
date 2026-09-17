@@ -118,7 +118,9 @@ listeden cikarildi, istenmiyor.**
 
 **Kisisellestirme:**
 
-- [ ] **Acik tema secenegi** — henuz yapilmadi.
+- [x] **Acik tema secenegi** — tamamlandi (profilde "Koyu tema"
+  anahtari; tercih cihazda saklanir). NOT: gercek cihazda gorsel
+  olarak denenmedi, renkler gozden gecirilmeli.
 - [ ] **Sohbet arka plani / renk teması** — henuz yapilmadi.
 - [ ] **Konum paylasma** — henuz yapilmadi.
 
@@ -147,13 +149,14 @@ duruyor:
 
 Tamamlanan: hata duzeltmesi (1/1), durtme ozelligi, optimizasyonlar
 (9/15 yapildi, 2 kasitli atlandi/ertelendi, 4 kaldi), genel ozellikler
-(14/19 yapildi: yanitla, duzenle, reaksiyon, iletme, kamera, sabitleme,
+(15/19 yapildi: yanitla, duzenle, reaksiyon, iletme, kamera, sabitleme,
 sureli sessize alma, davet kodu, uygulama kilidi, global arama,
-kaybolan mesajlar, engelleme, bahsetme, gizlilik secenekleri).
+kaybolan mesajlar, engelleme, bahsetme, gizlilik secenekleri,
+acik tema).
 
 Eklenti surumu: 1.15.0. Toplam test: 225, hepsi geciyor.
 
-Kalan buyuk is: sesli mesaj, anket, acik tema, sohbet arka plani, konum paylasma, lazy medya indirme,
+Kalan buyuk is: sesli mesaj, anket, sohbet arka plani, konum paylasma, lazy medya indirme,
 delta senkronizasyon, WorkManager.
 
 ## Kodlamaya gecince siralama
@@ -161,5 +164,5 @@ delta senkronizasyon, WorkManager.
 1. [x] Tam ekran gorsel siyah ekran duzeltmesi.
 2. [x] Durtme ozelligi (sunucu + istemci).
 3. Onaylanan optimizasyonlar — 9/15 yapildi, kalanlar surdurulecek.
-4. Onaylanan genel ozellikler — 14/19 yapildi, kalanlar surdurulecek.
+4. Onaylanan genel ozellikler — 15/19 yapildi, kalanlar surdurulecek.
 5. Ek oneriler arasindan kullanicinin sectikleri (henuz baslanmadi).

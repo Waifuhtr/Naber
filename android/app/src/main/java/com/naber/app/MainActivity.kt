@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -27,6 +28,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.naber.app.call.CallStage
 import com.naber.app.data.AppLock
+import com.naber.app.data.Appearance
 import com.naber.app.push.Notifications
 import com.naber.app.ui.screens.AdminScreen
 import com.naber.app.ui.screens.CallScreen
@@ -50,9 +52,12 @@ class MainActivity : ComponentActivity() {
     private var showLock by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         Naber.init(applicationContext)
+        // Tema secimi ilk cizimden once yuklenir; yoksa acik tema secmis
+        // biri uygulamayi her acisinda bir an koyu ekran gorurdu.
+        Appearance.load(this)
+        applyEdgeToEdge(Appearance.isDark())
         // Arama yoneticisi surec boyunca yasar; onceki oturumdan kalan bitmis
         // arama durumu temizlenmezse uygulamaya her girildiginde hayalet bir
         // arama ekrani gorunur.
@@ -65,6 +70,10 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             NaberTheme {
+                // Tema degisince durum cubugu simgeleri de guncellensin;
+                // yoksa acik temada beyaz simgeler beyaz zeminde kaybolur.
+                LaunchedEffect(NaberColors.dark) { applyEdgeToEdge(NaberColors.dark) }
+
                 Box(modifier = Modifier.fillMaxSize().background(NaberColors.Background)) {
                     NaberRoot(
                         startConversationId = pendingConversationId,
@@ -121,6 +130,17 @@ class MainActivity : ComponentActivity() {
                 Naber.events.launchInScope { Naber.api.setPresence(false) }
             }
         }
+    }
+
+    /** Acik temada sistem cubugu simgeleri koyu, koyu temada acik olur. */
+    private fun applyEdgeToEdge(dark: Boolean) {
+        val transparent = android.graphics.Color.TRANSPARENT
+        val style = if (dark) {
+            SystemBarStyle.dark(transparent)
+        } else {
+            SystemBarStyle.light(transparent, transparent)
+        }
+        enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
     }
 
     /** Uygulamanin ihtiyac duydugu tum izinler ilk acilista birlikte istenir. */
