@@ -52,6 +52,10 @@ data class CallUiState(
     val isCaller: Boolean = false,
     val muted: Boolean = false,
     val forceMuted: Boolean = false,
+    /** Sagirlastirma: acikken karsi taraflarin sesi kapanir ve mikrofon da susar. */
+    val deafened: Boolean = false,
+    /** Su an konusan kullanicilarin kimlikleri (baloncukta yanip sonme icin). */
+    val speaking: Set<Int> = emptySet(),
     val speakerOn: Boolean = false,
     val canModerate: Boolean = false,
     val startedAt: Long = 0L,
@@ -92,6 +96,7 @@ class CallManager(
     private var focusRequest: Any? = null
     private var watchJob: Job? = null
     private var resetJob: Job? = null
+    private var levelJob: Job? = null
 
     private val peers = HashMap<Int, PeerSession>()
     private val bufferedSignals = mutableListOf<Signal>()
@@ -100,10 +105,18 @@ class CallManager(
     private val finishedCalls = HashSet<Int>()
     private var ready = false
     private var micEnabled = true
+    private var deafened = false
+    // Kim ne zaman konustu: kullanici kimligi -> zaman damgasi. Yazma
+    // WebRTC'nin kendi ipliginden geldigi icin es zamanli harita.
+    private val speakingAt = java.util.concurrent.ConcurrentHashMap<Int, Long>()
+    // Sagirlastirma acilmadan onceki mikrofon durumu; kapatinca geri yuklenir.
+    private var mutedBeforeDeafen = false
 
     private inner class PeerSession(val userId: Int) {
         var connection: PeerConnection? = null
         var sender: RtpSender? = null
+        /** Karsi tarafin ses izi; sagirlastirma bunun uzerinden kapatilir. */
+        var remoteTrack: AudioTrack? = null
         var remoteSet = false
         var offering = false
         val pending = mutableListOf<IceCandidate>()
@@ -261,6 +274,36 @@ class CallManager(
         }
     }
 
+    /**
+     * Discord'daki gibi sagirlastirma: acikken hem karsi tarafin sesi
+     * kapanir hem de mikrofon susar (kimse duyulmazken konusmak anlamsiz).
+     * Kapatilinca mikrofon, sagirlastirmadan onceki haline doner.
+     */
+    fun toggleDeafen() {
+        val next = !deafened
+        deafened = next
+        if (next) {
+            mutedBeforeDeafen = _state.value.muted
+            setMicEnabled(false, userRequested = false)
+        }
+        applyRemoteAudio()
+        if (!next && !_state.value.forceMuted) {
+            setMicEnabled(!mutedBeforeDeafen, userRequested = false)
+        }
+        _state.value = _state.value.copy(
+            deafened = next,
+            muted = if (next) true else mutedBeforeDeafen,
+            speaking = if (next) emptySet() else _state.value.speaking
+        )
+    }
+
+    /** Uzak ses izlerini sagirlastirma durumuna gore acar/kapatir. */
+    private fun applyRemoteAudio() {
+        peers.values.forEach { session ->
+            runCatching { session.remoteTrack?.setEnabled(!deafened) }
+        }
+    }
+
     fun toggleSpeaker() {
         val on = !_state.value.speakerOn
         audioManager?.isSpeakerphoneOn = on
@@ -412,6 +455,12 @@ class CallManager(
             override fun onRenegotiationNeeded() {}
 
             override fun onAddTrack(receiver: RtpReceiver?, streams: Array<out MediaStream>?) {
+                // Uzak ses izi saklanir: "sagirlastirma" acikken burayi
+                // kapatmak, gelen sesi tamamen susturmanin tek yolu.
+                (receiver?.track() as? AudioTrack)?.let { track ->
+                    session.remoteTrack = track
+                    runCatching { track.setEnabled(!deafened) }
+                }
                 scope.launch { onConnected() }
             }
         })
@@ -656,12 +705,53 @@ class CallManager(
     }
 
     private fun onConnected() {
+        startLevelWatch()
         if (_state.value.stage == CallStage.ACTIVE) return
         _state.value = _state.value.copy(
             stage = CallStage.ACTIVE,
             startedAt = System.currentTimeMillis(),
             statusText = ""
         )
+    }
+
+    /**
+     * Konusma algilama: WebRTC istatistiklerindeki `audioLevel` degeri
+     * belirli esigi asinca o kisi "konusuyor" sayilir. Baloncuktaki
+     * profil fotograflarinin yanip sonmesi buna bakar.
+     */
+    private fun startLevelWatch() {
+        if (levelJob?.isActive == true) return
+        levelJob = scope.launch {
+            while (true) {
+                delay(SPEAK_POLL_MS)
+                if (_state.value.stage != CallStage.ACTIVE) continue
+                peers.values.toList().forEach { requestLevels(it) }
+                val now = System.currentTimeMillis()
+                val active = speakingAt.filterValues { now - it < SPEAK_HOLD_MS }.keys.toSet()
+                if (active != _state.value.speaking) {
+                    _state.value = _state.value.copy(speaking = active)
+                }
+            }
+        }
+    }
+
+    private fun requestLevels(session: PeerSession) {
+        val connection = session.connection ?: return
+        runCatching {
+            connection.getStats { report ->
+                val now = System.currentTimeMillis()
+                report.statsMap.values.forEach { stat ->
+                    val level = (stat.members["audioLevel"] as? Number)?.toDouble() ?: return@forEach
+                    if (level < SPEAK_LEVEL) return@forEach
+                    when (stat.type) {
+                        // Gelen ses: karsi taraf konusuyor.
+                        "inbound-rtp" -> if (!deafened) speakingAt[session.userId] = now
+                        // Kendi mikrofonumuz: sustuysak konusuyor sayilmayiz.
+                        "media-source" -> if (micEnabled) speakingAt[myId()] = now
+                    }
+                }
+            }
+        }
     }
 
     private fun onPeerFailed(userId: Int) {
@@ -766,7 +856,9 @@ class CallManager(
     }
 
     private fun closePeer(userId: Int) {
+        speakingAt.remove(userId)
         peers.remove(userId)?.let { session ->
+            session.remoteTrack = null
             runCatching { session.connection?.close() }
         }
     }
@@ -774,15 +866,24 @@ class CallManager(
     private fun resetSession() {
         handledSignals.clear()
         bufferedSignals.clear()
+        speakingAt.clear()
         micEnabled = true
+        deafened = false
+        mutedBeforeDeafen = false
     }
 
     private fun releaseResources() {
         SoundPlayer.stopRingtone()
         Notifications.cancelCall(context)
         CallService.stop(context)
+        CallBubbleService.stop(context)
         watchJob?.cancel()
         watchJob = null
+        levelJob?.cancel()
+        levelJob = null
+        speakingAt.clear()
+        deafened = false
+        mutedBeforeDeafen = false
         peers.values.forEach { runCatching { it.connection?.close() } }
         peers.clear()
         bufferedSignals.clear()
@@ -849,6 +950,12 @@ class CallManager(
         const val ENDED_RESET_ERROR_MS = 2500L
         /** Bu sureden eski "gelen arama" kayitlari artik gecerli sayilmaz. */
         const val INCOMING_MAX_AGE_MS = 45_000L
+        /** Konusma algilama icin istatistik okuma araligi. */
+        const val SPEAK_POLL_MS = 350L
+        /** Bu esigin uzerindeki ses seviyesi "konusuyor" sayilir (0..1). */
+        const val SPEAK_LEVEL = 0.02
+        /** Konusma isaretinin ekranda kalma suresi; titremeyi onler. */
+        const val SPEAK_HOLD_MS = 800L
     }
 }
 

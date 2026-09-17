@@ -24,6 +24,8 @@ import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.HeadsetMic
+import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -39,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -49,6 +52,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.naber.app.Naber
+import com.naber.app.call.CallBubbleService
 import com.naber.app.call.CallStage
 import com.naber.app.call.CallUiState
 import com.naber.app.data.User
@@ -65,6 +69,14 @@ import kotlinx.coroutines.delay
 fun CallScreen(state: CallUiState) {
     var elapsed by remember { mutableIntStateOf(0) }
     val myId = Naber.session.user?.id ?: 0
+    val context = LocalContext.current
+    // Izin durumu her arama acilisinda bir kez okunur; ayarlardan verilip
+    // donuldugunde ekran yeniden kuruldugu icin guncellenir.
+    var bubbleAllowed by remember { mutableStateOf(CallBubbleService.canShow(context)) }
+
+    LaunchedEffect(state.stage) {
+        bubbleAllowed = CallBubbleService.canShow(context)
+    }
 
     LaunchedEffect(state.stage, state.startedAt) {
         if (state.stage == CallStage.ACTIVE && state.startedAt > 0) {
@@ -178,8 +190,33 @@ fun CallScreen(state: CallUiState) {
                                 background = if (state.speakerOn) Color.White.copy(alpha = 0.32f) else Color.White.copy(alpha = 0.16f),
                                 onClick = { Naber.calls.toggleSpeaker() }
                             )
+                            // Sagirlastirma: acikken kimseyi duymayiz ve
+                            // mikrofon da kapanir (Discord'daki gibi).
+                            CallButton(
+                                icon = if (state.deafened) Icons.Filled.VolumeOff else Icons.Filled.HeadsetMic,
+                                description = if (state.deafened) "Sesi ac" else "Sagirlastir",
+                                background = if (state.deafened) Color.White.copy(alpha = 0.32f) else Color.White.copy(alpha = 0.16f),
+                                onClick = { Naber.calls.toggleDeafen() }
+                            )
                         }
-                        Spacer(Modifier.height(28.dp))
+                        Spacer(Modifier.height(18.dp))
+                        if (!bubbleAllowed) {
+                            // Baloncuk yalnizca "diger uygulamalarin uzerinde
+                            // goster" izniyle calisir; izin istegi burada.
+                            Text(
+                                "Arka planda baloncuk icin izin ver",
+                                color = Color.White.copy(alpha = 0.75f),
+                                fontSize = 13.sp,
+                                modifier = Modifier
+                                    .clickable {
+                                        runCatching {
+                                            context.startActivity(CallBubbleService.permissionIntent(context))
+                                        }
+                                    }
+                                    .padding(horizontal = 14.dp, vertical = 8.dp)
+                            )
+                        }
+                        Spacer(Modifier.height(14.dp))
                     }
 
                     Row(

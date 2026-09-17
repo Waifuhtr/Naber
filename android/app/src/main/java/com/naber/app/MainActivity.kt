@@ -26,6 +26,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.naber.app.call.CallBubbleService
 import com.naber.app.call.CallStage
 import com.naber.app.data.AppLock
 import com.naber.app.data.Appearance
@@ -108,11 +109,17 @@ class MainActivity : ComponentActivity() {
         // kapatmak icin once PIN girmek zorunda kalmasin.
         if (Naber.calls.state.value.stage == CallStage.IDLE) {
             AppLock.lock()
+        } else {
+            // Arama surerken arka plana gecildi: Discord tarzi baloncuk
+            // ekranin uzerinde belirsin (izin verilmisse).
+            CallBubbleService.start(this)
         }
     }
 
     override fun onResume() {
         super.onResume()
+        // Uygulama one geldiyse baloncuga gerek yok.
+        CallBubbleService.stop(this)
         showLock = AppLock.isLocked(this)
         Naber.calls.clearStaleState()
         if (Naber.session.isLoggedIn) {

@@ -11,6 +11,8 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Arama baloncugu icin; kullanici ayarlardan acmadan calismaz. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <!-- Yalnizca "Konum gonder" secilince istenir; arka planda konum alinmaz. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
@@ -46,6 +48,11 @@
             android:name=".call.CallService"
             android:exported="false"
             android:foregroundServiceType="microphone" />
+
+        <!-- Uygulama arka plandayken ekranin uzerinde duran arama baloncugu. -->
+        <service
+            android:name=".call.CallBubbleService"
+            android:exported="false" />
 
         <receiver
             android:name=".push.CallActionReceiver"

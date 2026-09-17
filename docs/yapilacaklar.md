@@ -198,7 +198,7 @@ onaylandi:
 
 Kullanicinin 17 Eylul istegi (Discord benzeri):
 
-1. [ ] **Arka plan baloncugu (overlay).** Aramadayken uygulama arka
+1. [x] **Arka plan baloncugu (overlay).** Aramadayken uygulama arka
    plana alininca ekranda kucuk bir baloncuk kalsin; oradan ses paneli
    yonetilebilsin.
    - Kendini sessize alma (mikrofonu kapat) — zaten var, baloncuga
