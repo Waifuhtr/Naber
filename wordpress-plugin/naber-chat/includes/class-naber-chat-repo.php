@@ -531,6 +531,25 @@ class Naber_Chat_Repo {
 		);
 	}
 
+	/**
+	 * Sohbetin en ustune tutturulan mesaj.
+	 *
+	 * Ayri bir "sabitlenenler" ekrani yok: tek mesaj sohbetin basinda
+	 * pano ignesi isaretiyle durur. 0 verilirse sabitleme kaldirilir.
+	 */
+	public static function set_pinned_message( $conversation_id, $message_id ) {
+		global $wpdb;
+		$wpdb->update(
+			Naber_DB::table( 'conversations' ),
+			array( 'pinned_message_id' => (int) $message_id ),
+			array( 'id' => (int) $conversation_id ),
+			array( '%d' ),
+			array( '%d' )
+		);
+		self::touch_conversation( $conversation_id );
+		return true;
+	}
+
 	public static function update_group( $conversation_id, $fields ) {
 		global $wpdb;
 		$data    = array();
@@ -562,6 +581,27 @@ class Naber_Chat_Repo {
 		$wpdb->update( Naber_DB::table( 'conversations' ), $data, array( 'id' => (int) $conversation_id ), $formats, array( '%d' ) );
 		self::touch_conversation( $conversation_id );
 		return true;
+	}
+
+	/** Sabitlenmis mesajin yuku; silinmisse ya da yoksa null. */
+	public static function pinned_message_payload( $row, $viewer_id ) {
+		global $wpdb;
+		$message_id = (int) ( $row['pinned_message_id'] ?? 0 );
+		if ( $message_id <= 0 ) {
+			return null;
+		}
+		$message = $wpdb->get_row(
+			$wpdb->prepare(
+				'SELECT * FROM ' . Naber_DB::table( 'messages' ) . ' WHERE id = %d AND conversation_id = %d AND deleted = 0',
+				$message_id,
+				(int) $row['id']
+			),
+			ARRAY_A
+		);
+		if ( ! $message ) {
+			return null;
+		}
+		return self::message_payload( $message, 'group' === $row['type'], (int) $viewer_id, array() );
 	}
 
 	public static function other_user( $conversation, $user_id ) {
@@ -684,6 +724,8 @@ class Naber_Chat_Repo {
 				: '',
 			// Kaybolan mesajlar: 0 kapali, degilse mesaj omru (saniye).
 			'disappear_seconds' => (int) ( $row['disappear_seconds'] ?? 0 ),
+			// Sohbetin en ustune tutturulan mesaj (yoksa null).
+			'pinned_message' => self::pinned_message_payload( $row, $user_id ),
 			'unread'       => $unread,
 			'updated_at'   => self::ts( $row['updated_at'] ),
 			'last_message' => $last,

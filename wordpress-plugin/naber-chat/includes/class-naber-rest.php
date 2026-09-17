@@ -75,6 +75,7 @@ class Naber_REST {
 		$this->route( $ns, '/messages/(?P<id>\d+)/info', 'GET', 'message_info', $user );
 		$this->route( $ns, '/messages/(?P<id>\d+)/react', 'POST', 'react_to_message', $user );
 		$this->route( $ns, '/messages/(?P<id>\d+)/forward', 'POST', 'forward_message', $user );
+		$this->route( $ns, '/messages/(?P<id>\d+)/pin', 'POST', 'pin_message', $user );
 		$this->route( $ns, '/polls/(?P<id>\d+)/vote', 'POST', 'vote_poll', $user );
 
 		// --- Medya ---
@@ -1194,6 +1195,48 @@ class Naber_REST {
 		self::notify_conversation_members( $target_id, $user_id, $sender['display_name'], $title, $text, (int) $forwarded['id'] );
 
 		return rest_ensure_response( array( 'message' => $forwarded ) );
+	}
+
+	/**
+	 * Mesaji sohbetin en ustune sabitler ya da sabitlemeyi kaldirir.
+	 *
+	 * Ayri bir "sabitlenenler" klasoru yok; mesaj sohbetin basinda pano
+	 * ignesi isaretiyle durur. Grupta "pin_message" yetkisi gerekir,
+	 * birebir sohbette iki taraf da sabitleyebilir.
+	 */
+	public function pin_message( WP_REST_Request $request ) {
+		$message = Naber_Chat_Repo::get_message( (int) $request['id'] );
+		if ( ! $message || (int) $message['deleted'] === 1 ) {
+			return new WP_Error( 'naber_message_not_found', 'Mesaj bulunamadi.', array( 'status' => 404 ) );
+		}
+
+		$conversation_id = (int) $message['conversation_id'];
+		$user_id         = get_current_user_id();
+		if ( ! Naber_Chat_Repo::member( $conversation_id, $user_id ) ) {
+			return new WP_Error( 'naber_forbidden', 'Bu mesaja erisim yetkiniz yok.', array( 'status' => 403 ) );
+		}
+
+		$conversation = Naber_Chat_Repo::get_conversation( $conversation_id );
+		$is_group     = $conversation && 'group' === $conversation['type'];
+		if ( $is_group && ! Naber_Chat_Repo::has_perm( $conversation_id, $user_id, 'pin_message' ) ) {
+			return new WP_Error( 'naber_forbidden', 'Mesaj sabitleme yetkiniz yok.', array( 'status' => 403 ) );
+		}
+
+		$pinned = rest_sanitize_boolean( $request->get_param( 'pinned' ) );
+		Naber_Chat_Repo::set_pinned_message( $conversation_id, $pinned ? (int) $message['id'] : 0 );
+
+		if ( $is_group ) {
+			Naber_Groups::system_message(
+				$conversation_id,
+				$pinned
+					? Naber_Groups::display_name( $user_id ) . ' bir mesaji sabitledi.'
+					: Naber_Groups::display_name( $user_id ) . ' sabitlemeyi kaldirdi.'
+			);
+		}
+
+		return rest_ensure_response( array(
+			'chat' => Naber_Chat_Repo::conversation_payload( $conversation_id, $user_id, false ),
+		) );
 	}
 
 	public function delete_message( WP_REST_Request $request ) {

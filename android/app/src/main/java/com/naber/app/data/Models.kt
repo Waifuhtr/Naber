@@ -323,7 +323,9 @@ data class Chat(
     val deliveredWatermark: Int,
     val members: List<User> = emptyList(),
     /** Bu sohbette benim ayrintili yetkilerim. */
-    val perms: List<String> = emptyList()
+    val perms: List<String> = emptyList(),
+    /** Sohbetin en ustune tutturulmus mesaj; yoksa null. */
+    val pinnedMessage: Message? = null
 ) {
     val isGroup: Boolean get() = type == "group"
     val amAdmin: Boolean get() = role == "owner" || role == "admin"
@@ -355,7 +357,8 @@ data class Chat(
                 readWatermark = json.optInt("read_watermark"),
                 deliveredWatermark = json.optInt("delivered_watermark"),
                 members = User.listFrom(json.optJSONArray("members")),
-                perms = json.optJSONArray("perms").mapStrings()
+                perms = json.optJSONArray("perms").mapStrings(),
+                pinnedMessage = Message.from(json.optJSONObject("pinned_message"))
             )
         }
 
@@ -668,6 +671,7 @@ fun Chat.toJson(): JSONObject = JSONObject()
     .put("delivered_watermark", deliveredWatermark)
     .put("members", JSONArray(members.map { it.toJson() }))
     .put("perms", JSONArray(perms))
+    .put("pinned_message", pinnedMessage?.toJson())
 
 /** JSONArray -> List<String> kisayolu (yetki listeleri gibi duz diziler icin). */
 internal fun JSONArray?.mapStrings(): List<String> {

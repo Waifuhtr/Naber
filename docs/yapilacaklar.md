@@ -291,7 +291,7 @@ sordu, asagidakiler eklendi (Ek ozellik onerileri listesindeki
   uyeye de ayrica verilebilecek.)
 - **Davet kodunu harici paylasma**: kopyalamanin yanina Android
   paylasim sayfasini (Intent.ACTION_SEND) acan bir "Paylas" dugmesi.
-- [ ] **Sabitlenmis mesaj — ayri ekran degil, sohbetin en ustune
+- [x] **Sabitlenmis mesaj — ayri ekran degil, sohbetin en ustune
   sabitleme.** Onceki "ayri ekranda listeleme" fikrinden vazgecildi:
   sabitlenen mesaj normal akistan cikmaz, sohbetin en ustune yapisik
   durur ve yaninda kucuk bir pano igne (📌) isareti gorunur; dokununca

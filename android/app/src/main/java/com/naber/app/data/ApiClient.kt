@@ -317,6 +317,13 @@ class ApiClient(private val session: Session) {
             ?: throw ApiException("Rol degistirilemedi.")
     }
 
+    /** Mesaji sohbetin en ustune sabitler ya da sabitlemeyi kaldirir. */
+    suspend fun pinMessage(messageId: Int, pinned: Boolean): Chat? =
+        Chat.from(
+            call("/messages/$messageId/pin", "POST", JSONObject().put("pinned", pinned), urgent = true)
+                .optJSONObject("chat")
+        )
+
     /** Grup yoneticisi bir uyeyi sohbette susturur veya susturmayi kaldirir. */
     suspend fun setMemberMuted(conversationId: Int, userId: Int, muted: Boolean): Chat =
         Chat.from(call("/chats/$conversationId/members/$userId/mute", "POST", JSONObject().put("muted", muted)).optJSONObject("chat"))

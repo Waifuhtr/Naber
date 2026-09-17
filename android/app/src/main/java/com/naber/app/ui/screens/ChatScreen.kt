@@ -64,6 +64,7 @@ import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Poll
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Mic
@@ -867,6 +868,8 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
     }
     val callPeople = groupCall?.participants?.filter { it.callStatus == "joined" }.orEmpty()
     val showJoin = groupCall != null && myCallStage == CallStage.IDLE
+    // Sabitleme: birebir sohbette herkes, grupta yetkisi olanlar.
+    val canPin = current?.isGroup != true || current.perms.contains("pin_message")
 
     val peerOnline = peerPresence?.online ?: (current?.peer?.online == true)
     val peerLastSeen = peerPresence?.lastSeen ?: (current?.peer?.lastSeen ?: 0L)
@@ -1095,6 +1098,64 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
                     .background(NaberColors.SurfaceHigh)
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             )
+        }
+
+        // Sabitlenmis mesaj: ayri bir klasor yok, sohbetin en ustunde
+        // pano ignesi isaretiyle duruyor. Dokununca mesaja gidilir.
+        current?.pinnedMessage?.let { pinned ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(NaberColors.SurfaceHigh)
+                    .clickable {
+                        val index = visibleMessages.indexOfFirst { it.id == pinned.id }
+                        // Listenin basinda "eski mesajlar yukleniyor" satiri
+                        // varken siralama bir kayar.
+                        val target = if (loadingOlder) index + 1 else index
+                        if (index >= 0) scope.launch { listState.animateScrollToItem(target) }
+                    }
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Filled.PushPin,
+                    contentDescription = "Sabitlenmis mesaj",
+                    tint = NaberColors.Accent,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Sabitlenmis mesaj",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = NaberColors.Accent
+                    )
+                    Text(
+                        pinnedPreview(pinned),
+                        fontSize = 12.5.sp,
+                        color = NaberColors.TextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                if (canPin) {
+                    Icon(
+                        Icons.Filled.Close,
+                        contentDescription = "Sabitlemeyi kaldir",
+                        tint = NaberColors.TextSecondary,
+                        modifier = Modifier
+                            .size(18.dp)
+                            .clickable {
+                                scope.launch {
+                                    runCatching { Naber.api.pinMessage(pinned.id, false) }
+                                        .onSuccess { updated -> updated?.let { chat = it } }
+                                        .onFailure { error = it.message }
+                                }
+                            }
+                    )
+                }
+            }
         }
 
         Box(
@@ -1541,6 +1602,21 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
                         clipboard?.setPrimaryClip(ClipData.newPlainText("Naber", message.body))
                         actionTarget = null
                         error = "Mesaj kopyalandi."
+                    }
+                }
+                if (canPin && !message.deleted && message.id > 0) {
+                    val alreadyPinned = current?.pinnedMessage?.id == message.id
+                    MessageAction(
+                        if (alreadyPinned) "Sabitlemeyi kaldir" else "Sabitle",
+                        Icons.Filled.PushPin
+                    ) {
+                        val target = message
+                        actionTarget = null
+                        scope.launch {
+                            runCatching { Naber.api.pinMessage(target.id, !alreadyPinned) }
+                                .onSuccess { updated -> updated?.let { chat = it } }
+                                .onFailure { error = it.message }
+                        }
                     }
                 }
                 MessageAction("Bilgi", Icons.Filled.Info) {
@@ -2010,6 +2086,16 @@ private fun InfoRow(label: String, value: String) {
         Text(label, fontSize = 13.sp, color = NaberColors.TextSecondary, modifier = Modifier.weight(1f))
         Text(value, fontSize = 13.sp, color = NaberColors.TextPrimary)
     }
+}
+
+/** Sabitlenmis mesaj seridinde gosterilecek kisa metin. */
+private fun pinnedPreview(message: Message): String = when {
+    message.body.isNotBlank() -> message.body
+    message.type == "image" -> "Fotograf"
+    message.type == "audio" -> "Sesli mesaj"
+    message.type == "location" -> "Konum"
+    message.type == "poll" -> "Anket"
+    else -> "Mesaj"
 }
 
 /** Sohbetin ortasinda duran kucuk bilgi seridi. */
