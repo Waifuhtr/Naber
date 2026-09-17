@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AdminPanelSettings
@@ -28,6 +29,7 @@ import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PhotoCamera
@@ -51,9 +53,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.naber.app.Naber
+import com.naber.app.data.AppLock
 import com.naber.app.data.LocalFiles
 import com.naber.app.data.LocalMedia
 import com.naber.app.data.LocalStore
@@ -78,6 +83,9 @@ fun ProfileTab(onAdmin: () -> Unit, onLoggedOut: () -> Unit) {
     var editAbout by remember { mutableStateOf(false) }
     var confirmLogout by remember { mutableStateOf(false) }
     var confirmClearMedia by remember { mutableStateOf(false) }
+    var lockEnabled by remember { mutableStateOf(AppLock.isEnabled(context)) }
+    var setPinDialog by remember { mutableStateOf(false) }
+    var lockOptions by remember { mutableStateOf(false) }
     var avatarVersion by remember { mutableStateOf(0) }
     // Temizlik sonrasi sayilar yeniden hesaplansin diye artirilir.
     var storageVersion by remember { mutableStateOf(0) }
@@ -233,6 +241,13 @@ fun ProfileTab(onAdmin: () -> Unit, onLoggedOut: () -> Unit) {
                 title = "Bildirimler",
                 subtitle = "Sohbet basina sohbet ekranindan ayarlanir"
             )
+            ThinDivider(startIndent = 54.dp)
+            SettingsRow(
+                icon = Icons.Filled.Lock,
+                title = "Uygulama kilidi",
+                subtitle = if (lockEnabled) "PIN acik" else "Kapali",
+                onClick = { if (lockEnabled) lockOptions = true else setPinDialog = true }
+            )
             if (user?.isAdmin == true) {
                 ThinDivider(startIndent = 54.dp)
                 SettingsRow(
@@ -374,6 +389,108 @@ fun ProfileTab(onAdmin: () -> Unit, onLoggedOut: () -> Unit) {
             }
         )
     }
+
+    if (lockOptions) {
+        AlertDialog(
+            containerColor = NaberColors.Surface,
+            onDismissRequest = { lockOptions = false },
+            title = { Text("Uygulama kilidi") },
+            text = { Text("PIN'i degistirebilir veya kilidi tamamen kaldirabilirsiniz.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    lockOptions = false
+                    setPinDialog = true
+                }) { Text("PIN degistir", color = NaberColors.Accent) }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    lockOptions = false
+                    AppLock.clear(context)
+                    lockEnabled = false
+                    message = "Uygulama kilidi kaldirildi."
+                }) { Text("Kilidi kaldir", color = NaberColors.Danger) }
+            }
+        )
+    }
+
+    if (setPinDialog) {
+        PinDialog(
+            onDismiss = { setPinDialog = false },
+            onConfirm = { pin ->
+                setPinDialog = false
+                if (AppLock.setPin(context, pin)) {
+                    lockEnabled = true
+                    message = "Uygulama kilidi acildi. Uygulamadan her cikista PIN sorulacak."
+                }
+            }
+        )
+    }
+}
+
+/** Yeni PIN belirleme penceresi; yanlis yazmaya karsi iki kez sorar. */
+@Composable
+private fun PinDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
+    var pin by remember { mutableStateOf("") }
+    var again by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        containerColor = NaberColors.Surface,
+        onDismissRequest = onDismiss,
+        title = { Text("Uygulama kilidi") },
+        text = {
+            Column {
+                Text(
+                    "4-8 haneli bir PIN belirleyin. Uygulama arka plana alindiginda kilitlenir.",
+                    fontSize = 13.sp,
+                    color = NaberColors.TextSecondary
+                )
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = pin,
+                    onValueChange = { input ->
+                        pin = input.filter { it.isDigit() }.take(AppLock.MAX_LENGTH)
+                        error = null
+                    },
+                    label = { Text("PIN") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = again,
+                    onValueChange = { input ->
+                        again = input.filter { it.isDigit() }.take(AppLock.MAX_LENGTH)
+                        error = null
+                    },
+                    label = { Text("PIN tekrar") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                val shown = error
+                if (shown != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(shown, fontSize = 12.sp, color = NaberColors.Danger)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                when {
+                    !AppLock.isValidPin(pin) -> error = "PIN ${AppLock.MIN_LENGTH}-${AppLock.MAX_LENGTH} rakam olmali."
+                    pin != again -> error = "Iki PIN ayni degil."
+                    else -> onConfirm(pin)
+                }
+            }) { Text("Kaydet", color = NaberColors.Accent) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Vazgec", color = NaberColors.TextSecondary) }
+        }
+    )
 }
 
 @Composable

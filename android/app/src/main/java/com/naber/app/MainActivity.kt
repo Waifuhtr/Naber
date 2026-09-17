@@ -26,6 +26,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.naber.app.call.CallStage
+import com.naber.app.data.AppLock
 import com.naber.app.push.Notifications
 import com.naber.app.ui.screens.AdminScreen
 import com.naber.app.ui.screens.CallScreen
@@ -33,6 +34,7 @@ import com.naber.app.ui.screens.ChatScreen
 import com.naber.app.ui.screens.GroupCreateScreen
 import com.naber.app.ui.screens.GroupInfoScreen
 import com.naber.app.ui.screens.HomeScreen
+import com.naber.app.ui.screens.LockScreen
 import com.naber.app.ui.screens.LoginScreen
 import com.naber.app.ui.screens.UserProfileScreen
 import com.naber.app.ui.theme.NaberColors
@@ -45,6 +47,7 @@ class MainActivity : ComponentActivity() {
     private var pendingConversationId = 0
     private var pendingProfileUserId = 0
     private var pendingAccept by mutableStateOf(false)
+    private var showLock by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -58,6 +61,8 @@ class MainActivity : ComponentActivity() {
         pendingProfileUserId = intent?.getIntExtra(EXTRA_POKE_USER_ID, 0) ?: 0
         pendingAccept = intent?.getBooleanExtra(EXTRA_CALL_ACCEPT, false) ?: false
 
+        showLock = AppLock.isLocked(this)
+
         setContent {
             NaberTheme {
                 Box(modifier = Modifier.fillMaxSize().background(NaberColors.Background)) {
@@ -67,6 +72,11 @@ class MainActivity : ComponentActivity() {
                         autoAcceptCall = pendingAccept,
                         onAcceptConsumed = { pendingAccept = false }
                     )
+                    // Kilit ekrani sohbetlerin uzerini tamamen kapatir; alttaki
+                    // ekran yeniden kurulmadigi icin acilinca kaldigi yerden devam eder.
+                    if (showLock) {
+                        LockScreen(onUnlocked = { showLock = false })
+                    }
                 }
             }
         }
@@ -83,8 +93,18 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStop() {
+        super.onStop()
+        // Arama sirasinda kilitleme: kullanici uygulamaya donunce aramayi
+        // kapatmak icin once PIN girmek zorunda kalmasin.
+        if (Naber.calls.state.value.stage == CallStage.IDLE) {
+            AppLock.lock()
+        }
+    }
+
     override fun onResume() {
         super.onResume()
+        showLock = AppLock.isLocked(this)
         Naber.calls.clearStaleState()
         if (Naber.session.isLoggedIn) {
             Naber.events.start()

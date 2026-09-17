@@ -69,29 +69,37 @@ listeden cikarildi, istenmiyor.**
 - [x] **Mesaja yanit verme (reply/quote)** — tamamlandi (sunucu:
   reply_to_id + reply ozeti; istemci: on izleme cubugu + balon ustunde
   ozet). commit: "Mesaja yanit verme ve mesaj duzenleme".
-- [ ] **Mesaj iletme (forward)** — henuz yapilmadi.
+- [x] **Mesaj iletme (forward)** — tamamlandi (mesaj menusunde "Ilet",
+  sohbet secme penceresi). commit: "Mesaj iletme (forward)".
 - [x] **Emoji reaksiyon** — tamamlandi (naber_reactions tablosu,
   toggle/degistir, balon altinda rozetler). commit: "Emoji reaksiyonu".
 - [x] **Mesaj duzenleme** — tamamlandi (15 dakika pencere, "duzenlendi"
   etiketi). commit: "Mesaja yanit verme ve mesaj duzenleme".
-- [ ] **Uygulama ici kamera** — henuz yapilmadi.
+- [x] **Uygulama ici kamera** — tamamlandi (FileProvider + TakePicture,
+  ek menude "Kamera"). commit: "Uygulama ici kamera".
 
 **Sohbet yonetimi:**
 
-- [ ] **Sohbeti sabitleme (pin)** — henuz yapilmadi.
-- [ ] **Sureli sessize alma** — henuz yapilmadi.
+- [x] **Sohbeti sabitleme (pin)** — tamamlandi (members.pinned_at,
+  sabitlenenler listede ustte). commit: "Sohbeti sabitleme ve sureli
+  sessize alma".
+- [x] **Sureli sessize alma** — tamamlandi (notify_muted_until: 8 saat,
+  1 hafta, suresiz). commit: "Sohbeti sabitleme ve sureli sessize alma".
 - [ ] **Global arama** — henuz yapilmadi.
 - [ ] **Kaybolan mesajlar — ISTEGE BAGLI (opt-in)** — henuz yapilmadi.
 
 **Grup ozellikleri:**
 
 - [ ] **@bahsetme (mention)** — henuz yapilmadi.
-- [ ] **Grup davet KODU + "Kod ile grup bul"** — henuz yapilmadi.
+- [x] **Grup davet KODU + "Kod ile grup bul"** — tamamlandi (8 haneli
+  kod, yoneticinin yenileyebilmesi). commit: "Grup davet kodu".
 - [ ] **Anket (poll)** — henuz yapilmadi.
 
 **Gizlilik / guvenlik:**
 
-- [ ] **Uygulama kilidi** — henuz yapilmadi.
+- [x] **Uygulama kilidi** — tamamlandi (PIN: tuza dayali SHA-256 ozet,
+  arka plana alininca ve uygulama sifirdan acilinca kilitlenir).
+  Parmak izi sonraya birakildi.
 - [ ] **Kullanici engelleme** — henuz yapilmadi.
 - [ ] **Son gorulme / okundu bilgisini gizleme secenegi** — henuz
   yapilmadi.
@@ -127,20 +135,20 @@ duruyor:
 
 Tamamlanan: hata duzeltmesi (1/1), durtme ozelligi, optimizasyonlar
 (8/15 yapildi, 2 kasitli atlandi/ertelendi, 5 kaldi), genel ozellikler
-(3/19 yapildi: yanitla, duzenle, reaksiyon).
+(9/19 yapildi: yanitla, duzenle, reaksiyon, iletme, kamera, sabitleme,
+sureli sessize alma, davet kodu, uygulama kilidi).
 
-Eklenti surumu: 1.9.0. Toplam test: 172, hepsi geciyor.
+Eklenti surumu: 1.12.0. Toplam test: 185, hepsi geciyor.
 
-Kalan buyuk is: sesli mesaj, iletme, uygulama ici kamera, sohbet
-sabitleme, sureli sessize alma, global arama, kaybolan mesajlar,
-bahsetme, grup davet kodu, anket, uygulama kilidi, engelleme, gizlilik
-secenekleri, acik tema, sohbet arka plani, konum paylasma, lazy medya
-indirme, delta senkronizasyon, WorkManager.
+Kalan buyuk is: sesli mesaj, global arama, kaybolan mesajlar,
+bahsetme, anket, engelleme, gizlilik secenekleri, acik tema, sohbet
+arka plani, konum paylasma, lazy medya indirme, delta senkronizasyon,
+WorkManager.
 
 ## Kodlamaya gecince siralama
 
 1. [x] Tam ekran gorsel siyah ekran duzeltmesi.
 2. [x] Durtme ozelligi (sunucu + istemci).
 3. Onaylanan optimizasyonlar — 8/15 yapildi, kalanlar surdurulecek.
-4. Onaylanan genel ozellikler — 3/19 yapildi, kalanlar surdurulecek.
+4. Onaylanan genel ozellikler — 9/19 yapildi, kalanlar surdurulecek.
 5. Ek oneriler arasindan kullanicinin sectikleri (henuz baslanmadi).
