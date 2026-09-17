@@ -194,6 +194,31 @@ onaylandi:
    "Topluluklar" / "Yayin listesi" gibi buyuk olcekli WhatsApp
    ozellikleri (proje kapsami disi).
 
+## Arama deneyimi — KESIN YAPILACAK (henuz kodlanmadi)
+
+Kullanicinin 17 Eylul istegi (Discord benzeri):
+
+1. [ ] **Arka plan baloncugu (overlay).** Aramadayken uygulama arka
+   plana alininca ekranda kucuk bir baloncuk kalsin; oradan ses paneli
+   yonetilebilsin.
+   - Kendini sessize alma (mikrofonu kapat) — zaten var, baloncuga
+     tasinacak.
+   - **Sagirlastirma (deafen)**: acik oldugu surece karsi taraflarin
+     sesi hic duyulmaz, kapatinca yeniden duyulur. Yeni ozellik.
+   - Baloncukta konusanlarin profil fotograflari gorunsun; kim
+     konusuyorsa fotografi hafifce yanip sonsun.
+   - Baloncuk bir sure dokunulmazsa kendiliginden saydamlasip gizlensin;
+     tekrar dokunulana kadar one cikmasin.
+   - Not: Android'de bu SYSTEM_ALERT_WINDOW (diger uygulamalarin
+     uzerinde gosterme) izni gerektirir; izin istenecek ve verilmezse
+     ozellik kapali kalacak.
+2. [ ] **Grup aramasina katilma dugmesi.** Grup aramasi surerken grup
+   sohbetinde baslik yaninda "Katil" dugmesi gorunsun; arama bitene
+   kadar dursun.
+3. [ ] **Aramadaki kisilerin seridi.** Basligin altinda kucuk bir
+   seritte aramada olanlarin minik profil fotograflari gorunsun (isim
+   yok, yalnizca fotograflar).
+
 ## Ek ozellik onerileri (henuz onaylanmadi, degerlendirilecek)
 
 Daha once onerilenlere ek, yine kucuk guvenilir grup (~10 kisi)
