@@ -855,7 +855,7 @@ class Naber_REST {
 	public function send_message( WP_REST_Request $request ) {
 		$user_id  = get_current_user_id();
 		$type     = sanitize_key( (string) $request->get_param( 'type' ) );
-		$type     = in_array( $type, array( 'text', 'image', 'location', 'poll' ), true ) ? $type : 'text';
+		$type     = in_array( $type, array( 'text', 'image', 'location', 'poll', 'audio' ), true ) ? $type : 'text';
 		$body     = (string) $request->get_param( 'body' );
 		$media_id = (int) $request->get_param( 'media_id' );
 		$client   = sanitize_text_field( (string) $request->get_param( 'client_id' ) );
@@ -892,6 +892,16 @@ class Naber_REST {
 		// Engelleme yalnizca birebir sohbetleri kapatir; gruplar etkilenmez.
 		if ( ! $is_group && $receiver_id && Naber_Blocks::between( $user_id, $receiver_id ) ) {
 			return Naber_Blocks::blocked_error( 'message' );
+		}
+
+		if ( 'audio' === $type ) {
+			// Sesli mesajin govdesi saniye cinsinden suresidir; balonda
+			// ses inmeden once sure gosterilebilsin diye tasinir.
+			$media = Naber_Media::get( $media_id );
+			if ( ! $media || (int) $media['owner_id'] !== $user_id ) {
+				return new WP_Error( 'naber_media_invalid', 'Gecersiz ses kaydi.', array( 'status' => 400 ) );
+			}
+			$body = (string) max( 0, min( 600, (int) $body ) );
 		}
 
 		if ( 'image' === $type ) {
@@ -966,7 +976,7 @@ class Naber_REST {
 		}
 
 		$sender  = Naber_Auth::user_payload( $user_id );
-		$preview = 'image' === $type ? 'Fotograf' : ( 'location' === $type ? 'Konum' : wp_trim_words( $body, 12, '...' ) );
+		$preview = 'image' === $type ? 'Fotograf' : ( 'location' === $type ? 'Konum' : ( 'audio' === $type ? 'Sesli mesaj' : wp_trim_words( $body, 12, '...' ) ) );
 		if ( 'poll' === $type ) {
 			$preview = 'Anket: ' . $preview;
 		}

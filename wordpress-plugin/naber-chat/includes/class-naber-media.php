@@ -21,6 +21,11 @@ class Naber_Media {
 		'image/png'  => 'png',
 		'image/webp' => 'webp',
 		'image/gif'  => 'gif',
+		// Sesli mesaj. Android MediaRecorder AAC sesi MP4 kabinda uretir;
+		// bazi cihazlar bunu "audio/mp4", bazilari "audio/aac" olarak
+		// bildirdigi icin ikisi de kabul edilir.
+		'audio/mp4'  => 'm4a',
+		'audio/aac'  => 'm4a',
 	);
 
 	public static function max_bytes() {

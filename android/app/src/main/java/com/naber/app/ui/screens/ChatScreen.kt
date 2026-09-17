@@ -54,12 +54,15 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Poll
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -71,6 +74,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -115,6 +119,8 @@ import com.naber.app.data.SendState
 import com.naber.app.data.MessageInfo
 import com.naber.app.data.TickState
 import com.naber.app.data.TypingUser
+import com.naber.app.data.VoicePlayer
+import com.naber.app.data.VoiceRecorder
 import com.naber.app.data.User
 import com.naber.app.ui.SenderAvatar
 import com.naber.app.ui.ChatAvatar
@@ -130,7 +136,9 @@ import com.naber.app.push.Notifications
 import com.naber.app.push.SoundPlayer
 import com.naber.app.ui.theme.NaberColors
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.UUID
 
 /** Basili tutunca gosterilen hizli reaksiyon secenekleri. */
@@ -168,6 +176,12 @@ private fun mentionText(body: String, names: List<String>, highlight: Color): An
             }
         }
     }
+}
+
+/** Saniyeyi "1:05" bicimine cevirir. */
+private fun formatDuration(seconds: Int): String {
+    val safe = seconds.coerceAtLeast(0)
+    return "${safe / 60}:${(safe % 60).toString().padStart(2, '0')}"
 }
 
 private fun disappearLabel(seconds: Int): String = when (seconds) {
@@ -212,9 +226,14 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
     var wallpaperDialogOpen by remember { mutableStateOf(false) }
     var locationBusy by remember { mutableStateOf(false) }
     var pollDialogOpen by remember { mutableStateOf(false) }
+    var recording by remember { mutableStateOf(false) }
+    var recordSeconds by remember { mutableStateOf(0) }
+    // Calan sesli mesajin anahtari; ayni anda yalnizca biri calar.
+    var playingKey by remember { mutableStateOf("") }
     // Izin penceresinden donunce konumu gondermek icin kullanilir; izin
     // sonucu, gondermeyi yapan fonksiyon tanimlanmadan once gelir.
     val sendLocationRequest = remember { mutableStateOf(false) }
+    val startRecordingRequest = remember { mutableStateOf(false) }
     var wallpaperId by remember(conversationId) { mutableStateOf(ChatWallpaper.idFor(context, conversationId)) }
     var infoTarget by remember { mutableStateOf<MessageInfo?>(null) }
     val retriedImages = remember { mutableStateListOf<Int>() }
@@ -233,6 +252,13 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
 
     val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) sendLocationRequest.value = true else error = "Konum izni verilmedi."
+    }
+
+    // Mikrofon izni arama icin de isteniyor ama oradaki geri cagri aramayi
+    // baslatiyor; sesli mesaj icin ayri bir launcher gerekiyor, yoksa izin
+    // verildiginde kayit yerine arama baslardi.
+    val recordPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) startRecordingRequest.value = true else error = "Mikrofon izni verilmedi."
     }
 
     fun startCall() {
@@ -390,13 +416,13 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
 
             // Depolama ucundan gecici hata gelebiliyor; bir kez sessizce tekrar denenir.
             val media = try {
-                Naber.api.uploadImage(prepared.bytes, prepared.mime, prepared.width, prepared.height) { percent ->
+                Naber.api.uploadMedia(prepared.bytes, prepared.mime, prepared.width, prepared.height) { percent ->
                     messages = messages.map { if (it.clientId == clientId) it.copy(uploadProgress = percent) else it }
                 }
             } catch (first: Exception) {
                 delay(700)
                 messages = messages.map { if (it.clientId == clientId) it.copy(uploadProgress = 0) else it }
-                Naber.api.uploadImage(prepared.bytes, prepared.mime, prepared.width, prepared.height) { percent ->
+                Naber.api.uploadMedia(prepared.bytes, prepared.mime, prepared.width, prepared.height) { percent ->
                     messages = messages.map { if (it.clientId == clientId) it.copy(uploadProgress = percent) else it }
                 }
             }
@@ -444,6 +470,8 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
         body = when (target.type) {
             "image" -> "Fotograf"
             "location" -> "Konum"
+            "audio" -> "Sesli mesaj"
+            "poll" -> "Anket"
             else -> target.body
         },
         deleted = target.deleted
@@ -543,6 +571,110 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
                     }
                 }
                 .onFailure { error = it.message }
+        }
+    }
+
+    fun sendVoice(file: java.io.File, seconds: Int) {
+        val clientId = UUID.randomUUID().toString()
+        val reply = replyTarget?.let { buildReplySummary(it) }
+        messages = messages + Message(
+            id = 0,
+            conversationId = conversationId,
+            senderId = myId,
+            type = "audio",
+            body = seconds.toString(),
+            clientId = clientId,
+            isRead = false,
+            deleted = false,
+            createdAt = System.currentTimeMillis() / 1000,
+            media = null,
+            localImageUri = Uri.fromFile(file).toString(),
+            sendState = SendState.SENDING,
+            replyTo = reply
+        )
+        replyTarget = null
+
+        scope.launch {
+            try {
+                val bytes = withContext(Dispatchers.IO) { file.readBytes() }
+                val media = Naber.api.uploadMedia(bytes, "audio/mp4", 0, 0) { percent ->
+                    messages = messages.map {
+                        if (it.clientId == clientId) it.copy(uploadProgress = percent) else it
+                    }
+                }
+                val sent = Naber.api.sendAudio(conversationId, media.id, seconds, clientId, reply?.id ?: 0)
+                // Yerel dosya korunur: ses sunucudan tekrar indirilmeden calar.
+                LocalMedia.remember(clientId, Uri.fromFile(file).toString())
+                messages = messages.map { if (it.clientId == clientId) sent else it }
+            } catch (e: Exception) {
+                error = e.message
+                messages = messages.map {
+                    if (it.clientId == clientId) it.copy(sendState = SendState.FAILED) else it
+                }
+            }
+        }
+    }
+
+    fun beginRecording() {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            recordPermission.launch(Manifest.permission.RECORD_AUDIO)
+            return
+        }
+        if (VoiceRecorder.start(context)) {
+            recordSeconds = 0
+            recording = true
+        } else {
+            error = "Kayit baslatilamadi."
+        }
+    }
+
+    fun finishRecording() {
+        recording = false
+        val result = VoiceRecorder.stop()
+        if (result == null) {
+            error = "Kayit cok kisa."
+            return
+        }
+        sendVoice(result.first, result.second)
+    }
+
+    fun cancelRecording() {
+        recording = false
+        VoiceRecorder.cancel()
+    }
+
+    fun togglePlayback(message: Message) {
+        val source = message.localImageUri
+            ?: LocalMedia.uriFor(message.media?.id ?: 0, message.clientId)
+            ?: message.media?.url?.takeIf { it.isNotBlank() }
+            ?: return
+        val started = VoicePlayer.toggle(source, message.key) { playingKey = "" }
+        playingKey = if (started) message.key else ""
+    }
+
+    // Izin verildikten sonra kayit burada baslar.
+    LaunchedEffect(startRecordingRequest.value) {
+        if (startRecordingRequest.value) {
+            startRecordingRequest.value = false
+            beginRecording()
+        }
+    }
+
+    // Kayit suresi ekranda sayilir ve ust sinire gelince kendiliginden biter.
+    LaunchedEffect(recording) {
+        while (recording) {
+            delay(1000)
+            recordSeconds = VoiceRecorder.elapsedSeconds()
+            if (recordSeconds >= VoiceRecorder.MAX_SECONDS) finishRecording()
+        }
+    }
+
+    // Ekrandan cikilinca kayit ve calma birakilir; yoksa arka planda
+    // mikrofon acik kalir ya da ses calmaya devam eder.
+    DisposableEffect(conversationId) {
+        onDispose {
+            VoiceRecorder.cancel()
+            VoicePlayer.stop()
         }
     }
 
@@ -908,6 +1040,8 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
                             isGroup = current?.isGroup == true,
                             mentionNames = mentionNames,
                             onVote = { pollId, index -> vote(pollId, index) },
+                            playing = playingKey == message.key,
+                            onPlayToggle = { togglePlayback(message) },
                             tick = tickFor(message, chat?.deliveredWatermark ?: 0, chat?.readWatermark ?: 0),
                             onImageClick = { fullScreen = it },
                             onLongPress = { actionTarget = message },
@@ -1010,6 +1144,36 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
                     contentDescription = "Yanitlamayi iptal et",
                     tint = NaberColors.TextSecondary,
                     modifier = Modifier.size(20.dp).clickable { replyTarget = null }
+                )
+            }
+        }
+
+        if (recording) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(NaberColors.TopBar)
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Filled.Mic,
+                    contentDescription = null,
+                    tint = NaberColors.Danger,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "Kaydediliyor ${formatDuration(recordSeconds)}",
+                    color = NaberColors.TextPrimary,
+                    fontSize = 13.sp,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    "Vazgec",
+                    color = NaberColors.TextSecondary,
+                    fontSize = 13.sp,
+                    modifier = Modifier.clickable { cancelRecording() }
                 )
             }
         }
@@ -1120,18 +1284,40 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
 
                 Spacer(Modifier.width(8.dp))
 
+                // Yazi yokken ayni dugme sesli mesaj kaydeder; WhatsApp'taki
+                // gibi metin girilince gonderme dugmesine doner.
                 Box(
                     modifier = Modifier
                         .size(42.dp)
                         .clip(CircleShape)
-                        .background(if (draft.isBlank()) NaberColors.SurfaceHigh else NaberColors.Bubble)
-                        .clickable(enabled = draft.isNotBlank()) { sendText() },
+                        .background(
+                            when {
+                                recording -> NaberColors.Danger
+                                draft.isBlank() -> NaberColors.SurfaceHigh
+                                else -> NaberColors.Bubble
+                            }
+                        )
+                        .clickable {
+                            when {
+                                draft.isNotBlank() -> sendText()
+                                recording -> finishRecording()
+                                else -> beginRecording()
+                            }
+                        },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        Icons.AutoMirrored.Filled.Send,
-                        contentDescription = "Gonder",
-                        tint = if (draft.isBlank()) NaberColors.TextSecondary else Color.White,
+                        when {
+                            recording -> Icons.Filled.Stop
+                            draft.isBlank() -> Icons.Filled.Mic
+                            else -> Icons.AutoMirrored.Filled.Send
+                        },
+                        contentDescription = when {
+                            recording -> "Kaydi bitir"
+                            draft.isBlank() -> "Sesli mesaj"
+                            else -> "Gonder"
+                        },
+                        tint = if (draft.isBlank() && !recording) NaberColors.TextSecondary else Color.White,
                         modifier = Modifier.size(19.dp)
                     )
                 }
@@ -1554,6 +1740,9 @@ private fun MessageRow(
     /** Vurgulanacak "@isim"ler; grup disinda bos gelir. */
     mentionNames: List<String>,
     onVote: (Int, Int) -> Unit,
+    /** Bu sesli mesaj su an caliyor mu. */
+    playing: Boolean,
+    onPlayToggle: () -> Unit,
     tick: TickState,
     onImageClick: (Any) -> Unit,
     onLongPress: () -> Unit,
@@ -1622,6 +1811,8 @@ private fun MessageRow(
                             reply.deleted -> "Bu mesaj silindi"
                             reply.type == "image" -> "Fotograf"
                             reply.type == "location" -> "Konum"
+                            reply.type == "audio" -> "Sesli mesaj"
+                            reply.type == "poll" -> "Anket"
                             else -> reply.body
                         },
                         fontSize = 12.5.sp,
@@ -1693,6 +1884,16 @@ private fun MessageRow(
                     }
                 }
 
+                if (message.type == "audio") {
+                    VoiceBubble(
+                        seconds = message.body.toIntOrNull() ?: 0,
+                        mine = mine,
+                        playing = playing,
+                        uploading = message.sendState == SendState.SENDING,
+                        onToggle = onPlayToggle
+                    )
+                }
+
                 message.poll?.let { poll ->
                     PollBubble(poll = poll, mine = mine, onVote = { index -> onVote(poll.id, index) })
                 }
@@ -1740,7 +1941,9 @@ private fun MessageRow(
                     }
                 }
 
-                if (message.body.isNotBlank() && message.type != "location" && message.type != "poll") {
+                if (message.body.isNotBlank() && message.type != "location" && message.type != "poll" &&
+                    message.type != "audio"
+                ) {
                     Text(
                         mentionText(
                             message.body,
@@ -2006,4 +2209,45 @@ private fun PollDialog(onDismiss: () -> Unit, onCreate: (String, List<String>, B
             TextButton(onClick = onDismiss) { Text("Vazgec", color = NaberColors.TextSecondary) }
         }
     )
+}
+
+/** Sesli mesaj balonu: cal/durdur dugmesi ve sure. */
+@Composable
+private fun VoiceBubble(
+    seconds: Int,
+    mine: Boolean,
+    playing: Boolean,
+    uploading: Boolean,
+    onToggle: () -> Unit
+) {
+    val textColor = if (mine) Color.White else NaberColors.TextPrimary
+    Row(
+        modifier = Modifier.width(190.dp).padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .clip(CircleShape)
+                .background(if (mine) Color.White.copy(alpha = 0.2f) else NaberColors.SurfaceHigh)
+                .clickable(enabled = !uploading) { onToggle() },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                if (playing) Icons.Filled.Stop else Icons.Filled.PlayArrow,
+                contentDescription = if (playing) "Durdur" else "Dinle",
+                tint = textColor,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text("Sesli mesaj", fontSize = 13.5.sp, color = textColor)
+            Text(
+                if (uploading) "Gonderiliyor..." else formatDuration(seconds),
+                fontSize = 11.5.sp,
+                color = if (mine) Color.White.copy(alpha = 0.75f) else NaberColors.TextSecondary
+            )
+        }
+    }
 }

@@ -73,7 +73,7 @@ fun GroupCreateScreen(onBack: () -> Unit, onCreated: (Int) -> Unit) {
         scope.launch {
             runCatching {
                 val prepared = prepareImage(context, uri, maxSize = 640) ?: return@runCatching
-                val media = Naber.api.uploadImage(prepared.bytes, prepared.mime, prepared.width, prepared.height) {}
+                val media = Naber.api.uploadMedia(prepared.bytes, prepared.mime, prepared.width, prepared.height) {}
                 avatarMediaId = media.id
             }.onFailure { error = it.message }
         }

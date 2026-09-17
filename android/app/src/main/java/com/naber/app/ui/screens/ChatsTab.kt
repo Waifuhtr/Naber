@@ -524,6 +524,8 @@ private fun ChatRow(chat: Chat, online: Boolean, onClick: () -> Unit) {
                 last.deleted -> "Bu mesaj silindi"
                 last.type == "image" -> "Fotograf"
                 last.type == "location" -> "Konum"
+                last.type == "audio" -> "Sesli mesaj"
+                last.type == "poll" -> "Anket: ${last.body}"
                 else -> last.body
             }
             val prefix = when {

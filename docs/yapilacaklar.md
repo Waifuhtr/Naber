@@ -66,7 +66,10 @@ listeden cikarildi, istenmiyor.**
 
 **Mesajlasma:**
 
-- [ ] **Sesli mesaj (voice note)** — henuz yapilmadi.
+- [x] **Sesli mesaj (voice note)** — tamamlandi (yazi alani bosken
+  gonder dugmesi mikrofona doner; kayit AAC/m4a olarak yuklenir,
+  balonda cal/durdur ve sure gosterilir). NOT: gercek cihazda
+  denenmedi, kayit/calma donanim gerektiriyor.
 - [x] **Mesaja yanit verme (reply/quote)** — tamamlandi (sunucu:
   reply_to_id + reply ozeti; istemci: on izleme cubugu + balon ustunde
   ozet). commit: "Mesaja yanit verme ve mesaj duzenleme".
@@ -155,20 +158,20 @@ duruyor:
 
 Tamamlanan: hata duzeltmesi (1/1), durtme ozelligi, optimizasyonlar
 (9/15 yapildi, 2 kasitli atlandi/ertelendi, 4 kaldi), genel ozellikler
-(18/19 yapildi: yanitla, duzenle, reaksiyon, iletme, kamera, sabitleme,
+(19/19 yapildi: yanitla, duzenle, reaksiyon, iletme, kamera, sabitleme,
 sureli sessize alma, davet kodu, uygulama kilidi, global arama,
 kaybolan mesajlar, engelleme, bahsetme, gizlilik secenekleri,
-acik tema, sohbet arka plani, konum paylasma, anket).
+acik tema, sohbet arka plani, konum paylasma, anket, sesli mesaj).
 
-Eklenti surumu: 1.17.0. Toplam test: 253, hepsi geciyor.
+Eklenti surumu: 1.18.0. Toplam test: 253, hepsi geciyor.
 
-Kalan buyuk is: sesli mesaj, lazy medya indirme, delta
-senkronizasyon, WorkManager.
+Kalan buyuk is: yalnizca optimizasyonlar (lazy medya indirme, delta
+senkronizasyon, WorkManager). Onaylanan butun ozellikler bitti.
 
 ## Kodlamaya gecince siralama
 
 1. [x] Tam ekran gorsel siyah ekran duzeltmesi.
 2. [x] Durtme ozelligi (sunucu + istemci).
 3. Onaylanan optimizasyonlar — 9/15 yapildi, kalanlar surdurulecek.
-4. Onaylanan genel ozellikler — 18/19 yapildi, kalanlar surdurulecek.
+4. [x] Onaylanan genel ozellikler — 19/19 tamamlandi.
 5. Ek oneriler arasindan kullanicinin sectikleri (henuz baslanmadi).

@@ -294,6 +294,21 @@ class ApiClient(private val session: Session) {
             call("/polls/$pollId/vote", "POST", JSONObject().put("option", optionIndex)).optJSONObject("poll")
         ) ?: throw ApiException("Oy kaydedilemedi.")
 
+    /** Sesli mesaj; govdesi saniye cinsinden suredir. */
+    suspend fun sendAudio(conversationId: Int, mediaId: Int, seconds: Int, clientId: String, replyTo: Int = 0): Message =
+        Message.from(
+            call(
+                "/messages", "POST",
+                JSONObject()
+                    .put("conversation_id", conversationId)
+                    .put("type", "audio")
+                    .put("media_id", mediaId)
+                    .put("body", seconds.toString())
+                    .put("client_id", clientId)
+                    .put("reply_to", replyTo)
+            ).optJSONObject("message")
+        ) ?: throw ApiException("Sesli mesaj gonderilemedi.")
+
     /** Konum mesaji; govdesi "enlem,boylam" bicimindedir. */
     suspend fun sendLocation(conversationId: Int, latitude: Double, longitude: Double, clientId: String): Message =
         Message.from(
@@ -424,7 +439,13 @@ class ApiClient(private val session: Session) {
      * 2) dosyayi dogrudan Backblaze'e yukle (ilerleme geri bildirimli)
      * 3) sunucuda kaydi tamamla
      */
-    suspend fun uploadImage(
+    /**
+     * Medya yukler (gorsel ya da ses).
+     *
+     * Ses kayitlarinda genislik/yukseklik anlamsizdir, 0 gecilir; yukleme
+     * yolu ikisinde de ayni oldugu icin ayri bir islev yazilmadi.
+     */
+    suspend fun uploadMedia(
         bytes: ByteArray,
         mime: String,
         width: Int,

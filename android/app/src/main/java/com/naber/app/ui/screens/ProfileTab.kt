@@ -128,7 +128,7 @@ fun ProfileTab(onAdmin: () -> Unit, onLoggedOut: () -> Unit) {
                         Naber.session.localAvatar = path
                         avatarVersion++
                     }
-                    val media = Naber.api.uploadImage(prepared.bytes, prepared.mime, prepared.width, prepared.height) {}
+                    val media = Naber.api.uploadMedia(prepared.bytes, prepared.mime, prepared.width, prepared.height) {}
                     user = Naber.api.updateProfile(null, null, media.id)
                     message = "Profil fotografi guncellendi."
                 }
