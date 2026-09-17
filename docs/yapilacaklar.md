@@ -235,6 +235,23 @@ sordu, asagidakiler eklendi (Ek ozellik onerileri listesindeki
 - **Grup istatistigi**: en aktif uye, toplam mesaj sayisi gibi kucuk
   bir ozet (dusuk oncelik, eglence amacli).
 
+**Ikinci tur oneriler:**
+
+- [ ] **ONEMLI — Sahiplik devri.** Su an owner rolu hic el
+  degistirmiyor: kurucu gruptan ayrilirsa grup sahipsiz kalir. Kurucu
+  "Sahipligi devret" diyip owner rolunu baska bir uyeye birakabilmeli
+  (en azindan ayrilmadan once). Gercek bir eksiklik, oncelik verilmeli.
+- [ ] **ONEMLI — Sistem mesajlari.** "X gruba katildi", "Y grubu
+  birakti", "Z cikarildi", "Grup adi/fotografi degisti" gibi olaylar
+  su an sohbet akisinda hic gorunmuyor (WhatsApp'in standart ozelligi).
+  Gri bilgi balonu olarak akisa eklenmeli.
+- **Davet kodunu harici paylasma**: kopyalamanin yanina Android
+  paylasim sayfasini (Intent.ACTION_SEND) acan bir "Paylas" dugmesi.
+- **Sabitlenmis mesajlar listesi**: tek duyuru yerine, sabitlenen
+  mesajlari ayri bir ekranda listeleme.
+- **"@herkes" kisitlamasi**: grup izinlerine ek olarak, "@herkes"
+  bahsetmesini yalnizca yoneticilerin kullanabilmesi secenegi.
+
 ## Durum ozeti (en son guncelleme: Persembe 05:00 tetikleyicisi)
 
 Tamamlanan: hata duzeltmesi (1/1), durtme ozelligi, optimizasyonlar
