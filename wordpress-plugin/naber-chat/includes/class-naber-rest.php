@@ -56,6 +56,7 @@ class Naber_REST {
 		$this->route( $ns, '/groups/(?P<id>\d+)/invite-code/regenerate', 'POST', 'regenerate_invite_code', $user );
 		$this->route( $ns, '/chats/(?P<id>\d+)', 'GET', 'chat_info', $user );
 		$this->route( $ns, '/chats/(?P<id>\d+)', 'POST', 'update_chat', $user );
+		$this->route( $ns, '/chats/(?P<id>\d+)', 'DELETE', 'delete_group', $user );
 		$this->route( $ns, '/chats/(?P<id>\d+)/members', 'POST', 'add_members', $user );
 		$this->route( $ns, '/chats/(?P<id>\d+)/members/(?P<user>\d+)', 'DELETE', 'remove_member', $user );
 		$this->route( $ns, '/chats/(?P<id>\d+)/members/(?P<user>\d+)/role', 'POST', 'set_member_role', $user );
@@ -592,6 +593,23 @@ class Naber_REST {
 		return rest_ensure_response( array( 'invite_code' => $code ) );
 	}
 
+	/** Grubu tamamen siler; yalnizca grup sahibi yapabilir. */
+	public function delete_group( WP_REST_Request $request ) {
+		$conversation = $this->authorized_conversation( (int) $request['id'] );
+		if ( is_wp_error( $conversation ) ) {
+			return $conversation;
+		}
+		if ( 'group' !== $conversation['type'] ) {
+			return new WP_Error( 'naber_not_group', 'Yalnizca gruplar silinebilir.', array( 'status' => 400 ) );
+		}
+		if ( 'owner' !== Naber_Chat_Repo::role_of( (int) $conversation['id'], get_current_user_id() ) ) {
+			return new WP_Error( 'naber_forbidden', 'Grubu yalnizca sahibi silebilir.', array( 'status' => 403 ) );
+		}
+
+		Naber_DB::purge_conversation( (int) $conversation['id'] );
+		return rest_ensure_response( array( 'ok' => true ) );
+	}
+
 	public function chat_info( WP_REST_Request $request ) {
 		$conversation = $this->authorized_conversation( (int) $request['id'] );
 		if ( is_wp_error( $conversation ) ) {
@@ -621,6 +639,14 @@ class Naber_REST {
 				$fields[ $key ] = (string) $value;
 			}
 		}
+		$mention_all = $request->get_param( 'mention_all_admins' );
+		if ( null !== $mention_all ) {
+			if ( ! Naber_Chat_Repo::is_group_admin( (int) $conversation['id'], get_current_user_id() ) ) {
+				return new WP_Error( 'naber_forbidden', 'Bu ayari yalnizca yoneticiler degistirebilir.', array( 'status' => 403 ) );
+			}
+			$fields['mention_all_admins'] = rest_sanitize_boolean( $mention_all );
+		}
+
 		$avatar = (int) $request->get_param( 'avatar_media_id' );
 		if ( $avatar > 0 ) {
 			$media = Naber_Media::get( $avatar );
@@ -1091,8 +1117,13 @@ class Naber_REST {
 
 		// Bahsedilen uyeler sohbeti sessize almis olsa da bildirim alir;
 		// bahsetmenin amaci zaten dikkat cekmek.
+		// "@herkes" kisitlamasi acik olan gruplarda bu sozcugu yalnizca
+		// yoneticiler kullanabilir; digerlerinde duz metin sayilir.
+		$allow_all = ! $is_group
+			|| empty( $conversation['mention_all_admins'] )
+			|| Naber_Chat_Repo::is_group_admin( $conversation_id, $user_id );
 		$mentioned = $is_group
-			? Naber_Chat_Repo::mentioned_ids( $body, Naber_Chat_Repo::members( $conversation_id ) )
+			? Naber_Chat_Repo::mentioned_ids( $body, Naber_Chat_Repo::members( $conversation_id ), $allow_all )
 			: array();
 
 		self::notify_conversation_members( $conversation_id, $user_id, $sender['display_name'], $title, $text, (int) $message['id'], $mentioned );

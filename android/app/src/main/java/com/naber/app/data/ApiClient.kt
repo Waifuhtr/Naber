@@ -265,13 +265,25 @@ class ApiClient(private val session: Session) {
     suspend fun regenerateInviteCode(conversationId: Int): String =
         call("/groups/$conversationId/invite-code/regenerate", "POST").optString("invite_code")
 
-    suspend fun updateGroup(conversationId: Int, title: String?, about: String?, avatarMediaId: Int?): Chat {
+    suspend fun updateGroup(
+        conversationId: Int,
+        title: String?,
+        about: String?,
+        avatarMediaId: Int?,
+        mentionAllAdmins: Boolean? = null
+    ): Chat {
         val payload = JSONObject()
         title?.let { payload.put("title", it) }
         about?.let { payload.put("about", it) }
         avatarMediaId?.let { payload.put("avatar_media_id", it) }
+        mentionAllAdmins?.let { payload.put("mention_all_admins", it) }
         return Chat.from(call("/chats/$conversationId", "POST", payload).optJSONObject("chat"))
             ?: throw ApiException("Grup guncellenemedi.")
+    }
+
+    /** Grubu tamamen siler; sunucu yalnizca grup sahibine izin verir. */
+    suspend fun deleteGroup(conversationId: Int) {
+        call("/chats/$conversationId", "DELETE")
     }
 
     suspend fun addGroupMembers(conversationId: Int, memberIds: List<Int>): Chat =

@@ -448,11 +448,15 @@ class Naber_Chat_Repo {
 	 * Mesaj metninde bahsedilen ("@isim") uyeleri bulur. Saf fonksiyon:
 	 * veritabanina dokunmaz, uye listesi disaridan verilir.
 	 *
-	 * @param string $body    Mesaj metni.
-	 * @param array  $members Her biri 'id' ve 'display_name' iceren uyeler.
+	 * @param string $body      Mesaj metni.
+	 * @param array  $members   Her biri 'id' ve 'display_name' iceren uyeler.
+	 * @param bool   $allow_all "@herkes" kullanilabilir mi. Grup ayari
+	 *                          yalnizca yoneticilere izin veriyorsa false
+	 *                          gelir; o zaman "@herkes" sozcugu siradan
+	 *                          metin gibi degerlendirilir.
 	 * @return int[] Bahsedilen uye kimlikleri.
 	 */
-	public static function mentioned_ids( $body, array $members ) {
+	public static function mentioned_ids( $body, array $members, $allow_all = true ) {
 		$body = (string) $body;
 		if ( '' === $body || false === strpos( $body, '@' ) ) {
 			return array();
@@ -460,7 +464,7 @@ class Naber_Chat_Repo {
 
 		$haystack = self::fold_for_match( $body );
 
-		foreach ( self::MENTION_ALL_TOKENS as $token ) {
+		foreach ( ( $allow_all ? self::MENTION_ALL_TOKENS : array() ) as $token ) {
 			if ( false !== strpos( $haystack, $token ) ) {
 				return array_values( array_unique( array_map(
 					function ( $member ) {
@@ -573,6 +577,10 @@ class Naber_Chat_Repo {
 		if ( isset( $fields['owner_id'] ) ) {
 			$data['owner_id'] = (int) $fields['owner_id'];
 			$formats[]        = '%d';
+		}
+		if ( isset( $fields['mention_all_admins'] ) ) {
+			$data['mention_all_admins'] = $fields['mention_all_admins'] ? 1 : 0;
+			$formats[]                  = '%d';
 		}
 		if ( ! $data ) {
 			return false;
@@ -726,6 +734,8 @@ class Naber_Chat_Repo {
 			'disappear_seconds' => (int) ( $row['disappear_seconds'] ?? 0 ),
 			// Sohbetin en ustune tutturulan mesaj (yoksa null).
 			'pinned_message' => self::pinned_message_payload( $row, $user_id ),
+			// Acikken "@herkes" yalnizca yoneticilerde calisir.
+			'mention_all_admins' => ! empty( $row['mention_all_admins'] ),
 			'unread'       => $unread,
 			'updated_at'   => self::ts( $row['updated_at'] ),
 			'last_message' => $last,

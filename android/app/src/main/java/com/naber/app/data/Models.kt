@@ -32,7 +32,9 @@ data class User(
     val callStatus: String = "",
     val muted: Boolean = false,
     /** Grupta bu uyeye tek tek verilmis yetkiler (GroupPermission anahtarlari). */
-    val perms: List<String> = emptyList()
+    val perms: List<String> = emptyList(),
+    /** Gruba katilma zamani (unix saniye); yalnizca uye listesinde dolu gelir. */
+    val joinedAt: Long = 0L
 ) {
     val isGroupAdmin: Boolean get() = role == "owner" || role == "admin"
 
@@ -68,7 +70,8 @@ data class User(
                 chatMuted = json.optBoolean("chat_muted"),
                 callStatus = json.optString("call_status"),
                 muted = json.optBoolean("muted"),
-                perms = json.optJSONArray("perms").mapStrings()
+                perms = json.optJSONArray("perms").mapStrings(),
+                joinedAt = json.optLong("joined_at")
             )
         }
 
@@ -325,7 +328,9 @@ data class Chat(
     /** Bu sohbette benim ayrintili yetkilerim. */
     val perms: List<String> = emptyList(),
     /** Sohbetin en ustune tutturulmus mesaj; yoksa null. */
-    val pinnedMessage: Message? = null
+    val pinnedMessage: Message? = null,
+    /** Acikken "@herkes" yalnizca yoneticilerde calisir. */
+    val mentionAllAdmins: Boolean = false
 ) {
     val isGroup: Boolean get() = type == "group"
     val amAdmin: Boolean get() = role == "owner" || role == "admin"
@@ -358,7 +363,8 @@ data class Chat(
                 deliveredWatermark = json.optInt("delivered_watermark"),
                 members = User.listFrom(json.optJSONArray("members")),
                 perms = json.optJSONArray("perms").mapStrings(),
-                pinnedMessage = Message.from(json.optJSONObject("pinned_message"))
+                pinnedMessage = Message.from(json.optJSONObject("pinned_message")),
+                mentionAllAdmins = json.optBoolean("mention_all_admins")
             )
         }
 
@@ -599,6 +605,7 @@ fun User.toJson(): JSONObject = JSONObject()
     .put("call_status", callStatus)
     .put("muted", muted)
     .put("perms", JSONArray(perms))
+    .put("joined_at", joinedAt)
 
 fun Message.toJson(): JSONObject = JSONObject()
     .put("id", id)
@@ -672,6 +679,7 @@ fun Chat.toJson(): JSONObject = JSONObject()
     .put("members", JSONArray(members.map { it.toJson() }))
     .put("perms", JSONArray(perms))
     .put("pinned_message", pinnedMessage?.toJson())
+    .put("mention_all_admins", mentionAllAdmins)
 
 /** JSONArray -> List<String> kisayolu (yetki listeleri gibi duz diziler icin). */
 internal fun JSONArray?.mapStrings(): List<String> {

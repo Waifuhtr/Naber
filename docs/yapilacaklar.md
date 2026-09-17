@@ -172,7 +172,7 @@ onaylandi:
    + "sik kullanilanlar" iceren tam emoji secici eklenecek — kullanici
    isterse 6 hazir emojiden birine hizlica basar, isterse "+" ile tum
    emoji setine erisir.
-4. [ ] **Grup ayarlari ekrani (GroupInfoScreen) WhatsApp tarzi
+4. [x] **Grup ayarlari ekrani (GroupInfoScreen) WhatsApp tarzi
    genisletme.** Kullanicinin paylastigi 4 grup ayarlari gorseline
    gore eklenecekler:
    - Grup fotografini degistirme (su an yalnizca goruntuleniyor,
@@ -289,14 +289,14 @@ sordu, asagidakiler eklendi (Ek ozellik onerileri listesindeki
   silme yetkisi su an zaten admin/owner icin var — ikisi de herkesin
   mesajini herkesten silebiliyor; bu genisletmeyle sade bir "yetkili"
   uyeye de ayrica verilebilecek.)
-- **Davet kodunu harici paylasma**: kopyalamanin yanina Android
+- [x] **Davet kodunu harici paylasma**: kopyalamanin yanina Android
   paylasim sayfasini (Intent.ACTION_SEND) acan bir "Paylas" dugmesi.
 - [x] **Sabitlenmis mesaj — ayri ekran degil, sohbetin en ustune
   sabitleme.** Onceki "ayri ekranda listeleme" fikrinden vazgecildi:
   sabitlenen mesaj normal akistan cikmaz, sohbetin en ustune yapisik
   durur ve yaninda kucuk bir pano igne (📌) isareti gorunur; dokununca
   asil mesaja atlanir.
-- **"@herkes" kisitlamasi**: grup izinlerine ek olarak, "@herkes"
+- [x] **"@herkes" kisitlamasi**: grup izinlerine ek olarak, "@herkes"
   bahsetmesini yalnizca yoneticilerin kullanabilmesi secenegi.
 
 ## Durum ozeti (en son guncelleme: Persembe 05:00 tetikleyicisi)

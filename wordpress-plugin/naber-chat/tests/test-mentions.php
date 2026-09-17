@@ -88,4 +88,22 @@ Naber_Tests::equals(
 	'Grupta olmayan bir ad (e-posta icindeki) bahsetme sayilmiyor'
 );
 
+Naber_Tests::group( '"@herkes" kisitlamasi' );
+
+$all = Naber_Chat_Repo::mentioned_ids( '@herkes toplanti var', $members );
+sort( $all );
+Naber_Tests::ok( count( $all ) === count( $members ), 'Kisitlama kapaliyken @herkes butun uyeleri kapsiyor' );
+
+Naber_Tests::equals(
+	array(),
+	Naber_Chat_Repo::mentioned_ids( '@herkes toplanti var', $members, false ),
+	'Kisitlama acikken @herkes kimseyi bahsetmiyor'
+);
+
+Naber_Tests::equals(
+	array( 4 ),
+	Naber_Chat_Repo::mentioned_ids( '@herkes ve @Ayse', $members, false ),
+	'Kisitlama acikken diger bahsetmeler calismaya devam ediyor'
+);
+
 Naber_Tests::summary();

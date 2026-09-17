@@ -3,6 +3,10 @@ package com.naber.app.ui.screens
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -13,6 +17,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -26,7 +31,10 @@ import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -46,6 +54,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -57,6 +66,8 @@ import com.naber.app.data.GroupPrank
 import com.naber.app.data.User
 import com.naber.app.ui.Avatar
 import com.naber.app.ui.ChatAvatar
+import com.naber.app.ui.formatChatTime
+import com.naber.app.ui.prepareImage
 import com.naber.app.ui.OnlineDot
 import com.naber.app.ui.RoleTag
 import com.naber.app.ui.theme.NaberColors
@@ -86,6 +97,8 @@ fun GroupInfoScreen(conversationId: Int, onBack: () -> Unit, onLeft: () -> Unit)
     // sonra komik mesaj ve gruptan atilma.
     var prank by remember { mutableStateOf<GroupPrank?>(null) }
     var prankStage by remember { mutableStateOf(0) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    var photoBusy by remember { mutableStateOf(false) }
 
     LaunchedEffect(prankStage) {
         if (prankStage == 1) {
@@ -113,6 +126,25 @@ fun GroupInfoScreen(conversationId: Int, onBack: () -> Unit, onLeft: () -> Unit)
     fun act(block: suspend () -> Chat) {
         scope.launch {
             runCatching { chat = block() }.onFailure { error = it.message }
+        }
+    }
+
+    // Grup fotografi: secilen gorsel kucultulup yuklenir, sonra gruba baglanir.
+    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        photoBusy = true
+        scope.launch {
+            try {
+                val prepared = prepareImage(context, uri, maxSize = 640)
+                if (prepared != null) {
+                    val media = Naber.api.uploadMedia(prepared.bytes, prepared.mime, prepared.width, prepared.height) {}
+                    chat = Naber.api.updateGroup(conversationId, null, null, media.id)
+                }
+            } catch (e: Exception) {
+                error = e.message
+            } finally {
+                photoBusy = false
+            }
         }
     }
 
@@ -187,7 +219,39 @@ fun GroupInfoScreen(conversationId: Int, onBack: () -> Unit, onLeft: () -> Unit)
                     modifier = Modifier.fillMaxWidth().padding(vertical = 22.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    ChatAvatar(current, size = 92.dp)
+                    Box {
+                        ChatAvatar(current, size = 92.dp)
+                        if (canEditGroup) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .size(30.dp)
+                                    .clip(CircleShape)
+                                    .background(NaberColors.Accent)
+                                    .clickable(enabled = !photoBusy) {
+                                        photoPicker.launch(
+                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                        )
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (photoBusy) {
+                                    CircularProgressIndicator(
+                                        color = androidx.compose.ui.graphics.Color.White,
+                                        strokeWidth = 2.dp,
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                } else {
+                                    Icon(
+                                        Icons.Filled.PhotoCamera,
+                                        contentDescription = "Grup fotografini degistir",
+                                        tint = androidx.compose.ui.graphics.Color.White,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
                     Spacer(Modifier.size(12.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
@@ -247,6 +311,31 @@ fun GroupInfoScreen(conversationId: Int, onBack: () -> Unit, onLeft: () -> Unit)
                                     codeMessage = "Kod kopyalandi."
                                 }
                         )
+                        if (current.inviteCode.isNotBlank()) {
+                            Spacer(Modifier.width(12.dp))
+                            Icon(
+                                Icons.Filled.Share,
+                                contentDescription = "Kodu paylas",
+                                tint = NaberColors.TextSecondary,
+                                modifier = Modifier
+                                    .size(18.dp)
+                                    .clickable {
+                                        // Android paylasim sayfasi: WhatsApp,
+                                        // Telegram, SMS... hepsine tek dokunusla.
+                                        val share = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(
+                                                Intent.EXTRA_TEXT,
+                                                "Naber'de \"${current.title}\" grubuna katil. " +
+                                                    "Kod ile grup bul ekranina su kodu gir: ${current.inviteCode}"
+                                            )
+                                        }
+                                        runCatching {
+                                            context.startActivity(Intent.createChooser(share, "Davet kodunu paylas"))
+                                        }
+                                    }
+                            )
+                        }
                         if (current.amAdmin) {
                             Spacer(Modifier.width(12.dp))
                             Icon(
@@ -277,6 +366,36 @@ fun GroupInfoScreen(conversationId: Int, onBack: () -> Unit, onLeft: () -> Unit)
                     )
                     codeMessage?.let {
                         Text(it, fontSize = 11.5.sp, color = NaberColors.Accent, modifier = Modifier.padding(top = 4.dp))
+                    }
+                }
+            }
+
+            if (current.amAdmin) {
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "\"@herkes\" yalnizca yoneticilerde",
+                                fontSize = 14.sp,
+                                color = NaberColors.TextPrimary
+                            )
+                            Text(
+                                "Acikken duz uyeler @herkes yazarak herkese bildirim gonderemez.",
+                                fontSize = 11.5.sp,
+                                color = NaberColors.TextSecondary
+                            )
+                        }
+                        Switch(
+                            checked = current.mentionAllAdmins,
+                            onCheckedChange = { value ->
+                                act { Naber.api.updateGroup(conversationId, null, null, null, value) }
+                            }
+                        )
                     }
                 }
             }
@@ -317,6 +436,22 @@ fun GroupInfoScreen(conversationId: Int, onBack: () -> Unit, onLeft: () -> Unit)
                     Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null, tint = NaberColors.Danger, modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(14.dp))
                     Text("Gruptan ayril", color = NaberColors.Danger, fontSize = 15.sp)
+                }
+            }
+
+            if (current.amOwner) {
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { confirmDelete = true }
+                            .padding(horizontal = 16.dp, vertical = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Filled.Delete, contentDescription = null, tint = NaberColors.Danger, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(14.dp))
+                        Text("Grubu sil", color = NaberColors.Danger, fontSize = 15.sp)
+                    }
                 }
             }
         }
@@ -444,6 +579,26 @@ fun GroupInfoScreen(conversationId: Int, onBack: () -> Unit, onLeft: () -> Unit)
         )
     }
 
+    if (confirmDelete) {
+        AlertDialog(
+            containerColor = NaberColors.Surface,
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("Grup silinsin mi?") },
+            text = { Text("Grup, butun mesajlari ve uyelikleriyle birlikte kalici olarak silinir. Bu islem geri alinamaz.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDelete = false
+                    scope.launch {
+                        runCatching { Naber.api.deleteGroup(conversationId) }
+                            .onSuccess { onLeft() }
+                            .onFailure { error = it.message }
+                    }
+                }) { Text("Sil", color = NaberColors.Danger) }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Vazgec") } }
+        )
+    }
+
     if (confirmLeave) {
         AlertDialog(
             containerColor = NaberColors.Surface,
@@ -548,7 +703,11 @@ private fun MemberRow(
                 }
             }
             Text(
-                member.naberEmail.ifBlank { "@${member.username}" },
+                if (member.joinedAt > 0) {
+                    "${member.naberEmail.ifBlank { "@${member.username}" }} - katildi: ${formatChatTime(member.joinedAt)}"
+                } else {
+                    member.naberEmail.ifBlank { "@${member.username}" }
+                },
                 fontSize = 12.sp,
                 color = NaberColors.TextSecondary
             )

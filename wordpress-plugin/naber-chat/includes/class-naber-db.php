@@ -9,7 +9,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class Naber_DB {
 
-	const DB_VERSION = '1.16.0';
+	const DB_VERSION = '1.17.0';
 
 	public static function table( $name ) {
 		global $wpdb;
@@ -53,6 +53,7 @@ class Naber_DB {
 			meta_rev bigint(20) unsigned NOT NULL DEFAULT 1,
 			invite_code varchar(10) NOT NULL DEFAULT '',
 			disappear_seconds int(10) unsigned NOT NULL DEFAULT 0,
+			mention_all_admins tinyint(1) NOT NULL DEFAULT 0,
 			created_at datetime NOT NULL DEFAULT '0000-00-00 00:00:00',
 			updated_at datetime NOT NULL DEFAULT '0000-00-00 00:00:00',
 			PRIMARY KEY  (id),
@@ -311,6 +312,27 @@ class Naber_DB {
 		if ( get_option( 'naber_db_version' ) !== self::DB_VERSION ) {
 			self::install();
 		}
+	}
+
+	/** Grubu ve ona bagli butun kayitlari siler (yalnizca grup sahibi icin). */
+	public static function purge_conversation( $conversation_id ) {
+		global $wpdb;
+		$conversation_id = (int) $conversation_id;
+		if ( $conversation_id <= 0 ) {
+			return false;
+		}
+
+		$message_ids = $wpdb->get_col(
+			$wpdb->prepare( 'SELECT id FROM ' . self::table( 'messages' ) . ' WHERE conversation_id = %d', $conversation_id )
+		);
+		foreach ( (array) $message_ids as $message_id ) {
+			$wpdb->delete( self::table( 'reactions' ), array( 'message_id' => (int) $message_id ), array( '%d' ) );
+		}
+
+		$wpdb->delete( self::table( 'messages' ), array( 'conversation_id' => $conversation_id ), array( '%d' ) );
+		$wpdb->delete( self::table( 'members' ), array( 'conversation_id' => $conversation_id ), array( '%d' ) );
+		$wpdb->delete( self::table( 'conversations' ), array( 'id' => $conversation_id ), array( '%d' ) );
+		return true;
 	}
 
 	/** Kullanici silindiginde ilgili satirlari temizler. */
