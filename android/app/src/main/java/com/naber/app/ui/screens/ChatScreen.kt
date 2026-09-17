@@ -702,10 +702,14 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
                     .clickable { fullScreen = null },
                 contentAlignment = Alignment.Center
             ) {
+                // MessageImage ic Box'i matchParentSize() kullaniyor; sadece
+                // genislik verilirse yukseklik sifira duser ve resim hic
+                // gorunmez (siyah ekran). Tam ekranda hem genislik hem
+                // yukseklik verilmeli.
                 MessageImage(
                     media = null,
                     localUri = model,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Fit
                 )
             }
