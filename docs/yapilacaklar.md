@@ -146,6 +146,33 @@ listeden cikarildi, istenmiyor.**
   mesaj turu "location", govdesi "enlem,boylam". Balona dokununca
   telefonun harita uygulamasinda aciliyor).
 
+## Tasarim degisiklikleri — KESIN YAPILACAK (henuz kodlanmadi)
+
+Kullanici WhatsApp ekran goruntuleri paylasti (17 Eylul), su ikisi
+onaylandi:
+
+1. [ ] **Mesaj eylem menusu — WhatsApp tarzi yeniden tasarim.** Mesaja
+   uzun basinca cikan menu tek govde halinde olsun: ustte yatay emoji
+   reaksiyon seridi, altinda yuvarlak koseli koyu kart icinde Yanitla /
+   Duzenle / Ilet / Kopyala / Bilgi / Kendimden Sil / Herkesten Sil
+   siralaniyor. Menu maddeleri zaten var (bkz. yukaridaki tamamlanan
+   ozellikler), degisen yalnizca gorunum/duzen: reaksiyon seridiyle
+   menu ayni kart icinde birlesiyor. WhatsApp'a ozgu "Guvenlik kodunu
+   dogrula" ve "Cevir" secenekleri bizde anlamsiz (uctan uca sifreleme
+   dogrulamasi ve ceviri ozelligi yok), eklenmeyecek.
+2. [ ] **Mesaji saga kaydirarak hizli yanitlama (swipe-to-reply).**
+   Uzun basip menuden "Yanitla" secmek yerine, mesaj balonunu saga
+   dogru kaydirinca otomatik yanit moduna gecilsin (WhatsApp'taki
+   gibi) — uzun basip menuyu acmaktan daha pratik. Uzun basma
+   menusundeki "Yanitla" secenegi de kalir, kaydirma ek bir kisayol
+   olur.
+
+Not: Kullanicinin bahsettigi ucuncu gorsel (basili tutununca ciken
+emoji secme animasyonunun kendisi) bu planlama turunda ekte
+gelmedi; 1. madde reaksiyon seridini menuyle zaten birlestirdigi icin
+kapsandigi varsayiliyor. Gercek gorsel paylasilirsa tasarim ona gore
+ince ayar gorur.
+
 ## Ek ozellik onerileri (henuz onaylanmadi, degerlendirilecek)
 
 Daha once onerilenlere ek, yine kucuk guvenilir grup (~10 kisi)
@@ -158,7 +185,10 @@ duruyor:
 - **Kisiye ozel takma ad (nickname)**
 - **Gorunmez mod** (simetrik gizlilik)
 - **"Yaziyor" gostergesini kapatma secenegi**
-- **GIF/sticker destegi**
+- **WhatsApp tarzi cikartma (sticker) paketi** (GIF/sticker destegi
+  fikri somutlastirildi)
+- **Discord tarzi ozel emoji** (statik + hareketli/animasyonlu; mesaj
+  ve reaksiyonlarda kullanilabilir)
 - **Medya galerisi gorunumu**
 - **Canli konum paylasimi**
 - **Sesli mesaj hiz kontrolu**
@@ -179,8 +209,11 @@ acik tema, sohbet arka plani, konum paylasma, anket, sesli mesaj).
 Eklenti surumu: 1.19.0. Toplam test: 253, hepsi geciyor.
 
 Kalan is: onaylanan butun ozellikler ve optimizasyonlar bitti.
-Geriye yalnizca kod degisikligi gerektirmeyen ya da bilerek ertelenen
-maddeler kaldi (gzip sunucu ayari, sticker paketi, ICE toplu gonderme).
+Geriye kod degisikligi gerektirmeyen/bilerek ertelenen maddeler
+(gzip sunucu ayari, ICE toplu gonderme) ve yeni onaylanan bir
+tasarim isi kaldi: mesaj eylem menusunun WhatsApp tarzi yeniden
+tasarimi + saga kaydirarak yanitlama (yukaridaki "Tasarim
+degisiklikleri" bolumu, henuz kodlanmadi).
 
 ## Kodlamaya gecince siralama
 
@@ -189,4 +222,6 @@ maddeler kaldi (gzip sunucu ayari, sticker paketi, ICE toplu gonderme).
 3. [x] Onaylanan optimizasyonlar — 12/15 yapildi; kalan 3 madde bilerek
    birakildi (ayrintilar yukarida).
 4. [x] Onaylanan genel ozellikler — 19/19 tamamlandi.
-5. Ek oneriler arasindan kullanicinin sectikleri (henuz baslanmadi).
+5. [ ] Tasarim degisiklikleri — mesaj eylem menusu yeniden tasarimi +
+   saga kaydirarak yanitlama (henuz baslanmadi).
+6. Ek oneriler arasindan kullanicinin sectikleri (henuz baslanmadi).
