@@ -533,6 +533,7 @@ class Naber_Chat_Repo {
 		// Karsi tarafin ekrani kendiliginden tazelensin.
 		if ( $message ) {
 			self::touch_conversation( (int) $message['conversation_id'] );
+			$wpdb->delete( Naber_DB::table( 'reactions' ), array( 'message_id' => (int) $message_id ), array( '%d' ) );
 		}
 		return $done;
 	}
