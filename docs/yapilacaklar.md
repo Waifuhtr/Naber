@@ -52,7 +52,11 @@ gorsel sikistirma, yerel onbellek (MediaStore + LocalStore).
     Kullanici musait olunca elle test ederek yapilmali.
 11. [x] **Profil/kisi listesi onbellegi** — ContactsTab artik
     LocalStore'da saklaniyor, acilista aninda dolu geliyor.
-12. [ ] **Lazy/kademeli medya indirme** — henuz yapilmadi.
+12. [x] **Lazy/kademeli medya indirme** — tamamlandi: gorseller
+    varsayilan olarak yalnizca wifi'de kendiliginden iniyor.
+    Profilde "Her zaman / Yalnizca wifi / Elle indir" secenegi var;
+    inmemis gorselin yerinde bulanik on izleme ve indirme dugmesi
+    duruyor.
 13. [ ] **Delta/fark tabanli senkronizasyon** — henuz yapilmadi.
 14. [ ] **Batarya optimizasyonu icin WorkManager** — henuz yapilmadi.
 15. [ ] **Sikistirilmis JSON / gzip** — sunucu/hosting ayari,
@@ -157,7 +161,7 @@ duruyor:
 ## Durum ozeti (en son guncelleme: Persembe 05:00 tetikleyicisi)
 
 Tamamlanan: hata duzeltmesi (1/1), durtme ozelligi, optimizasyonlar
-(9/15 yapildi, 2 kasitli atlandi/ertelendi, 4 kaldi), genel ozellikler
+(10/15 yapildi, 2 kasitli atlandi/ertelendi, 3 kaldi), genel ozellikler
 (19/19 yapildi: yanitla, duzenle, reaksiyon, iletme, kamera, sabitleme,
 sureli sessize alma, davet kodu, uygulama kilidi, global arama,
 kaybolan mesajlar, engelleme, bahsetme, gizlilik secenekleri,
@@ -165,13 +169,13 @@ acik tema, sohbet arka plani, konum paylasma, anket, sesli mesaj).
 
 Eklenti surumu: 1.18.0. Toplam test: 253, hepsi geciyor.
 
-Kalan buyuk is: yalnizca optimizasyonlar (lazy medya indirme, delta
-senkronizasyon, WorkManager). Onaylanan butun ozellikler bitti.
+Kalan buyuk is: yalnizca optimizasyonlar (delta senkronizasyon,
+WorkManager). Onaylanan butun ozellikler bitti.
 
 ## Kodlamaya gecince siralama
 
 1. [x] Tam ekran gorsel siyah ekran duzeltmesi.
 2. [x] Durtme ozelligi (sunucu + istemci).
-3. Onaylanan optimizasyonlar — 9/15 yapildi, kalanlar surdurulecek.
+3. Onaylanan optimizasyonlar — 10/15 yapildi, kalanlar surdurulecek.
 4. [x] Onaylanan genel ozellikler — 19/19 tamamlandi.
 5. Ek oneriler arasindan kullanicinin sectikleri (henuz baslanmadi).

@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
@@ -68,6 +69,7 @@ import com.naber.app.data.Appearance
 import com.naber.app.data.LocalFiles
 import com.naber.app.data.LocalMedia
 import com.naber.app.data.LocalStore
+import com.naber.app.data.MediaPolicy
 import com.naber.app.data.MediaStore
 import com.naber.app.ui.Avatar
 import com.naber.app.ui.NaberCard
@@ -91,6 +93,8 @@ fun ProfileTab(onAdmin: () -> Unit, onLoggedOut: () -> Unit) {
     var confirmClearMedia by remember { mutableStateOf(false) }
     var lockEnabled by remember { mutableStateOf(AppLock.isEnabled(context)) }
     var darkTheme by remember { mutableStateOf(Appearance.isDark()) }
+    var mediaMode by remember { mutableStateOf(MediaPolicy.mode(context)) }
+    var mediaModeDialog by remember { mutableStateOf(false) }
     var setPinDialog by remember { mutableStateOf(false) }
     var lockOptions by remember { mutableStateOf(false) }
     var avatarVersion by remember { mutableStateOf(0) }
@@ -359,6 +363,13 @@ fun ProfileTab(onAdmin: () -> Unit, onLoggedOut: () -> Unit) {
             )
             ThinDivider(startIndent = 54.dp)
             SettingsRow(
+                icon = Icons.Filled.Download,
+                title = "Gorselleri otomatik indir",
+                subtitle = MediaPolicy.label(mediaMode),
+                onClick = { mediaModeDialog = true }
+            )
+            ThinDivider(startIndent = 54.dp)
+            SettingsRow(
                 icon = Icons.Filled.History,
                 title = "Sohbet gecmisi",
                 subtitle = "Cihazda ${formatBytes(historyBytes)} - cevrimdisiyken de okunur",
@@ -461,6 +472,43 @@ fun ProfileTab(onAdmin: () -> Unit, onLoggedOut: () -> Unit) {
             },
             dismissButton = {
                 TextButton(onClick = { confirmClearMedia = false }) { Text("Vazgec") }
+            }
+        )
+    }
+
+    if (mediaModeDialog) {
+        AlertDialog(
+            containerColor = NaberColors.Surface,
+            onDismissRequest = { mediaModeDialog = false },
+            title = { Text("Gorselleri otomatik indir") },
+            text = {
+                Column {
+                    Text(
+                        "Indirilmeyen gorselin yerinde bulanik on izleme durur; " +
+                            "uzerine dokununca asil dosya iner.",
+                        fontSize = 13.sp,
+                        color = NaberColors.TextSecondary
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    listOf(MediaPolicy.ALWAYS, MediaPolicy.WIFI_ONLY, MediaPolicy.MANUAL).forEach { option ->
+                        Text(
+                            MediaPolicy.label(option) + if (option == mediaMode) "  ✓" else "",
+                            fontSize = 14.5.sp,
+                            color = if (option == mediaMode) NaberColors.Accent else NaberColors.TextPrimary,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    MediaPolicy.setMode(context, option)
+                                    mediaMode = option
+                                    mediaModeDialog = false
+                                }
+                                .padding(vertical = 10.dp)
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { mediaModeDialog = false }) { Text("Kapat", color = NaberColors.TextSecondary) }
             }
         )
     }

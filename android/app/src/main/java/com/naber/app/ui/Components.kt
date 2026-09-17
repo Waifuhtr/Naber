@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -48,6 +49,7 @@ import com.naber.app.Naber
 import com.naber.app.data.Chat
 import com.naber.app.data.LocalFiles
 import com.naber.app.data.Media
+import com.naber.app.data.MediaPolicy
 import com.naber.app.data.MediaStore
 import com.naber.app.data.User
 import com.naber.app.ui.theme.NaberColors
@@ -199,7 +201,7 @@ fun stableImageRequest(model: Any, cacheKey: String): ImageRequest =
  * Sunucudaki imzali adres degisse bile gorsel yeniden yuklenmez.
  */
 @Composable
-fun rememberStoredImage(media: Media?, localUri: Any?): Any? {
+fun rememberStoredImage(media: Media?, localUri: Any?, allowDownload: Boolean = true): Any? {
     val context = LocalContext.current
     val mediaId = media?.id ?: 0
 
@@ -207,10 +209,16 @@ fun rememberStoredImage(media: Media?, localUri: Any?): Any? {
         mutableStateOf<String?>(if (mediaId > 0) MediaStore.cachedUri(context, mediaId) else null)
     }
 
-    LaunchedEffect(mediaId, media?.url) {
-        if (stored == null && mediaId > 0 && !media?.url.isNullOrBlank()) {
+    LaunchedEffect(mediaId, media?.url, allowDownload) {
+        if (allowDownload && stored == null && mediaId > 0 && !media?.url.isNullOrBlank()) {
             stored = MediaStore.ensure(context, mediaId, media!!.url)
         }
+    }
+
+    // Indirmeye izin yoksa sunucu adresi de dondurulmez: yoksa Coil
+    // dosyayi yine indirir ve ayarin hicbir anlami kalmaz.
+    if (!allowDownload) {
+        return localUri ?: stored
     }
 
     return localUri ?: stored ?: media?.url?.takeIf { it.isNotBlank() }
@@ -225,19 +233,44 @@ fun MessageImage(
     preview: String = "",
     onError: (() -> Unit)? = null
 ) {
+    val context = LocalContext.current
     // Mesajla birlikte gelen kucucuk on izleme aninda cizilir; asil gorsel
     // hazir oldugunda ustune biner. Boylece bos gri kutu hic gorunmez.
     val thumb = rememberPreviewBitmap(preview)
-    val model = rememberStoredImage(media, localUri)
+
+    // Ayara gore gorsel kendiliginden inmeyebilir; kullanici uzerine
+    // dokununca indirilir.
+    var forced by remember(media?.id) { mutableStateOf(false) }
+    val allowDownload = forced || remember(media?.id) { MediaPolicy.autoDownload(context) }
+    val model = rememberStoredImage(media, localUri, allowDownload)
 
     if (model == null) {
-        if (thumb != null) {
-            Image(
-                bitmap = thumb,
-                contentDescription = "Gorsel on izlemesi",
-                modifier = modifier,
-                contentScale = contentScale
-            )
+        Box(modifier = modifier, contentAlignment = Alignment.Center) {
+            if (thumb != null) {
+                Image(
+                    bitmap = thumb,
+                    contentDescription = "Gorsel on izlemesi",
+                    modifier = Modifier.matchParentSize(),
+                    contentScale = contentScale
+                )
+            }
+            if (!allowDownload) {
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.55f))
+                        .clickable { forced = true },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Filled.Download,
+                        contentDescription = "Gorseli indir",
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+            }
         }
         return
     }
