@@ -215,6 +215,10 @@ data class Chat(
     val role: String,
     val chatMuted: Boolean,
     val notifyMuted: Boolean,
+    /** Sureli sessize alma bitis zamani (unix saniye); suresiz veya sessiz degilse 0. */
+    val notifyMutedUntil: Long = 0L,
+    /** Sohbet listesinde bu kullanici tarafindan sabitlendi mi. */
+    val pinned: Boolean = false,
     val unread: Int,
     val updatedAt: Long,
     val lastMessage: Message?,
@@ -242,6 +246,8 @@ data class Chat(
                 role = json.optString("role"),
                 chatMuted = json.optBoolean("chat_muted"),
                 notifyMuted = json.optBoolean("notify_muted"),
+                notifyMutedUntil = json.optLong("notify_muted_until"),
+                pinned = json.optBoolean("pinned"),
                 unread = json.optInt("unread"),
                 updatedAt = json.optLong("updated_at"),
                 lastMessage = Message.from(json.optJSONObject("last_message")),
@@ -521,6 +527,8 @@ fun Chat.toJson(): JSONObject = JSONObject()
     .put("role", role)
     .put("chat_muted", chatMuted)
     .put("notify_muted", notifyMuted)
+    .put("notify_muted_until", notifyMutedUntil)
+    .put("pinned", pinned)
     .put("unread", unread)
     .put("updated_at", updatedAt)
     .put("last_message", lastMessage?.toJson())

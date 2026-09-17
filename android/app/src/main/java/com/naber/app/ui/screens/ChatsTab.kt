@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -172,6 +173,10 @@ fun ChatsTab(
             val matchesSearch = search.isBlank() || chat.title.contains(search, ignoreCase = true)
             matchesFilter && matchesSearch
         }
+            // Sabitlenen sohbetler her zaman basta; sunucu da ayni sirayi
+            // dondurur ama yerel guncellemede (pin/mesaj gelmesi) beklemeden
+            // dogru sirada kalsin diye burada da uygulanir.
+            .sortedWith(compareByDescending<Chat> { it.pinned }.thenByDescending { it.updatedAt })
     }
 
     Box(modifier = Modifier.fillMaxSize().background(NaberColors.Background)) {
@@ -339,14 +344,26 @@ private fun ChatRow(chat: Chat, online: Boolean, onClick: () -> Unit) {
         Spacer(Modifier.width(13.dp))
 
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(
-                chat.title,
-                fontSize = 15.5.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = NaberColors.TextPrimary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    chat.title,
+                    fontSize = 15.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = NaberColors.TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                if (chat.pinned) {
+                    Spacer(Modifier.width(4.dp))
+                    Icon(
+                        Icons.Filled.PushPin,
+                        contentDescription = "Sabitlendi",
+                        tint = NaberColors.TextSecondary,
+                        modifier = Modifier.size(13.dp)
+                    )
+                }
+            }
             val last = chat.lastMessage
             val preview = when {
                 last == null -> "Sohbeti baslatin"

@@ -214,13 +214,53 @@ class Naber_Chat_Repo {
 		);
 	}
 
-	public static function set_notify_muted( $conversation_id, $user_id, $muted ) {
+	/**
+	 * @param int $duration_seconds 0 ise suresiz sessize alir. Sessize
+	 *                              alma kaldiriliyorsa ($muted=false) yok
+	 *                              sayilir.
+	 */
+	public static function set_notify_muted( $conversation_id, $user_id, $muted, $duration_seconds = 0 ) {
+		global $wpdb;
+		$until = null;
+		if ( $muted && $duration_seconds > 0 ) {
+			$until = gmdate( 'Y-m-d H:i:s', time() + (int) $duration_seconds );
+		}
+		return (bool) $wpdb->update(
+			Naber_DB::table( 'members' ),
+			array(
+				'notify_muted'       => $muted ? 1 : 0,
+				'notify_muted_until' => $until,
+			),
+			array( 'conversation_id' => (int) $conversation_id, 'user_id' => (int) $user_id ),
+			array( '%d', '%s' ),
+			array( '%d', '%d' )
+		);
+	}
+
+	/**
+	 * Bir uyelik satirinin gercekten sessize alinmis sayilip sayilmayacagi.
+	 * Suresi gecmis sureli sessize almalar otomatik olarak biter (ayri bir
+	 * zamanlanmis is/cron gerekmez, her okumada tazelenir).
+	 */
+	public static function is_notify_muted( $member ) {
+		if ( empty( $member['notify_muted'] ) ) {
+			return false;
+		}
+		$until = $member['notify_muted_until'] ?? null;
+		if ( empty( $until ) || '0000-00-00 00:00:00' === $until ) {
+			return true;
+		}
+		return self::ts( $until ) > time();
+	}
+
+	/** Sohbeti kullanicinin listesinde sabitler/kaldirir. */
+	public static function set_pinned( $conversation_id, $user_id, $pinned ) {
 		global $wpdb;
 		return (bool) $wpdb->update(
 			Naber_DB::table( 'members' ),
-			array( 'notify_muted' => $muted ? 1 : 0 ),
+			array( 'pinned_at' => $pinned ? Naber_DB::now() : null ),
 			array( 'conversation_id' => (int) $conversation_id, 'user_id' => (int) $user_id ),
-			array( '%d' ),
+			array( '%s' ),
 			array( '%d', '%d' )
 		);
 	}
@@ -291,7 +331,7 @@ class Naber_Chat_Repo {
 					(SELECT COUNT(*) FROM {$members} mm WHERE mm.conversation_id = c.id) AS member_count
 				 FROM {$conversations} c
 				 INNER JOIN {$members} me ON me.conversation_id = c.id AND me.user_id = %d
-				 ORDER BY c.updated_at DESC
+				 ORDER BY (me.pinned_at IS NOT NULL) DESC, c.updated_at DESC
 				 LIMIT 200",
 				$user_id,
 				$user_id
@@ -358,7 +398,10 @@ class Naber_Chat_Repo {
 			'member_count' => isset( $row['member_count'] ) ? (int) $row['member_count'] : count( self::member_ids( (int) $row['id'] ) ),
 			'role'         => $member ? (string) $member['role'] : '',
 			'chat_muted'   => $member ? (bool) (int) $member['chat_muted'] : false,
-			'notify_muted' => $member ? (bool) (int) $member['notify_muted'] : false,
+			'notify_muted' => $member ? self::is_notify_muted( $member ) : false,
+			// Sureli sessize almanin ne zaman bitecegi (unix saniye); suresiz ise 0.
+			'notify_muted_until' => ( $member && ! empty( $member['notify_muted_until'] ) ) ? self::ts( $member['notify_muted_until'] ) : 0,
+			'pinned'       => $member ? ! empty( $member['pinned_at'] ) : false,
 			'unread'       => $unread,
 			'updated_at'   => self::ts( $row['updated_at'] ),
 			'last_message' => $last,

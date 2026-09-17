@@ -50,6 +50,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -142,6 +143,7 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
     var actionTarget by remember { mutableStateOf<Message?>(null) }
     var replyTarget by remember { mutableStateOf<Message?>(null) }
     var editTarget by remember { mutableStateOf<Message?>(null) }
+    var muteDialogOpen by remember { mutableStateOf(false) }
     var infoTarget by remember { mutableStateOf<MessageInfo?>(null) }
     val retriedImages = remember { mutableStateListOf<Int>() }
     // "Yaziyor" bilgisi her tusa basista degil, en fazla 3 saniyede bir gonderilir.
@@ -570,13 +572,27 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
                         )
                     }
                     DropdownMenuItem(
+                        text = { Text(if (current?.pinned == true) "Sabitlemeyi kaldir" else "Sohbeti sabitle") },
+                        onClick = {
+                            menuOpen = false
+                            val pin = current?.pinned != true
+                            scope.launch {
+                                runCatching { Naber.api.setChatPinned(conversationId, pin) }
+                                chat = chat?.copy(pinned = pin)
+                            }
+                        }
+                    )
+                    DropdownMenuItem(
                         text = { Text(if (current?.notifyMuted == true) "Bildirimleri ac" else "Bildirimleri sessize al") },
                         onClick = {
                             menuOpen = false
-                            val muted = current?.notifyMuted != true
-                            scope.launch {
-                                runCatching { Naber.api.setChatNotifications(conversationId, muted) }
-                                chat = chat?.copy(notifyMuted = muted)
+                            if (current?.notifyMuted == true) {
+                                scope.launch {
+                                    runCatching { Naber.api.setChatNotifications(conversationId, false) }
+                                    chat = chat?.copy(notifyMuted = false, notifyMutedUntil = 0)
+                                }
+                            } else {
+                                muteDialogOpen = true
                             }
                         }
                     )
@@ -963,6 +979,35 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
                     .onFailure { error = it.message }
             }
         }
+    }
+
+    if (muteDialogOpen) {
+        AlertDialog(
+            containerColor = NaberColors.Surface,
+            onDismissRequest = { muteDialogOpen = false },
+            title = { Text("Bildirimleri sessize al") },
+            text = {
+                Column {
+                    listOf(
+                        "8 saat" to 8 * 3600,
+                        "1 hafta" to 7 * 24 * 3600,
+                        "Surekli" to 0
+                    ).forEach { (label, duration) ->
+                        MessageAction(label, Icons.Filled.NotificationsOff) {
+                            muteDialogOpen = false
+                            scope.launch {
+                                runCatching { Naber.api.setChatNotifications(conversationId, true, duration) }
+                                val until = if (duration > 0) System.currentTimeMillis() / 1000 + duration else 0
+                                chat = chat?.copy(notifyMuted = true, notifyMutedUntil = until)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { muteDialogOpen = false }) { Text("Vazgec", color = NaberColors.TextSecondary) }
+            }
+        )
     }
 }
 

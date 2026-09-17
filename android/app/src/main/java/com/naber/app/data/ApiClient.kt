@@ -212,8 +212,19 @@ class ApiClient(private val session: Session) {
         call("/chats/$conversationId/leave", "POST")
     }
 
-    suspend fun setChatNotifications(conversationId: Int, muted: Boolean) {
-        call("/chats/$conversationId/notifications", "POST", JSONObject().put("muted", muted))
+    /** [durationSeconds] 0 ise suresiz sessize alir. */
+    suspend fun setChatNotifications(conversationId: Int, muted: Boolean, durationSeconds: Int = 0): Chat? {
+        val json = call(
+            "/chats/$conversationId/notifications", "POST",
+            JSONObject().put("muted", muted).put("duration_seconds", durationSeconds)
+        )
+        return Chat.from(json.optJSONObject("chat"))
+    }
+
+    /** Sohbeti kullanicinin kendi listesinde sabitler/kaldirir. */
+    suspend fun setChatPinned(conversationId: Int, pinned: Boolean): Chat? {
+        val json = call("/chats/$conversationId/pin", "POST", JSONObject().put("pinned", pinned))
+        return Chat.from(json.optJSONObject("chat"))
     }
 
     suspend fun messages(conversationId: Int, before: Int? = null, limit: Int = 50): Triple<List<Message>, Chat?, List<TypingUser>> {

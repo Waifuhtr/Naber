@@ -9,7 +9,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class Naber_DB {
 
-	const DB_VERSION = '1.9.0';
+	const DB_VERSION = '1.10.0';
 
 	public static function table( $name ) {
 		global $wpdb;
@@ -63,6 +63,8 @@ class Naber_DB {
 			role varchar(10) NOT NULL DEFAULT 'member',
 			chat_muted tinyint(1) NOT NULL DEFAULT 0,
 			notify_muted tinyint(1) NOT NULL DEFAULT 0,
+			notify_muted_until datetime NULL,
+			pinned_at datetime NULL,
 			last_read_id bigint(20) unsigned NOT NULL DEFAULT 0,
 			delivered_id bigint(20) unsigned NOT NULL DEFAULT 0,
 			joined_at datetime NOT NULL DEFAULT '0000-00-00 00:00:00',

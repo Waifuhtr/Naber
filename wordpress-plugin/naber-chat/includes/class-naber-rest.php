@@ -49,6 +49,7 @@ class Naber_REST {
 		$this->route( $ns, '/chats/(?P<id>\d+)/members/(?P<user>\d+)/mute', 'POST', 'mute_member', $user );
 		$this->route( $ns, '/chats/(?P<id>\d+)/leave', 'POST', 'leave_chat', $user );
 		$this->route( $ns, '/chats/(?P<id>\d+)/notifications', 'POST', 'toggle_notifications', $user );
+		$this->route( $ns, '/chats/(?P<id>\d+)/pin', 'POST', 'toggle_pin', $user );
 		$this->route( $ns, '/chats/(?P<id>\d+)/messages', 'GET', 'list_messages', $user );
 		$this->route( $ns, '/chats/(?P<id>\d+)/read', 'POST', 'mark_read', $user );
 		$this->route( $ns, '/chats/(?P<id>\d+)/typing', 'POST', 'typing', $user );
@@ -657,14 +658,34 @@ class Naber_REST {
 		return rest_ensure_response( array( 'ok' => true ) );
 	}
 
+	/**
+	 * Sohbeti sessize alir/acar. duration_seconds 0 ise suresiz;
+	 * verilirse o kadar sure sonra kendiliginden acilir.
+	 */
 	public function toggle_notifications( WP_REST_Request $request ) {
 		$conversation = $this->authorized_conversation( (int) $request['id'] );
 		if ( is_wp_error( $conversation ) ) {
 			return $conversation;
 		}
-		$muted = rest_sanitize_boolean( $request->get_param( 'muted' ) );
-		Naber_Chat_Repo::set_notify_muted( (int) $conversation['id'], get_current_user_id(), $muted );
-		return rest_ensure_response( array( 'muted' => $muted ) );
+		$muted    = rest_sanitize_boolean( $request->get_param( 'muted' ) );
+		$duration = max( 0, (int) $request->get_param( 'duration_seconds' ) );
+		Naber_Chat_Repo::set_notify_muted( (int) $conversation['id'], get_current_user_id(), $muted, $duration );
+
+		$chat = Naber_Chat_Repo::conversation_payload( (int) $conversation['id'], get_current_user_id() );
+		return rest_ensure_response( array( 'muted' => $muted, 'chat' => $chat ) );
+	}
+
+	/** Sohbeti kullanicinin kendi listesinde sabitler/kaldirir. */
+	public function toggle_pin( WP_REST_Request $request ) {
+		$conversation = $this->authorized_conversation( (int) $request['id'] );
+		if ( is_wp_error( $conversation ) ) {
+			return $conversation;
+		}
+		$pinned = rest_sanitize_boolean( $request->get_param( 'pinned' ) );
+		Naber_Chat_Repo::set_pinned( (int) $conversation['id'], get_current_user_id(), $pinned );
+
+		$chat = Naber_Chat_Repo::conversation_payload( (int) $conversation['id'], get_current_user_id() );
+		return rest_ensure_response( array( 'pinned' => $pinned, 'chat' => $chat ) );
 	}
 
 	public function list_messages( WP_REST_Request $request ) {
@@ -766,7 +787,7 @@ class Naber_REST {
 				continue;
 			}
 			$target_member = Naber_Chat_Repo::member( $conversation_id, $member_id );
-			if ( $target_member && (int) $target_member['notify_muted'] === 1 ) {
+			if ( $target_member && Naber_Chat_Repo::is_notify_muted( $target_member ) ) {
 				continue;
 			}
 			Naber_Push::send_to_user(
