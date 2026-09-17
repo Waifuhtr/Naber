@@ -994,6 +994,11 @@ class Naber_REST {
 			$message['poll'] = Naber_Polls::payload( Naber_Polls::get( $poll_id ), $user_id );
 		}
 
+		// "Yaziyor" bilgisi mesaj gidince kendiliginden dusmeli. Istemci
+		// bunun icin ayri bir istek atiyordu; o istek gonderimden hemen
+		// once bir PHP isciligi daha tutuyor ve gecikmeye ekleniyordu.
+		Naber_Chat_Repo::set_typing( $conversation_id, $user_id, false );
+
 		$sender  = Naber_Auth::user_payload( $user_id );
 		$preview = 'image' === $type ? 'Fotograf' : ( 'location' === $type ? 'Konum' : ( 'audio' === $type ? 'Sesli mesaj' : wp_trim_words( $body, 12, '...' ) ) );
 		if ( 'poll' === $type ) {
@@ -1448,12 +1453,15 @@ class Naber_REST {
 		$user_id   = get_current_user_id();
 		$since_msg = (int) $request->get_param( 'since_message_id' );
 		$since_sig = (int) $request->get_param( 'since_signal_id' );
-		$max_wait  = max( 0, min( 30, (int) Naber_Settings::get( 'poll_wait', 25 ) ) );
+		$max_wait  = max( 0, min( 30, (int) Naber_Settings::get( 'poll_wait', 20 ) ) );
 		$wait      = max( 0, min( $max_wait, (int) $request->get_param( 'wait' ) ) );
 		$conv_id   = (int) $request->get_param( 'conversation_id' );
 		$deadline  = microtime( true ) + $wait;
 
-		$interval_ms = max( 100, min( 2000, (int) Naber_Settings::get( 'poll_interval_ms', 250 ) ) );
+		// 500 ms: her turda bir probe() sorgusu atiliyor, 250 ms'de 10 kisi
+		// saniyede 40 sorgu demek. Paylasimli MySQL'de bu butun istekleri
+		// yavaslatiyordu; yarim saniyelik fark kullanici tarafinda farkedilmez.
+		$interval_ms = max( 100, min( 2000, (int) Naber_Settings::get( 'poll_interval_ms', 500 ) ) );
 		$slow_every  = max( 1, (int) round( 1000 / $interval_ms ) );
 
 		// Istemcinin elindeki durum; eski surumler gondermezse karsilastirma yapilmaz.

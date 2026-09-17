@@ -175,7 +175,7 @@ class CallManager(
         }
         // Sunucudan gec gelen ya da uygulama kapaliyken birikmis eski kayitlar
         // "hayalet arama" ekranina yol acar; zil suresi gecmisse hic acma.
-        if (isStale(call.createdAt)) {
+        if (isStale(call)) {
             finishedCalls.add(call.id)
             return
         }
@@ -723,7 +723,7 @@ class CallManager(
             }
             CallStage.INCOMING -> {
                 // Cevaplanmamis eski bir cagri; suresi gectiyse dusur.
-                if (isStale(current.createdAt)) {
+                if (isStaleTimestamp(current.createdAt)) {
                     SoundPlayer.stopRingtone()
                     if (current.callId > 0) finishedCalls.add(current.callId)
                     resetJob?.cancel()
@@ -735,9 +735,32 @@ class CallManager(
         }
     }
 
-    /** Sunucudan gelen cagri kaydi cok eskiyse (zil suresi gecmisse) dogru degildir. */
-    private fun isStale(createdAtSeconds: Long): Boolean {
-        if (createdAtSeconds <= 0L) return false
+    /**
+     * Arama bayat mi (zil suresi gecmis mi)?
+     *
+     * Once sunucunun hesapladigi yasa bakilir. Telefon saatiyle hesap
+     * yapmak guvenilir degil: saati geri kalmis bir telefonda hicbir arama
+     * bayat sayilmiyor ve hayalet arama ekrani aciliyordu. Sunucu yasi
+     * gondermediyse (eski surum) telefon saatine dusulur; zaman bilgisi
+     * hic yoksa bayat sayilir — hicbir sey bilmiyorsak ekrani acmamak
+     * dogru taraf.
+     */
+    private fun isStale(call: CallInfo): Boolean {
+        if (call.ageSeconds >= 0) {
+            return call.ageSeconds * 1000L > INCOMING_MAX_AGE_MS
+        }
+        return isStaleTimestamp(call.createdAt)
+    }
+
+    /**
+     * Elde yalnizca zaman damgasi varken bayatlik karari.
+     *
+     * Zaman damgasi yoksa bayat sayilir: eskiden burada "bayat degil"
+     * deniyordu, bu yuzden zamani bilinmeyen kayitlar arama ekranini
+     * aciyordu.
+     */
+    private fun isStaleTimestamp(createdAtSeconds: Long): Boolean {
+        if (createdAtSeconds <= 0L) return true
         val ageMs = System.currentTimeMillis() - createdAtSeconds * 1000L
         return ageMs > INCOMING_MAX_AGE_MS
     }

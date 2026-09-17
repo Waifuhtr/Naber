@@ -241,7 +241,11 @@ fun MessageImage(
     // Ayara gore gorsel kendiliginden inmeyebilir; kullanici uzerine
     // dokununca indirilir.
     var forced by remember(media?.id) { mutableStateOf(false) }
-    val allowDownload = forced || remember(media?.id) { MediaPolicy.autoDownload(context) }
+    // remember kosulsuz cagrilmali: "forced || remember { ... }" yazilirsa
+    // forced true oldugunda kisa devre yuzunden remember hic cagrilmaz,
+    // Compose'un slot tablosu bozulur ve uygulama coker.
+    val autoAllowed = remember(media?.id) { MediaPolicy.autoDownload(context) }
+    val allowDownload = forced || autoAllowed
     val model = rememberStoredImage(media, localUri, allowDownload)
 
     if (model == null) {

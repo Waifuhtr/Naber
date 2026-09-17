@@ -44,8 +44,8 @@ class Naber_Settings {
 			'fcm_project_id'     => '',
 			'fcm_service_account' => '',
 			'allow_registration' => 1,
-			'poll_wait'          => 25,
-			'poll_interval_ms'   => 250,
+			'poll_wait'          => 20,
+			'poll_interval_ms'   => 500,
 			'email_domain'       => 'naber.com',
 		);
 	}

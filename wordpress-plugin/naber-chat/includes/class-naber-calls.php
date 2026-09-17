@@ -460,6 +460,11 @@ class Naber_Calls {
 			'callee_id'       => (int) $row['callee_id'],
 			'status'          => (string) $row['status'],
 			'created_at'      => Naber_Chat_Repo::ts( $row['created_at'] ),
+			// Aramanin kac saniyedir surdugu, sunucu saatine gore. Istemci
+			// "bu arama bayat mi" kararini telefonun saatine gore veriyordu;
+			// telefon saati geri kalirsa hicbir arama bayat sayilmiyor ve
+			// hayalet arama ekrani aciliyordu.
+			'age_seconds'     => max( 0, time() - (int) Naber_Chat_Repo::ts( $row['created_at'] ) ),
 			'answered_at'     => Naber_Chat_Repo::ts( $row['answered_at'] ),
 			'ended_at'        => Naber_Chat_Repo::ts( $row['ended_at'] ),
 			'duration'        => (int) $row['duration'],

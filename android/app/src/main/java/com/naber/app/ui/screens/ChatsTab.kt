@@ -56,6 +56,7 @@ import com.naber.app.Naber
 import androidx.compose.ui.platform.LocalContext
 import com.naber.app.data.Chat
 import com.naber.app.data.LocalStore
+import com.naber.app.data.MemoryCache
 import com.naber.app.ui.Avatar
 import com.naber.app.ui.ChatAvatar
 import com.naber.app.ui.EmptyState
@@ -143,6 +144,12 @@ fun ChatsTab(
         }
         delay(250)
         messageHits = LocalStore.searchMessages(context, query)
+    }
+
+    // Sohbet listesi bellege de yazilir: bir sohbete girildiginde baslik ve
+    // uye bilgisi ag beklenmeden hazir olur.
+    LaunchedEffect(chats) {
+        if (chats.isNotEmpty()) MemoryCache.putChats(chats)
     }
 
     // Rozet sayisi aninda cihazda hesaplanir; sunucu yoklamasini beklemez.

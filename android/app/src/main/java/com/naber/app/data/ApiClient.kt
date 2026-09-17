@@ -2,6 +2,8 @@ package com.naber.app.data
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.ConnectionPool
+import okhttp3.Dispatcher
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -25,7 +27,36 @@ class ApiClient(private val session: Session) {
         .retryOnConnectionFailure(true)
         .build()
 
-    private val pollClient = client.newBuilder().readTimeout(45, TimeUnit.SECONDS).build()
+    /**
+     * Uzun yoklama (long-poll) icin ayri istemci.
+     *
+     * Ayri Dispatcher ve ConnectionPool sart: newBuilder() bunlari
+     * paylasir, o zaman 25 saniye acik duran yoklama istegi normal
+     * isteklerle ayni kuyrugu ve baglanti havuzunu mesgul eder ve mesaj
+     * gonderimi gecikir.
+     */
+    private val pollClient = client.newBuilder()
+        .readTimeout(45, TimeUnit.SECONDS)
+        .dispatcher(Dispatcher())
+        .connectionPool(ConnectionPool(2, 5, TimeUnit.MINUTES))
+        .build()
+
+    /**
+     * Su an acik olan yoklama istegi.
+     *
+     * Kullanici bir sey gonderdiginde bu istek iptal edilir: sunucudaki
+     * PHP isciligi boylece serbest kalir ve gonderim kuyrukta beklemez.
+     * Paylasilan barindirmalarda PHP-FPM isci sayisi az oldugu icin bu,
+     * gecikmenin en buyuk kaynagi.
+     */
+    @Volatile
+    private var pollCall: okhttp3.Call? = null
+
+    /** Acik yoklama istegini keser; yoklama dongusu hemen yenisini acar. */
+    fun cancelPolling() {
+        runCatching { pollCall?.cancel() }
+        pollCall = null
+    }
 
     private val jsonType = "application/json; charset=utf-8".toMediaType()
 
@@ -54,13 +85,24 @@ class ApiClient(private val session: Session) {
         method: String = "GET",
         payload: JSONObject? = null,
         query: Map<String, Any?> = emptyMap(),
-        longPoll: Boolean = false
+        longPoll: Boolean = false,
+        /**
+         * Kullanicinin ekranda bekledigi istekler (mesaj gonderme, silme,
+         * duzenleme, reaksiyon) icin true. Bu durumda acik yoklama istegi
+         * kesilir; sunucudaki PHP isciligi serbest kalir ve istek kuyrukta
+         * beklemez. Arka plan istekleri (okundu, presence, yaziyor) bunu
+         * kullanmaz, yoksa yoklama bosuna surekli yeniden acilir.
+         */
+        urgent: Boolean = false
     ): JSONObject = withContext(Dispatchers.IO) {
+        if (urgent) cancelPolling()
         val body = payload?.toString()?.toRequestBody(jsonType)
         val request = buildRequest(path, method, body, query)
         val httpClient = if (longPoll) pollClient else client
         try {
-            httpClient.newCall(request).execute().use { response ->
+            val httpCall = httpClient.newCall(request)
+            if (longPoll) pollCall = httpCall
+            httpCall.execute().use { response ->
                 val text = response.body?.string().orEmpty()
                 val json = runCatching { JSONObject(text) }.getOrElse { JSONObject() }
                 if (!response.isSuccessful) {
@@ -106,6 +148,7 @@ class ApiClient(private val session: Session) {
         runCatching { call("/logout", "POST", JSONObject().put("device_token", session.pushToken)) }
         session.clear()
         LocalMedia.clear()
+        MemoryCache.clear()
     }
 
     suspend fun me(): User {
@@ -295,7 +338,8 @@ class ApiClient(private val session: Session) {
                 .put("question", question)
                 .put("options", JSONArray(options))
                 .put("multiple", multiple)
-                .put("client_id", clientId)
+                .put("client_id", clientId),
+            urgent = true
         ).optJSONObject("message")
     ) ?: throw ApiException("Anket olusturulamadi.")
 
@@ -316,7 +360,8 @@ class ApiClient(private val session: Session) {
                     .put("media_id", mediaId)
                     .put("body", seconds.toString())
                     .put("client_id", clientId)
-                    .put("reply_to", replyTo)
+                    .put("reply_to", replyTo),
+                urgent = true
             ).optJSONObject("message")
         ) ?: throw ApiException("Sesli mesaj gonderilemedi.")
 
@@ -329,7 +374,8 @@ class ApiClient(private val session: Session) {
                     .put("conversation_id", conversationId)
                     .put("type", "location")
                     .put("body", formatLocation(latitude, longitude))
-                    .put("client_id", clientId)
+                    .put("client_id", clientId),
+                urgent = true
             ).optJSONObject("message")
         ) ?: throw ApiException("Konum gonderilemedi.")
 
@@ -342,7 +388,8 @@ class ApiClient(private val session: Session) {
                     .put("type", "text")
                     .put("body", body)
                     .put("client_id", clientId)
-                    .put("reply_to", replyTo)
+                    .put("reply_to", replyTo),
+                urgent = true
             ).optJSONObject("message")
         ) ?: throw ApiException("Mesaj gonderilemedi.")
 
@@ -368,19 +415,20 @@ class ApiClient(private val session: Session) {
                     .put("body", caption)
                     .put("client_id", clientId)
                     .put("preview", preview)
-                    .put("reply_to", replyTo)
+                    .put("reply_to", replyTo),
+                urgent = true
             ).optJSONObject("message")
         ) ?: throw ApiException("Gorsel gonderilemedi.")
 
     /** scope = "all" (herkesten sil) veya "me" (yalnizca bende gizle). */
     suspend fun deleteMessage(messageId: Int, scope: String = "all") {
-        call("/messages/$messageId", "DELETE", JSONObject().put("scope", scope), query = mapOf("scope" to scope))
+        call("/messages/$messageId", "DELETE", JSONObject().put("scope", scope), query = mapOf("scope" to scope), urgent = true)
     }
 
     /** Yalnizca metin mesajlari, yalnizca gonderen ve gonderimden sonraki 15 dakika icinde. */
     suspend fun editMessage(messageId: Int, body: String): Message =
         Message.from(
-            call("/messages/$messageId", "POST", JSONObject().put("body", body)).optJSONObject("message")
+            call("/messages/$messageId", "POST", JSONObject().put("body", body), urgent = true).optJSONObject("message")
         ) ?: throw ApiException("Mesaj duzenlenemedi.")
 
     /**
@@ -389,7 +437,7 @@ class ApiClient(private val session: Session) {
      * @return guncel reaksiyon ozeti.
      */
     suspend fun reactToMessage(messageId: Int, emoji: String): List<MessageReaction> {
-        val json = call("/messages/$messageId/react", "POST", JSONObject().put("emoji", emoji))
+        val json = call("/messages/$messageId/react", "POST", JSONObject().put("emoji", emoji), urgent = true)
         return json.optJSONArray("reactions").mapObjects { MessageReaction.from(it) }
     }
 

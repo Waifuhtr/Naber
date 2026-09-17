@@ -112,6 +112,7 @@ import com.naber.app.data.formatLocation
 import com.naber.app.data.mapsUri
 import com.naber.app.data.parseLocation
 import com.naber.app.data.MediaStore
+import com.naber.app.data.MemoryCache
 import com.naber.app.data.Message
 import com.naber.app.data.MessageReplySummary
 import com.naber.app.data.Poll
@@ -201,10 +202,14 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
     val listState = rememberLazyListState()
     val myId = Naber.session.user?.id ?: 0
 
-    var messages by remember { mutableStateOf<List<Message>>(emptyList()) }
-    var chat by remember { mutableStateOf<Chat?>(null) }
+    // Bellekteki kopya ilk cizimde hazir: sohbete tekrar girildiginde ne
+    // diskten okuma ne ag bekleniyor, ekran dolu aciliyor.
+    var messages by remember(conversationId) {
+        mutableStateOf(MemoryCache.messages(conversationId) ?: emptyList())
+    }
+    var chat by remember(conversationId) { mutableStateOf(MemoryCache.chat(conversationId)) }
     var draft by remember { mutableStateOf("") }
-    var loading by remember { mutableStateOf(true) }
+    var loading by remember(conversationId) { mutableStateOf(MemoryCache.messages(conversationId) == null) }
     var loadingOlder by remember { mutableStateOf(false) }
     // Sunucuda daha eski mesaj kalmadiginda bir daha istenmez.
     var hasOlder by remember(conversationId) { mutableStateOf(true) }
@@ -284,6 +289,8 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
             chat = info
             typing = typingUsers
             error = null
+            MemoryCache.putMessages(conversationId, messages)
+            info?.let { MemoryCache.putChat(it) }
             Naber.api.markRead(conversationId)
         } catch (e: Exception) {
             // Cevrimdisiyken cihazdaki gecmis ekranda kalir.
@@ -296,11 +303,15 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
     LaunchedEffect(conversationId) {
         Naber.events.activeConversationId = conversationId
         Notifications.cancelConversation(context, conversationId)
-        // Once cihazdaki gecmis: sohbet aninda dolu acilir, ag beklenmez.
-        val cached = LocalStore.loadMessages(context, conversationId)
-        if (cached.isNotEmpty()) {
-            messages = cached
-            loading = false
+        // Bellekte yoksa diskten oku (uygulamanin ilk acilisi); varsa ekran
+        // zaten dolu geldi, diski bosuna okumuyoruz.
+        if (MemoryCache.messages(conversationId) == null) {
+            val cached = LocalStore.loadMessages(context, conversationId)
+            if (cached.isNotEmpty()) {
+                messages = cached
+                MemoryCache.putMessages(conversationId, cached)
+                loading = false
+            }
         }
         load()
     }
@@ -311,6 +322,8 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
     // onceki beklemeyi iptal eder.
     LaunchedEffect(messages) {
         if (messages.isEmpty()) return@LaunchedEffect
+        // Bellek kopyasi hemen; disk yazmasi kisa bir beklemeden sonra.
+        MemoryCache.putMessages(conversationId, messages)
         delay(400)
         LocalStore.saveMessages(context, conversationId, messages)
     }
@@ -501,8 +514,10 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
         )
         draft = ""
         replyTarget = null
+        // "Yaziyor" bilgisini sunucu mesaj gelince kendisi dusuruyor; buradan
+        // ayri bir istek atmak gonderimden hemen once bir PHP isciligi daha
+        // tutup gecikmeye ekleniyordu.
         lastTypingSent[0] = 0L
-        Naber.events.launchInScope { Naber.api.sendTyping(conversationId, false) }
         scope.launch { deliverText(clientId, body) }
     }
 
@@ -1417,24 +1432,33 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
                     MessageAction("Kendimden sil", Icons.Filled.DeleteOutline) {
                         val target = message
                         actionTarget = null
+                        // Mesaj hemen kalkar, istek arka planda gider: sunucu
+                        // yaniti beklenirse silme gecikmeli gorunuyordu.
+                        // Basarisiz olursa mesaj geri gelir.
+                        val before = messages
+                        messages = messages.filterNot { it.id == target.id }
                         scope.launch {
                             runCatching { Naber.api.deleteMessage(target.id, "me") }
-                                .onSuccess { messages = messages.filterNot { it.id == target.id } }
-                                .onFailure { error = it.message }
+                                .onFailure {
+                                    messages = before
+                                    error = it.message
+                                }
                         }
                     }
                     if (canDeleteForAll) {
                         MessageAction("Herkesten sil", Icons.Filled.Delete, NaberColors.Danger) {
                             val target = message
                             actionTarget = null
+                            val before = messages
+                            messages = messages.map {
+                                if (it.id == target.id) it.copy(deleted = true, body = "", media = null) else it
+                            }
                             scope.launch {
                                 runCatching { Naber.api.deleteMessage(target.id, "all") }
-                                    .onSuccess {
-                                        messages = messages.map {
-                                            if (it.id == target.id) it.copy(deleted = true, body = "", media = null) else it
-                                        }
+                                    .onFailure {
+                                        messages = before
+                                        error = it.message
                                     }
-                                    .onFailure { error = it.message }
                             }
                         }
                     }

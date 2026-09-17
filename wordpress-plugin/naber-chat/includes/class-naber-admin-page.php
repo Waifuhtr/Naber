@@ -359,8 +359,8 @@ class Naber_Admin_Page {
 		$mode                         = isset( $_POST['media_url_mode'] ) ? sanitize_key( wp_unslash( $_POST['media_url_mode'] ) ) : 'auto';
 		$values['media_url_mode']     = in_array( $mode, array( 'auto', 's3', 'friendly' ), true ) ? $mode : 'auto';
 		$values['allow_registration'] = isset( $_POST['allow_registration'] ) ? 1 : 0;
-		$values['poll_wait']          = isset( $_POST['poll_wait'] ) ? max( 0, min( 30, (int) $_POST['poll_wait'] ) ) : 25;
-		$values['poll_interval_ms']   = isset( $_POST['poll_interval_ms'] ) ? max( 100, min( 2000, (int) $_POST['poll_interval_ms'] ) ) : 250;
+		$values['poll_wait']          = isset( $_POST['poll_wait'] ) ? max( 0, min( 30, (int) $_POST['poll_wait'] ) ) : 20;
+		$values['poll_interval_ms']   = isset( $_POST['poll_interval_ms'] ) ? max( 100, min( 2000, (int) $_POST['poll_interval_ms'] ) ) : 500;
 
 		Naber_Settings::update( $values );
 		Naber_B2::forget_auth();

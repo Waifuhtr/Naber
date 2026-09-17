@@ -351,6 +351,14 @@ data class CallInfo(
     val status: String,
     val duration: Int,
     val createdAt: Long,
+    /**
+     * Aramanin kac saniyedir surdugu, sunucu saatine gore.
+     *
+     * Bayatlik karari telefon saatiyle verilirse, saati geri kalmis bir
+     * telefonda hicbir arama bayat sayilmaz ve hayalet arama ekrani acilir.
+     * -1: sunucu bu bilgiyi gondermedi (eski surum).
+     */
+    val ageSeconds: Int = -1,
     val endReason: String,
     val participants: List<User>
 ) {
@@ -371,6 +379,7 @@ data class CallInfo(
                 status = json.optString("status"),
                 duration = json.optInt("duration"),
                 createdAt = json.optLong("created_at"),
+                ageSeconds = if (json.has("age_seconds")) json.optInt("age_seconds") else -1,
                 endReason = json.optString("end_reason"),
                 participants = User.listFrom(json.optJSONArray("participants"))
             )
