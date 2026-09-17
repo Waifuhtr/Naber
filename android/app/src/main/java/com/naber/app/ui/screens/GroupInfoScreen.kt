@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -32,6 +33,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -50,12 +52,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.naber.app.Naber
 import com.naber.app.data.Chat
+import com.naber.app.data.GROUP_PERMISSIONS
+import com.naber.app.data.GroupPrank
 import com.naber.app.data.User
 import com.naber.app.ui.Avatar
 import com.naber.app.ui.ChatAvatar
 import com.naber.app.ui.OnlineDot
 import com.naber.app.ui.RoleTag
 import com.naber.app.ui.theme.NaberColors
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -75,6 +80,19 @@ fun GroupInfoScreen(conversationId: Int, onBack: () -> Unit, onLeft: () -> Unit)
     var candidates by remember { mutableStateOf<List<User>>(emptyList()) }
     var codeMessage by remember { mutableStateOf<String?>(null) }
     var regenerating by remember { mutableStateOf(false) }
+    var permTarget by remember { mutableStateOf<User?>(null) }
+    var transferTarget by remember { mutableStateOf<User?>(null) }
+    // Saka savunmasi: once sahte zafer (sahibin etiketi kaybolur),
+    // sonra komik mesaj ve gruptan atilma.
+    var prank by remember { mutableStateOf<GroupPrank?>(null) }
+    var prankStage by remember { mutableStateOf(0) }
+
+    LaunchedEffect(prankStage) {
+        if (prankStage == 1) {
+            delay(1800)
+            prankStage = 2
+        }
+    }
 
     val myId = Naber.session.user?.id ?: 0
 
@@ -98,7 +116,23 @@ fun GroupInfoScreen(conversationId: Int, onBack: () -> Unit, onLeft: () -> Unit)
         }
     }
 
+    fun removeMember(member: User) {
+        scope.launch {
+            runCatching { Naber.api.removeGroupMember(conversationId, member.id) }
+                .onSuccess { result ->
+                    result.chat?.let { chat = it }
+                    result.prank?.let {
+                        prank = it
+                        prankStage = 1
+                    }
+                }
+                .onFailure { error = it.message }
+        }
+    }
+
     val current = chat
+    // Grup duzenleme: yonetici ya da bu yetkisi acilmis uye.
+    val canEditGroup = current?.perms?.contains("edit_group") == true
 
     Column(
         modifier = Modifier
@@ -122,7 +156,7 @@ fun GroupInfoScreen(conversationId: Int, onBack: () -> Unit, onLeft: () -> Unit)
             )
             Spacer(Modifier.width(14.dp))
             Text("Grup bilgisi", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = NaberColors.TextPrimary, modifier = Modifier.weight(1f))
-            if (current?.amAdmin == true) {
+            if (current?.perms?.contains("add_member") == true) {
                 Icon(
                     Icons.Filled.PersonAdd,
                     contentDescription = "Uye ekle",
@@ -162,7 +196,7 @@ fun GroupInfoScreen(conversationId: Int, onBack: () -> Unit, onLeft: () -> Unit)
                             fontWeight = FontWeight.Bold,
                             color = NaberColors.TextPrimary
                         )
-                        if (current.amAdmin) {
+                        if (canEditGroup) {
                             Spacer(Modifier.width(8.dp))
                             Icon(
                                 Icons.Filled.Edit,
@@ -175,12 +209,12 @@ fun GroupInfoScreen(conversationId: Int, onBack: () -> Unit, onLeft: () -> Unit)
                     Text("${current.memberCount} uye", fontSize = 13.sp, color = NaberColors.TextSecondary)
                     Spacer(Modifier.size(8.dp))
                     Text(
-                        current.about.ifBlank { if (current.amAdmin) "Aciklama ekleyin" else "" },
+                        current.about.ifBlank { if (canEditGroup) "Aciklama ekleyin" else "" },
                         fontSize = 13.5.sp,
                         color = NaberColors.TextSecondary,
                         modifier = Modifier
                             .padding(horizontal = 32.dp)
-                            .clickable(enabled = current.amAdmin) { editAbout = true }
+                            .clickable(enabled = canEditGroup) { editAbout = true }
                     )
                 }
             }
@@ -262,9 +296,13 @@ fun GroupInfoScreen(conversationId: Int, onBack: () -> Unit, onLeft: () -> Unit)
                     member = member,
                     chat = current,
                     myId = myId,
+                    // Sahte zafer aninda sahibin etiketi gizlenir.
+                    hideRoleTag = prankStage == 1 && prank?.victimId == member.id,
                     onMute = { muted -> act { Naber.api.setMemberMuted(conversationId, member.id, muted) } },
                     onRole = { role -> act { Naber.api.setGroupRole(conversationId, member.id, role) } },
-                    onRemove = { act { Naber.api.removeGroupMember(conversationId, member.id) } }
+                    onPerms = { permTarget = member },
+                    onTransfer = { transferTarget = member },
+                    onRemove = { removeMember(member) }
                 )
             }
 
@@ -304,6 +342,104 @@ fun GroupInfoScreen(conversationId: Int, onBack: () -> Unit, onLeft: () -> Unit)
             onConfirm = { value ->
                 editAbout = false
                 act { Naber.api.updateGroup(conversationId, null, value, null) }
+            }
+        )
+    }
+
+    // Ayrintili yetki anahtarlari: yonetici yapmadan tek tek yetki verme.
+    permTarget?.let { member ->
+        var selected by remember(member.id) { mutableStateOf(member.perms.toSet()) }
+        AlertDialog(
+            containerColor = NaberColors.Surface,
+            onDismissRequest = { permTarget = null },
+            title = { Text("${member.displayName} yetkileri") },
+            text = {
+                Column {
+                    Text(
+                        "Yonetici yapmadan tek tek yetki verebilirsin.",
+                        fontSize = 12.sp,
+                        color = NaberColors.TextSecondary
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    GROUP_PERMISSIONS.forEach { permission ->
+                        val on = selected.contains(permission.key)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    selected = if (on) selected - permission.key else selected + permission.key
+                                }
+                                .padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(permission.title, fontSize = 14.sp, color = NaberColors.TextPrimary)
+                                Text(permission.description, fontSize = 11.5.sp, color = NaberColors.TextSecondary)
+                            }
+                            Switch(
+                                checked = on,
+                                onCheckedChange = {
+                                    selected = if (on) selected - permission.key else selected + permission.key
+                                }
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val target = member
+                    val perms = selected.toList()
+                    permTarget = null
+                    act { Naber.api.setGroupRole(conversationId, target.id, "member", perms) }
+                }) { Text("Kaydet") }
+            },
+            dismissButton = { TextButton(onClick = { permTarget = null }) { Text("Vazgec") } }
+        )
+    }
+
+    transferTarget?.let { member ->
+        AlertDialog(
+            containerColor = NaberColors.Surface,
+            onDismissRequest = { transferTarget = null },
+            title = { Text("Sahiplik devredilsin mi?") },
+            text = { Text("${member.displayName} grubun yeni sahibi olacak, sen yonetici olarak kalacaksin. Bu islem geri alinamaz.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    val target = member
+                    transferTarget = null
+                    act { Naber.api.setGroupRole(conversationId, target.id, "owner") }
+                }) { Text("Devret", color = NaberColors.Danger) }
+            },
+            dismissButton = { TextButton(onClick = { transferTarget = null }) { Text("Vazgec") } }
+        )
+    }
+
+    // Saka savunmasinin son perdesi: komik mesaj ve gruptan atilma.
+    if (prankStage == 2) {
+        val message = prank?.message.orEmpty()
+        val seconds = prank?.restoreSeconds ?: 10
+        AlertDialog(
+            containerColor = NaberColors.Surface,
+            onDismissRequest = {},
+            title = { Text("Darbe girisimi basarisiz") },
+            text = {
+                Column {
+                    Text(message, fontSize = 14.sp, color = NaberColors.TextPrimary)
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "$seconds saniye sonra gruba otomatik olarak geri alinacaksin.",
+                        fontSize = 12.sp,
+                        color = NaberColors.TextSecondary
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    prankStage = 0
+                    prank = null
+                    onLeft()
+                }) { Text("Hak ettim") }
             }
         )
     }
@@ -367,16 +503,21 @@ private fun MemberRow(
     member: User,
     chat: Chat,
     myId: Int,
+    hideRoleTag: Boolean,
     onMute: (Boolean) -> Unit,
     onRole: (String) -> Unit,
+    onPerms: () -> Unit,
+    onTransfer: () -> Unit,
     onRemove: () -> Unit
 ) {
     var menu by remember { mutableStateOf(false) }
+    // Yetkili uye (yonetici olmadan) yalnizca duz uyelere mudahale edebilir.
+    val canRemoveAsDelegate = member.role == "member" && chat.perms.contains("remove_member")
     val canModerate = when {
         member.id == myId -> false
         chat.amOwner -> member.role != "owner"
         chat.amAdmin -> member.role == "member"
-        else -> false
+        else -> canRemoveAsDelegate
     }
 
     Row(
@@ -395,7 +536,8 @@ private fun MemberRow(
                     fontSize = 15.sp,
                     color = NaberColors.TextPrimary
                 )
-                if (member.roleLabel.isNotBlank()) RoleTag(member.roleLabel)
+                if (member.roleLabel.isNotBlank() && !hideRoleTag) RoleTag(member.roleLabel)
+                if (member.roleLabel.isBlank() && member.perms.isNotEmpty()) RoleTag("Yetkili uye")
                 if (member.chatMuted) {
                     Icon(
                         Icons.Filled.MicOff,
@@ -421,14 +563,26 @@ private fun MemberRow(
                     modifier = Modifier.size(20.dp).clickable { menu = true }
                 )
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                    DropdownMenuItem(
-                        text = { Text(if (member.chatMuted) "Susturmayi kaldir" else "Sohbette sustur") },
-                        onClick = { menu = false; onMute(!member.chatMuted) }
-                    )
+                    if (chat.amAdmin) {
+                        DropdownMenuItem(
+                            text = { Text(if (member.chatMuted) "Susturmayi kaldir" else "Sohbette sustur") },
+                            onClick = { menu = false; onMute(!member.chatMuted) }
+                        )
+                    }
                     if (chat.amOwner) {
                         DropdownMenuItem(
                             text = { Text(if (member.role == "admin") "Yoneticiligi al" else "Yonetici yap") },
                             onClick = { menu = false; onRole(if (member.role == "admin") "member" else "admin") }
+                        )
+                        if (member.role == "member") {
+                            DropdownMenuItem(
+                                text = { Text("Yetkileri duzenle") },
+                                onClick = { menu = false; onPerms() }
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = { Text("Sahipligi devret") },
+                            onClick = { menu = false; onTransfer() }
                         )
                     }
                     DropdownMenuItem(

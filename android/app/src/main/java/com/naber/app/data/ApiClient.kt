@@ -278,13 +278,44 @@ class ApiClient(private val session: Session) {
         Chat.from(call("/chats/$conversationId/members", "POST", JSONObject().put("members", JSONArray(memberIds))).optJSONObject("chat"))
             ?: throw ApiException("Uye eklenemedi.")
 
-    suspend fun removeGroupMember(conversationId: Int, userId: Int): Chat =
-        Chat.from(call("/chats/$conversationId/members/$userId", "DELETE").optJSONObject("chat"))
-            ?: throw ApiException("Uye cikarilamadi.")
+    /**
+     * Uye cikarma.
+     *
+     * Grup sahibini cikarmaya kalkisilirsa sunucu "saka savunmasi"
+     * yaniti dondurur: cikaran kisi gecici olarak atilir. O yuzden
+     * sonuc ya guncel sohbet ya da saka bilgisidir.
+     */
+    suspend fun removeGroupMember(conversationId: Int, userId: Int): RemoveMemberResult {
+        val json = call("/chats/$conversationId/members/$userId", "DELETE")
+        json.optJSONObject("prank")?.let { prank ->
+            return RemoveMemberResult(
+                prank = GroupPrank(
+                    message = prank.optString("message"),
+                    restoreSeconds = prank.optInt("restore_seconds", 10),
+                    victimId = prank.optInt("victim_id")
+                )
+            )
+        }
+        val chat = Chat.from(json.optJSONObject("chat")) ?: throw ApiException("Uye cikarilamadi.")
+        return RemoveMemberResult(chat = chat)
+    }
 
-    suspend fun setGroupRole(conversationId: Int, userId: Int, role: String): Chat =
-        Chat.from(call("/chats/$conversationId/members/$userId/role", "POST", JSONObject().put("role", role)).optJSONObject("chat"))
+    /**
+     * Rol ve ayrintili yetkileri birlikte ayarlar.
+     * [role] "owner" verilirse sahiplik devredilir.
+     * [perms] null ise yetkiler degistirilmez.
+     */
+    suspend fun setGroupRole(
+        conversationId: Int,
+        userId: Int,
+        role: String,
+        perms: List<String>? = null
+    ): Chat {
+        val body = JSONObject().put("role", role)
+        if (perms != null) body.put("perms", JSONArray(perms))
+        return Chat.from(call("/chats/$conversationId/members/$userId/role", "POST", body).optJSONObject("chat"))
             ?: throw ApiException("Rol degistirilemedi.")
+    }
 
     /** Grup yoneticisi bir uyeyi sohbette susturur veya susturmayi kaldirir. */
     suspend fun setMemberMuted(conversationId: Int, userId: Int, muted: Boolean): Chat =

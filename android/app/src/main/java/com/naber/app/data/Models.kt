@@ -30,7 +30,9 @@ data class User(
     val role: String = "",
     val chatMuted: Boolean = false,
     val callStatus: String = "",
-    val muted: Boolean = false
+    val muted: Boolean = false,
+    /** Grupta bu uyeye tek tek verilmis yetkiler (GroupPermission anahtarlari). */
+    val perms: List<String> = emptyList()
 ) {
     val isGroupAdmin: Boolean get() = role == "owner" || role == "admin"
 
@@ -65,13 +67,33 @@ data class User(
                 role = json.optString("role"),
                 chatMuted = json.optBoolean("chat_muted"),
                 callStatus = json.optString("call_status"),
-                muted = json.optBoolean("muted")
+                muted = json.optBoolean("muted"),
+                perms = json.optJSONArray("perms").mapStrings()
             )
         }
 
         fun listFrom(array: JSONArray?): List<User> = array.mapObjects { from(it) }
     }
 }
+
+/**
+ * Grup sahibini atmaya kalkisana uygulanan saka cezasi.
+ * Sunucu saldirgani gecici olarak atar ve [restoreSeconds] sonra geri alir.
+ */
+@Immutable
+data class GroupPrank(
+    val message: String,
+    val restoreSeconds: Int,
+    /** Atilmak istenen sahip; etiketi bir anligina gizlemek icin. */
+    val victimId: Int
+)
+
+/** Uye cikarma sonucu: ya guncel sohbet ya da saka cezasi. */
+@Immutable
+data class RemoveMemberResult(
+    val chat: Chat? = null,
+    val prank: GroupPrank? = null
+)
 
 /** Baska bir kullanicinin profil ekraninda gosterilen bilgi. */
 @Immutable
@@ -299,7 +321,9 @@ data class Chat(
     val lastMessage: Message?,
     val readWatermark: Int,
     val deliveredWatermark: Int,
-    val members: List<User> = emptyList()
+    val members: List<User> = emptyList(),
+    /** Bu sohbette benim ayrintili yetkilerim. */
+    val perms: List<String> = emptyList()
 ) {
     val isGroup: Boolean get() = type == "group"
     val amAdmin: Boolean get() = role == "owner" || role == "admin"
@@ -330,7 +354,8 @@ data class Chat(
                 lastMessage = Message.from(json.optJSONObject("last_message")),
                 readWatermark = json.optInt("read_watermark"),
                 deliveredWatermark = json.optInt("delivered_watermark"),
-                members = User.listFrom(json.optJSONArray("members"))
+                members = User.listFrom(json.optJSONArray("members")),
+                perms = json.optJSONArray("perms").mapStrings()
             )
         }
 
@@ -570,6 +595,7 @@ fun User.toJson(): JSONObject = JSONObject()
     .put("chat_muted", chatMuted)
     .put("call_status", callStatus)
     .put("muted", muted)
+    .put("perms", JSONArray(perms))
 
 fun Message.toJson(): JSONObject = JSONObject()
     .put("id", id)
@@ -641,6 +667,18 @@ fun Chat.toJson(): JSONObject = JSONObject()
     .put("read_watermark", readWatermark)
     .put("delivered_watermark", deliveredWatermark)
     .put("members", JSONArray(members.map { it.toJson() }))
+    .put("perms", JSONArray(perms))
+
+/** JSONArray -> List<String> kisayolu (yetki listeleri gibi duz diziler icin). */
+internal fun JSONArray?.mapStrings(): List<String> {
+    if (this == null) return emptyList()
+    val out = ArrayList<String>(length())
+    for (i in 0 until length()) {
+        val item = optString(i)
+        if (!item.isNullOrBlank()) out.add(item)
+    }
+    return out
+}
 
 /** JSONArray -> List<T> kisayolu. */
 internal fun <T> JSONArray?.mapObjects(mapper: (JSONObject) -> T?): List<T> {

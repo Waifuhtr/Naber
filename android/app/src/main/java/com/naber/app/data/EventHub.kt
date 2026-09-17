@@ -109,7 +109,11 @@ class EventHub(
                     val myId = session.user?.id ?: 0
                     batch.messages.forEach { message ->
                         // Uygulama acikken gelen mesaj sesi.
-                        if (message.senderId != myId) SoundPlayer.playReceived(context)
+                        // Sistem mesajlari (gruba katilma, yetki degisikligi...)
+                        // bildirim sesi calmaz.
+                        if (message.senderId != myId && message.type != "system") {
+                            SoundPlayer.playReceived(context)
+                        }
                         _messages.emit(message)
                     }
                     batch.signals.forEach { _signals.emit(it) }

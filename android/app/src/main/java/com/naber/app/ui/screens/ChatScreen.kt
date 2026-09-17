@@ -109,6 +109,7 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -1133,6 +1134,12 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
                         }
                     }
                     items(visibleMessages, key = { it.key }) { message ->
+                        // Sistem mesajlari (gruba katilma, yetki degisikligi...)
+                        // balon yerine ortalanmis kucuk bir serit olarak cizilir.
+                        if (message.type == "system") {
+                            SystemMessageRow(message.body)
+                            return@items
+                        }
                         MessageRow(
                             message = message,
                             mine = message.senderId == myId,
@@ -2002,6 +2009,27 @@ private fun InfoRow(label: String, value: String) {
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(label, fontSize = 13.sp, color = NaberColors.TextSecondary, modifier = Modifier.weight(1f))
         Text(value, fontSize = 13.sp, color = NaberColors.TextPrimary)
+    }
+}
+
+/** Sohbetin ortasinda duran kucuk bilgi seridi. */
+@Composable
+private fun SystemMessageRow(text: String) {
+    if (text.isBlank()) return
+    Box(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text,
+            fontSize = 12.sp,
+            color = NaberColors.TextSecondary,
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .clip(RoundedCornerShape(12.dp))
+                .background(NaberColors.SurfaceHigh)
+                .padding(horizontal = 12.dp, vertical = 6.dp)
+        )
     }
 }
 
