@@ -112,6 +112,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.UUID
 
+/** Basili tutunca gosterilen hizli reaksiyon secenekleri. */
+private val QUICK_REACTIONS = listOf("👍", "❤️", "😂", "😮", "😢", "🙏")
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Unit, onOpenProfile: (Int) -> Unit) {
@@ -332,6 +335,21 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
         } catch (e: Exception) {
             mark(clientId, SendState.FAILED)
             error = e.message
+        }
+    }
+
+    /**
+     * Bir mesaja emoji reaksiyonu birakir/kaldirir/degistirir.
+     * Sunucu son durumu dondurur; ekran ona gore guncellenir.
+     */
+    fun react(target: Message, emoji: String) {
+        if (target.id <= 0 || target.deleted) return
+        scope.launch {
+            runCatching { Naber.api.reactToMessage(target.id, emoji) }
+                .onSuccess { reactions ->
+                    messages = messages.map { if (it.id == target.id) it.copy(reactions = reactions) else it }
+                }
+                .onFailure { error = it.message }
         }
     }
 
@@ -631,7 +649,8 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
                                         }
                                     }
                                 }
-                            }
+                            },
+                            onReact = { target, emoji -> react(target, emoji) }
                         )
                     }
                 }
@@ -801,6 +820,26 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
             title = { Text("Mesaj") },
             text = {
                 Column {
+                    if (!message.deleted && message.id > 0) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+                            horizontalArrangement = Arrangement.SpaceEvenly
+                        ) {
+                            QUICK_REACTIONS.forEach { emoji ->
+                                Text(
+                                    emoji,
+                                    fontSize = 24.sp,
+                                    modifier = Modifier
+                                        .clip(CircleShape)
+                                        .clickable {
+                                            react(message, emoji)
+                                            actionTarget = null
+                                        }
+                                        .padding(6.dp)
+                                )
+                            }
+                        }
+                    }
                     if (!message.deleted && message.id > 0) {
                         MessageAction("Yanitla", Icons.AutoMirrored.Filled.Reply) {
                             replyTarget = message
@@ -974,7 +1013,8 @@ private fun MessageRow(
     tick: TickState,
     onImageClick: (Any) -> Unit,
     onLongPress: () -> Unit,
-    onImageError: () -> Unit
+    onImageError: () -> Unit,
+    onReact: (Message, String) -> Unit
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -1115,6 +1155,37 @@ private fun MessageRow(
                         color = if (mine) Color.White else NaberColors.TextPrimary,
                         modifier = Modifier.padding(horizontal = 2.dp, vertical = if (message.type == "image") 4.dp else 0.dp)
                     )
+                }
+            }
+
+            if (message.reactions.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    message.reactions.forEach { reaction ->
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(
+                                    if (reaction.reacted) NaberColors.Accent.copy(alpha = 0.25f)
+                                    else (if (mine) Color.White.copy(alpha = 0.15f) else NaberColors.SurfaceHigh)
+                                )
+                                .clickable { onReact(message, reaction.emoji) }
+                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(reaction.emoji, fontSize = 12.sp)
+                            if (reaction.count > 1) {
+                                Spacer(Modifier.width(2.dp))
+                                Text(
+                                    reaction.count.toString(),
+                                    fontSize = 10.5.sp,
+                                    color = if (mine) Color.White.copy(alpha = 0.85f) else NaberColors.TextSecondary
+                                )
+                            }
+                        }
+                    }
                 }
             }
 

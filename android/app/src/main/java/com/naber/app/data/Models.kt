@@ -100,6 +100,19 @@ data class Media(
 
 enum class SendState { SENDING, SENT, FAILED }
 
+/** Bir mesaja birakilan tek bir emojinin ozeti (kac kisi, kendisi de var mi). */
+@Immutable
+data class MessageReaction(val emoji: String, val count: Int, val reacted: Boolean) {
+    companion object {
+        fun from(json: JSONObject?): MessageReaction? {
+            if (json == null) return null
+            val emoji = json.optString("emoji")
+            if (emoji.isBlank()) return null
+            return MessageReaction(emoji, json.optInt("count", 1), json.optBoolean("reacted"))
+        }
+    }
+}
+
 /** Yanitlanan mesajin balonun ustunde gosterilen kisa ozeti. */
 @Immutable
 data class MessageReplySummary(
@@ -147,7 +160,9 @@ data class Message(
     /** Sonradan degistirildiyse true; balonda "(duzenlendi)" etiketi gosterilir. */
     val edited: Boolean = false,
     /** Yanitlanan mesajin kisa ozeti; yoksa null. */
-    val replyTo: MessageReplySummary? = null
+    val replyTo: MessageReplySummary? = null,
+    /** Emoji basina sayi ve "reacted" (bu kullanicinin kendi reaksiyonu mu). */
+    val reactions: List<MessageReaction> = emptyList()
 ) {
     val key: String get() = if (id > 0) "id-$id" else "c-$clientId"
 
@@ -176,6 +191,7 @@ data class Message(
                 preview = json.optString("preview"),
                 edited = json.optBoolean("edited"),
                 replyTo = MessageReplySummary.from(json.optJSONObject("reply")),
+                reactions = json.optJSONArray("reactions").mapObjects { MessageReaction.from(it) },
                 // Sunucu bu alani gondermez; yalnizca cihazdaki kopyada bulunur.
                 localImageUri = json.optString("local_image_uri").ifBlank { null }
             )
@@ -476,7 +492,13 @@ fun Message.toJson(): JSONObject = JSONObject()
     .put("preview", preview)
     .put("edited", edited)
     .put("reply", replyTo?.toJson())
+    .put("reactions", JSONArray(reactions.map { it.toJson() }))
     .put("local_image_uri", localImageUri.orEmpty())
+
+fun MessageReaction.toJson(): JSONObject = JSONObject()
+    .put("emoji", emoji)
+    .put("count", count)
+    .put("reacted", reacted)
 
 fun MessageReplySummary.toJson(): JSONObject = JSONObject()
     .put("id", id)

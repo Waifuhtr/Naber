@@ -272,6 +272,16 @@ class ApiClient(private val session: Session) {
             call("/messages/$messageId", "POST", JSONObject().put("body", body)).optJSONObject("message")
         ) ?: throw ApiException("Mesaj duzenlenemedi.")
 
+    /**
+     * Mesaja emoji reaksiyonu birakir/kaldirir. Ayni emojiye tekrar basmak
+     * kaldirir, farkli emoji basmak degistirir (WhatsApp'taki gibi).
+     * @return guncel reaksiyon ozeti.
+     */
+    suspend fun reactToMessage(messageId: Int, emoji: String): List<MessageReaction> {
+        val json = call("/messages/$messageId/react", "POST", JSONObject().put("emoji", emoji))
+        return json.optJSONArray("reactions").mapObjects { MessageReaction.from(it) }
+    }
+
     suspend fun messageInfo(messageId: Int): MessageInfo {
         val json = call("/messages/$messageId/info").optJSONObject("info")
             ?: throw ApiException("Mesaj bilgisi alinamadi.")

@@ -336,7 +336,9 @@ class Naber_Chat_Repo {
 				ARRAY_A
 			);
 			if ( $last_row ) {
-				$last = self::message_payload( $last_row, 'group' === $row['type'] );
+				// Sohbet listesindeki onizleme reaksiyon gostermiyor; gereksiz
+				// sorgudan kacinmak icin bos dizi verilir.
+				$last = self::message_payload( $last_row, 'group' === $row['type'], 0, array() );
 			}
 		}
 
@@ -440,9 +442,14 @@ class Naber_Chat_Repo {
 			$rows = array_reverse( (array) $rows );
 		}
 
+		// Reaksiyonlar her satir icin ayri ayri degil, tek sorguda toplu
+		// cekilir; N mesaj icin N sorgu atmaktan kacinilir.
+		$ids       = array_column( (array) $rows, 'id' );
+		$reactions = Naber_Reactions::summary_for_many( $ids, $user_id );
+
 		$out = array();
 		foreach ( (array) $rows as $row ) {
-			$out[] = self::message_payload( $row, $is_group );
+			$out[] = self::message_payload( $row, $is_group, $user_id, $reactions[ (int) $row['id'] ] ?? array() );
 		}
 		return $out;
 	}
@@ -459,7 +466,7 @@ class Naber_Chat_Repo {
 				ARRAY_A
 			);
 			if ( $existing ) {
-				return self::message_payload( $existing );
+				return self::message_payload( $existing, false, (int) $sender_id );
 			}
 		}
 
@@ -516,7 +523,8 @@ class Naber_Chat_Repo {
 		);
 
 		$row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$messages} WHERE id = %d", $message_id ), ARRAY_A );
-		return self::message_payload( $row );
+		// Yeni olusturulan mesajin henuz reaksiyonu olamaz; sorgu atlanir.
+		return self::message_payload( $row, false, 0, array() );
 	}
 
 	public static function delete_message( $message_id ) {
@@ -562,7 +570,7 @@ class Naber_Chat_Repo {
 		if ( $row ) {
 			self::touch_conversation( (int) $row['conversation_id'] );
 		}
-		return $updated ? self::message_payload( $row ) : null;
+		return $updated ? self::message_payload( $row, false, (int) $row['sender_id'] ) : null;
 	}
 
 	public static function mark_read( $conversation_id, $reader_id ) {
@@ -716,9 +724,12 @@ class Naber_Chat_Repo {
 			ARRAY_A
 		);
 
+		$ids       = array_column( (array) $rows, 'id' );
+		$reactions = Naber_Reactions::summary_for_many( $ids, $user_id );
+
 		$out = array();
 		foreach ( (array) $rows as $row ) {
-			$out[] = self::message_payload( $row, 'group' === $row['conversation_type'] );
+			$out[] = self::message_payload( $row, 'group' === $row['conversation_type'], $user_id, $reactions[ (int) $row['id'] ] ?? array() );
 		}
 		return $out;
 	}
@@ -957,7 +968,16 @@ class Naber_Chat_Repo {
 		return $out;
 	}
 
-	public static function message_payload( $row, $is_group = false ) {
+	/**
+	 * @param int        $viewer_id "reacted" alaninin kimin gozuyle
+	 *                              hesaplanacagi.
+	 * @param array|null $reactions Onceden (toplu) hesaplanmis reaksiyon
+	 *                              ozeti verilebilir; birden fazla mesaj
+	 *                              donduren dongulerde her satir icin ayri
+	 *                              sorgu atmamak icin kullanilir. Null ise
+	 *                              bu tek satir icin ayrica sorgulanir.
+	 */
+	public static function message_payload( $row, $is_group = false, $viewer_id = 0, $reactions = null ) {
 		if ( ! $row ) {
 			return null;
 		}
@@ -980,7 +1000,12 @@ class Naber_Chat_Repo {
 			'sender_avatar'   => '',
 			'edited'          => ! empty( $row['edited_at'] ) && '0000-00-00 00:00:00' !== $row['edited_at'],
 			'reply'           => null,
+			'reactions'       => array(),
 		);
+
+		if ( ! $payload['deleted'] ) {
+			$payload['reactions'] = ( null !== $reactions ) ? $reactions : Naber_Reactions::summary( (int) $row['id'], $viewer_id );
+		}
 
 		if ( $is_group ) {
 			$sender = Naber_Auth::user_payload( (int) $row['sender_id'] );

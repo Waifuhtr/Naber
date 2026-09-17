@@ -58,6 +58,7 @@ class Naber_REST {
 		$this->route( $ns, '/messages/(?P<id>\d+)', 'DELETE', 'delete_message', $user );
 		$this->route( $ns, '/messages/(?P<id>\d+)', 'POST', 'edit_message', $user );
 		$this->route( $ns, '/messages/(?P<id>\d+)/info', 'GET', 'message_info', $user );
+		$this->route( $ns, '/messages/(?P<id>\d+)/react', 'POST', 'react_to_message', $user );
 
 		// --- Medya ---
 		$this->route( $ns, '/media/find', 'POST', 'media_find', $user );
@@ -861,6 +862,46 @@ class Naber_REST {
 		}
 
 		return rest_ensure_response( array( 'message' => $updated ) );
+	}
+
+	/**
+	 * Mesaja emoji reaksiyonu birakir/kaldirir. Ayni emojiye tekrar
+	 * basmak reaksiyonu kaldirir; farkli bir emoji basmak degistirir.
+	 */
+	public function react_to_message( WP_REST_Request $request ) {
+		$message = Naber_Chat_Repo::get_message( (int) $request['id'] );
+		if ( ! $message || (int) $message['deleted'] === 1 ) {
+			return new WP_Error( 'naber_message_not_found', 'Mesaj bulunamadi.', array( 'status' => 404 ) );
+		}
+
+		$user_id = get_current_user_id();
+		if ( ! Naber_Chat_Repo::member( (int) $message['conversation_id'], $user_id ) ) {
+			return new WP_Error( 'naber_forbidden', 'Bu mesaja erisim yetkiniz yok.', array( 'status' => 403 ) );
+		}
+
+		$emoji = self::sanitize_emoji( $request->get_param( 'emoji' ) );
+		if ( '' === $emoji ) {
+			return new WP_Error( 'naber_invalid_emoji', 'Gecerli bir emoji gerekli.', array( 'status' => 400 ) );
+		}
+
+		$result = Naber_Reactions::toggle( (int) $message['id'], $user_id, $emoji );
+		Naber_Chat_Repo::touch_conversation( (int) $message['conversation_id'] );
+
+		return rest_ensure_response(
+			array(
+				'action'    => $result['action'],
+				'reactions' => Naber_Reactions::summary( (int) $message['id'], $user_id ),
+			)
+		);
+	}
+
+	/** Emoji girisi: bos degil, DB sutununa (varchar 16) sigacak kadar kisa. */
+	public static function sanitize_emoji( $value ) {
+		$emoji = trim( (string) $value );
+		if ( '' === $emoji || strlen( $emoji ) > 16 ) {
+			return '';
+		}
+		return $emoji;
 	}
 
 	public function message_info( WP_REST_Request $request ) {
