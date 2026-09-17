@@ -1966,6 +1966,9 @@ private fun MessageRow(
     // yerine doner.
     val haptics = LocalHapticFeedback.current
     val density = LocalDensity.current
+    // pointerInput blogu PointerInputScope'tur, CoroutineScope degil;
+    // animasyonlar bu yuzden ayri bir kapsamda calistirilir.
+    val swipeScope = rememberCoroutineScope()
     val swipe = remember(message.key) { Animatable(0f) }
     val threshold = with(density) { 52.dp.toPx() }
     val maxDrag = with(density) { 78.dp.toPx() }
@@ -1997,12 +2000,12 @@ private fun MessageRow(
                         onDragEnd = {
                             val reached = swipe.value >= threshold
                             passedThreshold = false
-                            launch { swipe.animateTo(0f) }
+                            swipeScope.launch { swipe.animateTo(0f) }
                             if (reached) onReply()
                         },
                         onDragCancel = {
                             passedThreshold = false
-                            launch { swipe.animateTo(0f) }
+                            swipeScope.launch { swipe.animateTo(0f) }
                         }
                     ) { _, dragAmount ->
                         // Yalnizca saga: sola kaydirma listeyi kaydirmaya karismasin.
@@ -2011,7 +2014,7 @@ private fun MessageRow(
                             passedThreshold = true
                             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                         }
-                        launch { swipe.snapTo(next) }
+                        swipeScope.launch { swipe.snapTo(next) }
                     }
                 },
             horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
