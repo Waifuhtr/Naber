@@ -64,7 +64,10 @@ gorsel sikistirma, yerel onbellek (MediaStore + LocalStore).
     degistirmedigi icin (yoksa sabitleyince sohbet listede zipliyordu)
     baska cihazdan yapilan bu degisiklikler ancak tam yenilemede
     gorunur.
-14. [ ] **Batarya optimizasyonu icin WorkManager** — henuz yapilmadi.
+14. [x] **Batarya optimizasyonu icin WorkManager** — tamamlandi:
+    dosya temizligi gunde bir kez (pil azken calismaz) ve
+    gonderilemeyen metin mesajlari ag geri gelince uygulama acik
+    olmasa da gonderiliyor.
 15. [ ] **Sikistirilmis JSON / gzip** — sunucu/hosting ayari,
     kullanicinin WordPress barindirmasinda kontrol etmesi gerekiyor
     (kod degisikligi degil).
@@ -167,7 +170,7 @@ duruyor:
 ## Durum ozeti (en son guncelleme: Persembe 05:00 tetikleyicisi)
 
 Tamamlanan: hata duzeltmesi (1/1), durtme ozelligi, optimizasyonlar
-(11/15 yapildi, 2 kasitli atlandi/ertelendi, 2 kaldi), genel ozellikler
+(12/15 yapildi, 2 kasitli atlandi/ertelendi, 1 kaldi), genel ozellikler
 (19/19 yapildi: yanitla, duzenle, reaksiyon, iletme, kamera, sabitleme,
 sureli sessize alma, davet kodu, uygulama kilidi, global arama,
 kaybolan mesajlar, engelleme, bahsetme, gizlilik secenekleri,
@@ -175,13 +178,15 @@ acik tema, sohbet arka plani, konum paylasma, anket, sesli mesaj).
 
 Eklenti surumu: 1.19.0. Toplam test: 253, hepsi geciyor.
 
-Kalan buyuk is: yalnizca WorkManager optimizasyonu. Onaylanan butun
-ozellikler bitti.
+Kalan is: onaylanan butun ozellikler ve optimizasyonlar bitti.
+Geriye yalnizca kod degisikligi gerektirmeyen ya da bilerek ertelenen
+maddeler kaldi (gzip sunucu ayari, sticker paketi, ICE toplu gonderme).
 
 ## Kodlamaya gecince siralama
 
 1. [x] Tam ekran gorsel siyah ekran duzeltmesi.
 2. [x] Durtme ozelligi (sunucu + istemci).
-3. Onaylanan optimizasyonlar — 11/15 yapildi, kalanlar surdurulecek.
+3. [x] Onaylanan optimizasyonlar — 12/15 yapildi, kalan 3 madde bilerek
+   birakildi (ayrintilar yukarida)., kalanlar surdurulecek.
 4. [x] Onaylanan genel ozellikler — 19/19 tamamlandi.
 5. Ek oneriler arasindan kullanicinin sectikleri (henuz baslanmadi).

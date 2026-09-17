@@ -200,6 +200,14 @@ object LocalStore {
         return builder.toString().trim()
     }
 
+    /** Cihazda mesaji saklanan sohbetlerin kimlikleri. */
+    fun conversationIds(context: Context): List<Int> =
+        dir(context).listFiles { file -> file.name.startsWith("messages-") }
+            ?.mapNotNull { file ->
+                file.name.removePrefix("messages-").removeSuffix(".json").toIntOrNull()
+            }
+            ?: emptyList()
+
     /** Henuz sunucuya ulasmamis (kimligi olmayan) mesajlar. */
     private fun pendingOf(messages: List<Message>): List<Message> =
         messages.filter { it.id <= 0 && it.clientId.isNotBlank() }

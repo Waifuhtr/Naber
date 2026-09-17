@@ -134,6 +134,7 @@ import com.naber.app.ui.formatPresence
 import com.naber.app.ui.prepareImage
 import com.naber.app.push.Notifications
 import com.naber.app.push.SoundPlayer
+import com.naber.app.work.NaberWork
 import com.naber.app.ui.theme.NaberColors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
@@ -396,6 +397,8 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
             SoundPlayer.playSent(context)
         } catch (e: Exception) {
             mark(clientId, SendState.FAILED)
+            // Ag geri geldiginde uygulama acilmasa da gonderilsin.
+            NaberWork.flushOutbox(context)
         }
     }
 

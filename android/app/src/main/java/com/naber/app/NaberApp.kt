@@ -10,8 +10,8 @@ import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
-import com.naber.app.data.LocalFiles
 import com.naber.app.push.SoundPlayer
+import com.naber.app.work.NaberWork
 import com.naber.app.call.CallManager
 import com.naber.app.data.ApiClient
 import com.naber.app.data.EventHub
@@ -23,7 +23,9 @@ class NaberApp : Application(), ImageLoaderFactory {
         super.onCreate()
         Naber.init(this)
         createNotificationChannels()
-        LocalFiles.cleanup(this)
+        // Temizlik ve kuyruk artik acilista degil, WorkManager'in uygun
+        // gordugu bir anda yapiliyor; acilis diskle ugrasmiyor.
+        NaberWork.schedule(this)
     }
 
     /**
