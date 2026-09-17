@@ -89,6 +89,12 @@ class Naber_Chat_Repo {
 
 		self::assign_invite_code( $conversation_id );
 
+		// Sohbetin ilk satiri: grubun ne zaman ve kim tarafindan kuruldugu.
+		Naber_Groups::system_message(
+			$conversation_id,
+			Naber_Groups::display_name( (int) $owner_id ) . ' "' . $title . '" grubunu olusturdu.'
+		);
+
 		return $conversation_id;
 	}
 
@@ -222,6 +228,7 @@ class Naber_Chat_Repo {
 				continue;
 			}
 			$user['role']       = (string) $row['role'];
+			$user['perms']      = self::perms_for( (string) $row['role'], isset( $row['perms'] ) ? $row['perms'] : '' );
 			$user['chat_muted'] = (bool) (int) $row['chat_muted'];
 			$user['joined_at']  = self::ts( $row['joined_at'] );
 			$out[]              = $user;
@@ -249,6 +256,65 @@ class Naber_Chat_Repo {
 	/** Rol bazli yetki kurali — testlerde de dogrudan kullanilir. */
 	public static function can_manage( $role ) {
 		return in_array( $role, array( 'owner', 'admin' ), true );
+	}
+
+	/**
+	 * Ayrintili yetkiler.
+	 *
+	 * Yonetici yapmadan da tek tek verilebilir: "uyeleri cikarabilsin ama
+	 * grup adini degistiremesin" gibi. Sahip ve yoneticiler zaten hepsine
+	 * sahiptir, listeye bakilmaz.
+	 */
+	const PERMISSIONS = array( 'remove_member', 'delete_message', 'edit_group', 'add_member', 'pin_message' );
+
+	/** Metinden gecerli yetki listesi cikarir. */
+	public static function parse_perms( $raw ) {
+		if ( is_array( $raw ) ) {
+			$parts = $raw;
+		} else {
+			$parts = explode( ',', (string) $raw );
+		}
+		$out = array();
+		foreach ( $parts as $part ) {
+			$key = trim( (string) $part );
+			if ( '' !== $key && in_array( $key, self::PERMISSIONS, true ) && ! in_array( $key, $out, true ) ) {
+				$out[] = $key;
+			}
+		}
+		return $out;
+	}
+
+	/** Bir uyenin sahip oldugu yetkiler; yonetici ve sahip icin hepsi. */
+	public static function perms_for( $role, $raw ) {
+		if ( self::can_manage( $role ) ) {
+			return self::PERMISSIONS;
+		}
+		return self::parse_perms( $raw );
+	}
+
+	public static function perms_of( $conversation_id, $user_id ) {
+		$member = self::member( $conversation_id, $user_id );
+		if ( ! $member ) {
+			return array();
+		}
+		return self::perms_for( (string) $member['role'], isset( $member['perms'] ) ? $member['perms'] : '' );
+	}
+
+	/** Kullanici bu grupta belirtilen yetkiye sahip mi? */
+	public static function has_perm( $conversation_id, $user_id, $perm ) {
+		return in_array( $perm, self::perms_of( $conversation_id, $user_id ), true );
+	}
+
+	public static function set_perms( $conversation_id, $user_id, $perms ) {
+		global $wpdb;
+		self::touch_conversation( $conversation_id );
+		return (bool) $wpdb->update(
+			Naber_DB::table( 'members' ),
+			array( 'perms' => implode( ',', self::parse_perms( $perms ) ) ),
+			array( 'conversation_id' => (int) $conversation_id, 'user_id' => (int) $user_id ),
+			array( '%s' ),
+			array( '%d', '%d' )
+		);
 	}
 
 	/**
@@ -485,6 +551,10 @@ class Naber_Chat_Repo {
 			$data['avatar_media_id'] = (int) $fields['avatar_media_id'];
 			$formats[]               = '%d';
 		}
+		if ( isset( $fields['owner_id'] ) ) {
+			$data['owner_id'] = (int) $fields['owner_id'];
+			$formats[]        = '%d';
+		}
 		if ( ! $data ) {
 			return false;
 		}
@@ -599,6 +669,8 @@ class Naber_Chat_Repo {
 			'owner_id'     => (int) $row['owner_id'],
 			'member_count' => isset( $row['member_count'] ) ? (int) $row['member_count'] : count( self::member_ids( (int) $row['id'] ) ),
 			'role'         => $member ? (string) $member['role'] : '',
+			// Kendi ayrintili yetkilerim; arayuz dugmeleri buna gore acilir.
+			'perms'        => $member ? self::perms_for( (string) $member['role'], isset( $member['perms'] ) ? $member['perms'] : '' ) : array(),
 			'chat_muted'   => $member ? (bool) (int) $member['chat_muted'] : false,
 			'notify_muted' => $member ? self::is_notify_muted( $member ) : false,
 			// Sureli sessize almanin ne zaman bitecegi (unix saniye); suresiz ise 0.

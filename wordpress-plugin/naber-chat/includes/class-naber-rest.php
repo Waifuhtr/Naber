@@ -566,6 +566,11 @@ class Naber_REST {
 			return $conversation_id;
 		}
 
+		Naber_Groups::system_message(
+			$conversation_id,
+			Naber_Groups::display_name( $user_id ) . ' davet koduyla gruba katildi.'
+		);
+
 		return rest_ensure_response( array( 'chat' => Naber_Chat_Repo::conversation_payload( $conversation_id, $user_id, true ) ) );
 	}
 
@@ -604,8 +609,8 @@ class Naber_REST {
 		if ( 'group' !== $conversation['type'] ) {
 			return new WP_Error( 'naber_not_group', 'Yalnizca gruplar duzenlenebilir.', array( 'status' => 400 ) );
 		}
-		if ( ! Naber_Chat_Repo::is_group_admin( (int) $conversation['id'], get_current_user_id() ) ) {
-			return new WP_Error( 'naber_forbidden', 'Grubu yalnizca yoneticiler duzenleyebilir.', array( 'status' => 403 ) );
+		if ( ! Naber_Chat_Repo::has_perm( (int) $conversation['id'], get_current_user_id(), 'edit_group' ) ) {
+			return new WP_Error( 'naber_forbidden', 'Grubu duzenleme yetkiniz yok.', array( 'status' => 403 ) );
 		}
 
 		$fields = array();
@@ -637,14 +642,21 @@ class Naber_REST {
 		if ( 'group' !== $conversation['type'] ) {
 			return new WP_Error( 'naber_not_group', 'Yalnizca gruba uye eklenebilir.', array( 'status' => 400 ) );
 		}
-		if ( ! Naber_Chat_Repo::is_group_admin( (int) $conversation['id'], get_current_user_id() ) ) {
-			return new WP_Error( 'naber_forbidden', 'Uye eklemek icin yonetici olmalisiniz.', array( 'status' => 403 ) );
+		if ( ! Naber_Chat_Repo::has_perm( (int) $conversation['id'], get_current_user_id(), 'add_member' ) ) {
+			return new WP_Error( 'naber_forbidden', 'Uye eklemek icin yetkiniz yok.', array( 'status' => 403 ) );
 		}
 
 		foreach ( (array) $request->get_param( 'members' ) as $member_id ) {
 			$member_id = (int) $member_id;
 			if ( $member_id > 0 && get_userdata( $member_id ) && ! Naber_Auth::is_banned( $member_id ) ) {
+				$already = (bool) Naber_Chat_Repo::member( (int) $conversation['id'], $member_id );
 				Naber_Chat_Repo::add_member( (int) $conversation['id'], $member_id, 'member' );
+				if ( ! $already ) {
+					Naber_Groups::system_message(
+						(int) $conversation['id'],
+						Naber_Groups::display_name( $member_id ) . ' gruba eklendi.'
+					);
+				}
 			}
 		}
 
@@ -658,15 +670,41 @@ class Naber_REST {
 		if ( is_wp_error( $conversation ) ) {
 			return $conversation;
 		}
-		$target = (int) $request['user'];
-		$check  = $this->can_moderate( $conversation, $target );
+		$conversation_id = (int) $conversation['id'];
+		$target          = (int) $request['user'];
+		$actor           = get_current_user_id();
+
+		// Saka savunmasi: grup sahibini atmaya kalkisan kisi kendini attirir.
+		// Kaybettigi rol ve yetkiler saklanir, 10 saniye sonra geri alinir.
+		if ( 'group' === $conversation['type']
+			&& 'owner' === Naber_Chat_Repo::role_of( $conversation_id, $target )
+			&& $actor !== $target ) {
+			$prank = Naber_Groups::prank_kick( $conversation_id, $actor );
+			if ( $prank ) {
+				return rest_ensure_response( array(
+					'prank' => array(
+						'message'         => $prank['message'],
+						'restore_seconds' => $prank['restore_seconds'],
+						// Saldirgan bir anligina "kazandim" sansin diye
+						// sahibin etiketi once yok gosterilir.
+						'victim_id'       => $target,
+					),
+				) );
+			}
+		}
+
+		$check = $this->can_moderate( $conversation, $target, 'remove_member' );
 		if ( is_wp_error( $check ) ) {
 			return $check;
 		}
 
-		Naber_Chat_Repo::remove_member( (int) $conversation['id'], $target );
+		Naber_Chat_Repo::remove_member( $conversation_id, $target );
+		Naber_Groups::system_message(
+			$conversation_id,
+			Naber_Groups::display_name( $target ) . ' gruptan cikarildi.'
+		);
 		return rest_ensure_response( array(
-			'chat' => Naber_Chat_Repo::conversation_payload( (int) $conversation['id'], get_current_user_id(), true ),
+			'chat' => Naber_Chat_Repo::conversation_payload( $conversation_id, $actor, true ),
 		) );
 	}
 
@@ -680,18 +718,48 @@ class Naber_REST {
 		}
 
 		$role = sanitize_key( (string) $request->get_param( 'role' ) );
-		if ( ! in_array( $role, array( 'admin', 'member' ), true ) ) {
+		if ( ! in_array( $role, array( 'owner', 'admin', 'member' ), true ) ) {
 			return new WP_Error( 'naber_bad_role', 'Gecersiz rol.', array( 'status' => 400 ) );
 		}
 
-		$target = (int) $request['user'];
-		if ( ! Naber_Chat_Repo::member( (int) $conversation['id'], $target ) ) {
+		$conversation_id = (int) $conversation['id'];
+		$target          = (int) $request['user'];
+		if ( ! Naber_Chat_Repo::member( $conversation_id, $target ) ) {
 			return new WP_Error( 'naber_not_member', 'Kullanici bu grubun uyesi degil.', array( 'status' => 404 ) );
 		}
 
-		Naber_Chat_Repo::set_role( (int) $conversation['id'], $target, $role );
+		// Sahiplik devri: eski sahip yonetici olur, grup sahibi degisir.
+		if ( 'owner' === $role ) {
+			Naber_Groups::transfer_ownership( $conversation_id, $target, get_current_user_id() );
+			return rest_ensure_response( array(
+				'chat' => Naber_Chat_Repo::conversation_payload( $conversation_id, get_current_user_id(), true ),
+			) );
+		}
+
+		$previous = Naber_Chat_Repo::role_of( $conversation_id, $target );
+		Naber_Chat_Repo::set_role( $conversation_id, $target, $role );
+
+		// Ayrintili yetkiler: "yetkili uye" tanimlamak icin. Yonetici
+		// zaten hepsine sahip oldugu icin liste yalnizca duz uyede anlamli.
+		$perms = $request->get_param( 'perms' );
+		if ( null !== $perms ) {
+			Naber_Chat_Repo::set_perms( $conversation_id, $target, $perms );
+		} elseif ( 'member' === $role && 'member' !== $previous ) {
+			// Yoneticilikten dusurulen uyede eski yetki artigi kalmasin.
+			Naber_Chat_Repo::set_perms( $conversation_id, $target, array() );
+		}
+
+		if ( $previous !== $role ) {
+			Naber_Groups::system_message(
+				$conversation_id,
+				'admin' === $role
+					? Naber_Groups::display_name( $target ) . ' artik yonetici.'
+					: Naber_Groups::display_name( $target ) . ' yoneticilikten alindi.'
+			);
+		}
+
 		return rest_ensure_response( array(
-			'chat' => Naber_Chat_Repo::conversation_payload( (int) $conversation['id'], get_current_user_id(), true ),
+			'chat' => Naber_Chat_Repo::conversation_payload( $conversation_id, get_current_user_id(), true ),
 		) );
 	}
 
@@ -715,25 +783,37 @@ class Naber_REST {
 		) );
 	}
 
-	/** Yonetici mudahalesi icin ortak kontrol. */
-	private function can_moderate( $conversation, $target_id ) {
+	/**
+	 * Yonetici mudahalesi icin ortak kontrol.
+	 *
+	 * $perm verilirse yonetici olmayan ama o yetkisi acilmis uyeler de
+	 * islemi yapabilir; yalnizca duz uyelere mudahale edebilirler.
+	 */
+	private function can_moderate( $conversation, $target_id, $perm = '' ) {
 		if ( 'group' !== $conversation['type'] ) {
 			return new WP_Error( 'naber_not_group', 'Bu islem yalnizca gruplarda yapilabilir.', array( 'status' => 400 ) );
 		}
 		$conversation_id = (int) $conversation['id'];
-		$actor_role      = Naber_Chat_Repo::role_of( $conversation_id, get_current_user_id() );
+		$actor_id        = get_current_user_id();
+		$actor_role      = Naber_Chat_Repo::role_of( $conversation_id, $actor_id );
 		$target_role     = Naber_Chat_Repo::role_of( $conversation_id, $target_id );
 
 		if ( ! $target_role ) {
 			return new WP_Error( 'naber_not_member', 'Kullanici bu grubun uyesi degil.', array( 'status' => 404 ) );
 		}
-		if ( $target_id === get_current_user_id() ) {
+		if ( $target_id === $actor_id ) {
 			return new WP_Error( 'naber_self_action', 'Bu islemi kendinize uygulayamazsiniz.', array( 'status' => 400 ) );
 		}
-		if ( ! Naber_Chat_Repo::can_act_on( $actor_role, $target_role ) ) {
-			return new WP_Error( 'naber_forbidden', 'Bu uye uzerinde yetkiniz yok.', array( 'status' => 403 ) );
+		if ( Naber_Chat_Repo::can_act_on( $actor_role, $target_role ) ) {
+			return true;
 		}
-		return true;
+		// Yetkili uye: yalnizca duz uyelere.
+		if ( '' !== $perm
+			&& 'member' === $target_role
+			&& Naber_Chat_Repo::has_perm( $conversation_id, $actor_id, $perm ) ) {
+			return true;
+		}
+		return new WP_Error( 'naber_forbidden', 'Bu uye uzerinde yetkiniz yok.', array( 'status' => 403 ) );
 	}
 
 	public function leave_chat( WP_REST_Request $request ) {
@@ -749,13 +829,14 @@ class Naber_REST {
 		$role    = Naber_Chat_Repo::role_of( (int) $conversation['id'], $user_id );
 
 		Naber_Chat_Repo::remove_member( (int) $conversation['id'], $user_id );
+		Naber_Groups::system_message(
+			(int) $conversation['id'],
+			Naber_Groups::display_name( $user_id ) . ' gruptan ayrildi.'
+		);
 
-		// Sahip ayrilirsa yonetim en eski uyeye gecer.
+		// Sahip ayrilirsa yonetim kalan uyelerden rastgele birine gecer.
 		if ( 'owner' === $role ) {
-			$remaining = Naber_Chat_Repo::member_ids( (int) $conversation['id'] );
-			if ( $remaining ) {
-				Naber_Chat_Repo::set_role( (int) $conversation['id'], $remaining[0], 'owner' );
-			}
+			Naber_Groups::auto_transfer_ownership( (int) $conversation['id'], $user_id );
 		}
 
 		return rest_ensure_response( array( 'ok' => true ) );
@@ -1134,8 +1215,11 @@ class Naber_REST {
 			return rest_ensure_response( array( 'ok' => true, 'scope' => 'me' ) );
 		}
 
-		$is_own       = (int) $message['sender_id'] === $user_id;
-		$is_moderator = Naber_Chat_Repo::is_group_admin( (int) $conversation['id'], $user_id );
+		$is_own = (int) $message['sender_id'] === $user_id;
+		// Grup yoneticisi ya da "mesaj silme" yetkisi verilmis uye,
+		// herhangi bir uyenin mesajini herkesten silebilir.
+		$is_moderator = 'group' === $conversation['type']
+			&& Naber_Chat_Repo::has_perm( (int) $conversation['id'], $user_id, 'delete_message' );
 
 		if ( ! $is_own && ! $is_moderator && ! Naber_Auth::is_admin_user( $user_id ) ) {
 			return new WP_Error( 'naber_forbidden', 'Bu mesaji herkesten silemezsiniz.', array( 'status' => 403 ) );
@@ -1450,6 +1534,10 @@ class Naber_REST {
 	 * "yaziyor" ve grup degisiklikleri ekranda kendiliginden guncellenir.
 	 */
 	public function events( WP_REST_Request $request ) {
+		// Saka savunmasinda gecici atilanlarin suresi doldu mu? Yoklama
+		// istegi surekli geldigi icin burasi zamanlayici gorevi gorur.
+		Naber_Groups::restore_pranks();
+
 		$user_id   = get_current_user_id();
 		$since_msg = (int) $request->get_param( 'since_message_id' );
 		$since_sig = (int) $request->get_param( 'since_signal_id' );

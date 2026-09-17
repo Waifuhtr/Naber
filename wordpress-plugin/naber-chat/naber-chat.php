@@ -3,7 +3,7 @@
  * Plugin Name: Naber Chat
  * Plugin URI:  https://github.com/Waifuhtr/Naber
  * Description: Naber mesajlasma uygulamasi icin backend: kullanicilar, sohbetler, mesajlar, Backblaze B2 medya, WebRTC signaling, FCM bildirimleri ve admin istatistikleri.
- * Version:     1.21.0
+ * Version:     1.22.0
  * Author:      Naber
  * License:     GPL-2.0-or-later
  * Text Domain: naber-chat
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'NABER_CHAT_VERSION', '1.21.0' );
+define( 'NABER_CHAT_VERSION', '1.22.0' );
 define( 'NABER_CHAT_FILE', __FILE__ );
 define( 'NABER_CHAT_DIR', plugin_dir_path( __FILE__ ) );
 define( 'NABER_CHAT_URL', plugin_dir_url( __FILE__ ) );
@@ -28,6 +28,7 @@ require_once NABER_CHAT_DIR . 'includes/class-naber-auth.php';
 require_once NABER_CHAT_DIR . 'includes/class-naber-push.php';
 require_once NABER_CHAT_DIR . 'includes/class-naber-media.php';
 require_once NABER_CHAT_DIR . 'includes/class-naber-chat-repo.php';
+require_once NABER_CHAT_DIR . 'includes/class-naber-groups.php';
 require_once NABER_CHAT_DIR . 'includes/class-naber-calls.php';
 require_once NABER_CHAT_DIR . 'includes/class-naber-pokes.php';
 require_once NABER_CHAT_DIR . 'includes/class-naber-reactions.php';

@@ -9,7 +9,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class Naber_DB {
 
-	const DB_VERSION = '1.14.0';
+	const DB_VERSION = '1.15.0';
 
 	public static function table( $name ) {
 		global $wpdb;
@@ -67,6 +67,7 @@ class Naber_DB {
 			conversation_id bigint(20) unsigned NOT NULL,
 			user_id bigint(20) unsigned NOT NULL,
 			role varchar(10) NOT NULL DEFAULT 'member',
+			perms varchar(191) NOT NULL DEFAULT '',
 			chat_muted tinyint(1) NOT NULL DEFAULT 0,
 			notify_muted tinyint(1) NOT NULL DEFAULT 0,
 			notify_muted_until datetime NULL,
