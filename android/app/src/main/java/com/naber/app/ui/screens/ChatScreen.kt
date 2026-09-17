@@ -1654,7 +1654,7 @@ private fun ForwardDialog(onDismiss: () -> Unit, onPicked: (Int) -> Unit) {
     var loading by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
-        runCatching { Naber.api.chats().first }.onSuccess { chats = it }
+        runCatching { Naber.api.chats().chats }.onSuccess { chats = it }
         loading = false
     }
 

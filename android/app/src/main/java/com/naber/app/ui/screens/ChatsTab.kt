@@ -85,6 +85,9 @@ fun ChatsTab(
     var fabMenu by remember { mutableStateOf(false) }
     var joinByCodeOpen by remember { mutableStateOf(false) }
     var messageHits by remember { mutableStateOf<List<LocalStore.SearchHit>>(emptyList()) }
+    // Sunucunun verdigi son senkronizasyon zamani; bir sonraki istekte
+    // "bundan sonra ne degisti" diye sorulur.
+    var syncTime by remember { mutableStateOf(0L) }
     val scope = rememberCoroutineScope()
 
     val me = Naber.session.user
@@ -94,12 +97,21 @@ fun ChatsTab(
 
     val context = LocalContext.current
 
-    suspend fun reload() {
+    /**
+     * Listeyi tazeler.
+     *
+     * [full] false ise sunucudan yalnizca son senkronizasyondan sonra
+     * degisen sohbetler istenir ve elimizdeki liste bunlarla guncellenir;
+     * boylece her yoklamada butun liste yeniden indirilmez.
+     */
+    suspend fun reload(full: Boolean = true) {
         try {
-            val (fresh, unreadTotal) = Naber.api.chats()
-            chats = fresh
+            val since = if (full || chats.isEmpty()) 0L else syncTime
+            val result = Naber.api.chats(since)
+            chats = if (result.partial) merge(chats, result.chats) else result.chats
+            syncTime = result.syncTime
             error = null
-            LocalStore.saveChats(context, fresh, unreadTotal)
+            LocalStore.saveChats(context, chats, result.unreadTotal)
         } catch (e: Exception) {
             // Cevrimdisiyken elimizdeki kopya ekranda kalir; hata yalnizca
             // hicbir sey gosteremiyorsak anlamli olur.
@@ -168,7 +180,7 @@ fun ChatsTab(
 
     // Yeni grup, uye degisikligi veya grup adi degisiminde liste kendiliginden tazelenir.
     LaunchedEffect(revisions) {
-        if (revisions.isNotEmpty() && !loading) reload()
+        if (revisions.isNotEmpty() && !loading) reload(full = false)
     }
 
     // Okundu bilgisi degistiginde tikleri guncelle.
@@ -574,4 +586,21 @@ private fun ChatRow(chat: Chat, online: Boolean, onClick: () -> Unit) {
             }
         }
     }
+}
+
+/**
+ * Delta yanitini elimizdeki listeyle birlestirir.
+ *
+ * Degisen sohbetler yerine konur, yeni olanlar eklenir, geri kalanlar
+ * oldugu gibi kalir. Siralama sunucudakiyle ayni tutulur: once
+ * sabitlenenler, sonra son guncellemeye gore.
+ */
+private fun merge(current: List<Chat>, changed: List<Chat>): List<Chat> {
+    if (changed.isEmpty()) return current
+    val updated = changed.associateBy { it.id }
+    val kept = current.map { updated[it.id] ?: it }
+    val fresh = changed.filter { incoming -> current.none { it.id == incoming.id } }
+    return (kept + fresh).sortedWith(
+        compareByDescending<Chat> { it.pinned }.thenByDescending { it.updatedAt }
+    )
 }

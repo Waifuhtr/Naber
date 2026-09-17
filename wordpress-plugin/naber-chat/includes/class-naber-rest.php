@@ -479,11 +479,30 @@ class Naber_REST {
 	// Sohbetler
 	// ------------------------------------------------------------------
 
-	public function list_chats() {
+	/**
+	 * Sohbet listesi.
+	 *
+	 * "since" verilirse yalnizca o zamandan sonra degisen sohbetler doner
+	 * (delta); istemci elindeki listeyi bunlarla gunceller, hepsini
+	 * yeniden indirmez.
+	 *
+	 * Donen "sync_time" bir sonraki istekte "since" olarak kullanilir.
+	 * Sunucu saati baz alinir: telefon saati yanlissa istemcinin kendi
+	 * zamanini kullanmasi degisiklikleri atlamasina yol acardi.
+	 */
+	public function list_chats( WP_REST_Request $request ) {
 		$user_id = get_current_user_id();
+		$since   = max( 0, (int) $request->get_param( 'since' ) );
+
+		// Iki istek arasinda ayni saniye icinde olan degisiklikler
+		// kacmasin diye bir saniye geriden baslanir.
+		$sync_time = time();
+
 		return rest_ensure_response( array(
-			'chats'        => Naber_Chat_Repo::list_for_user( $user_id ),
+			'chats'        => Naber_Chat_Repo::list_for_user( $user_id, $since > 0 ? $since - 1 : 0 ),
 			'unread_total' => Naber_Chat_Repo::unread_total( $user_id ),
+			'partial'      => $since > 0,
+			'sync_time'    => $sync_time,
 		) );
 	}
 

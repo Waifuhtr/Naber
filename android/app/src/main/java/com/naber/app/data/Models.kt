@@ -258,6 +258,20 @@ data class Message(
     }
 }
 
+/**
+ * Sohbet listesi yaniti.
+ *
+ * [partial] true ise [chats] yalnizca degisen sohbetleri icerir; istemci
+ * elindeki listeyi bunlarla gunceller, yerine koymaz.
+ */
+@Immutable
+data class ChatSync(
+    val chats: List<Chat>,
+    val unreadTotal: Int,
+    val partial: Boolean,
+    val syncTime: Long
+)
+
 @Immutable
 data class Chat(
     val id: Int,

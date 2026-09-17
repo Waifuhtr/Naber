@@ -183,9 +183,20 @@ class ApiClient(private val session: Session) {
 
     // ----------------------------------------------------------- sohbetler
 
-    suspend fun chats(): Pair<List<Chat>, Int> {
-        val json = call("/chats")
-        return Chat.listFrom(json.optJSONArray("chats")) to json.optInt("unread_total")
+    /**
+     * Sohbet listesi.
+     *
+     * [since] sifirdan buyukse sunucu yalnizca o zamandan sonra degisen
+     * sohbetleri doner; liste her yoklamada bastan indirilmez.
+     */
+    suspend fun chats(since: Long = 0L): ChatSync {
+        val json = call("/chats", "GET", query = mapOf("since" to since.takeIf { it > 0L }))
+        return ChatSync(
+            chats = Chat.listFrom(json.optJSONArray("chats")),
+            unreadTotal = json.optInt("unread_total"),
+            partial = json.optBoolean("partial"),
+            syncTime = json.optLong("sync_time")
+        )
     }
 
     suspend fun openChat(userId: Int): Int = call("/chats", "POST", JSONObject().put("user_id", userId)).optInt("id")

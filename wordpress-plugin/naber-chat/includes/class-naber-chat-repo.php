@@ -505,12 +505,25 @@ class Naber_Chat_Repo {
 	// Listeler
 	// ------------------------------------------------------------------
 
-	public static function list_for_user( $user_id ) {
+	/**
+	 * Sohbet listesi.
+	 *
+	 * @param int $since 0 ise butun liste doner. Sifirdan buyukse yalnizca
+	 *                   o zamandan sonra degisen sohbetler doner (delta):
+	 *                   liste her yoklamada bastan indirilmez.
+	 */
+	public static function list_for_user( $user_id, $since = 0 ) {
 		global $wpdb;
 		$conversations = Naber_DB::table( 'conversations' );
 		$members       = Naber_DB::table( 'members' );
 		$messages      = Naber_DB::table( 'messages' );
 		$user_id       = (int) $user_id;
+		$since         = (int) $since;
+
+		$filter = '';
+		if ( $since > 0 ) {
+			$filter = $wpdb->prepare( ' AND c.updated_at > %s', gmdate( 'Y-m-d H:i:s', $since ) );
+		}
 
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
@@ -519,6 +532,7 @@ class Naber_Chat_Repo {
 					(SELECT COUNT(*) FROM {$members} mm WHERE mm.conversation_id = c.id) AS member_count
 				 FROM {$conversations} c
 				 INNER JOIN {$members} me ON me.conversation_id = c.id AND me.user_id = %d
+				 WHERE 1 = 1{$filter}
 				 ORDER BY (me.pinned_at IS NOT NULL) DESC, c.updated_at DESC
 				 LIMIT 200",
 				$user_id,

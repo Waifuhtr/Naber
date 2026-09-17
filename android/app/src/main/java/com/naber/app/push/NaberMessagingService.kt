@@ -87,8 +87,8 @@ class NaberMessagingService : FirebaseMessagingService() {
                         (list + pending).distinctBy { it.key }.sortedBy { it.createdAt }
                     )
                 }
-                val (chats, unread) = Naber.api.chats()
-                LocalStore.saveChats(context, chats, unread)
+                val sync = Naber.api.chats()
+                LocalStore.saveChats(context, sync.chats, sync.unreadTotal)
             }
         }
     }
