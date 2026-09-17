@@ -201,13 +201,23 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
         LocalStore.saveMessages(context, conversationId, messages)
     }
 
+    // Art arda gelen birden fazla mesaj icin "okundu" tek istekte toplanir;
+    // her mesaja ayri istek atmak yerine kisa bir sessizlik beklenir.
+    var markReadJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+
     LaunchedEffect(conversationId) {
         Naber.events.messages.collect { incoming ->
             if (incoming.conversationId != conversationId) return@collect
             messages = (messages.filterNot { it.clientId.isNotEmpty() && it.clientId == incoming.clientId } + incoming)
                 .distinctBy { it.key }
                 .sortedBy { it.createdAt }
-            if (incoming.senderId != myId) Naber.api.markRead(conversationId)
+            if (incoming.senderId != myId) {
+                markReadJob?.cancel()
+                markReadJob = scope.launch {
+                    delay(300)
+                    Naber.api.markRead(conversationId)
+                }
+            }
         }
     }
 

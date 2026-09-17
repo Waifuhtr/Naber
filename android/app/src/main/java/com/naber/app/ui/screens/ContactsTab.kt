@@ -34,12 +34,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.naber.app.Naber
+import com.naber.app.data.LocalStore
 import com.naber.app.data.User
 import com.naber.app.ui.Avatar
 import com.naber.app.ui.EmptyState
@@ -55,6 +57,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun ContactsTab(onOpenChat: (Int) -> Unit, onNewGroup: () -> Unit, onOpenProfile: (Int) -> Unit) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var contacts by remember { mutableStateOf<List<User>>(emptyList()) }
     var directory by remember { mutableStateOf<List<User>>(emptyList()) }
     var query by remember { mutableStateOf("") }
@@ -66,11 +69,24 @@ fun ContactsTab(onOpenChat: (Int) -> Unit, onNewGroup: () -> Unit, onOpenProfile
         runCatching {
             contacts = Naber.api.contacts()
             directory = Naber.api.users()
-        }.onFailure { message = it.message }
+            LocalStore.saveContacts(context, contacts, directory)
+        }.onFailure {
+            // Cevrimdisiyken cihazdaki kopya ekranda kalir.
+            if (contacts.isEmpty() && directory.isEmpty()) message = it.message
+        }
         loading = false
     }
 
-    LaunchedEffect(Unit) { reload() }
+    LaunchedEffect(Unit) {
+        // Once cihazdaki kopya: liste aninda gorunur, ag beklenmez.
+        val (cachedContacts, cachedDirectory) = LocalStore.loadContacts(context)
+        if (cachedContacts.isNotEmpty() || cachedDirectory.isNotEmpty()) {
+            contacts = cachedContacts
+            directory = cachedDirectory
+            loading = false
+        }
+        reload()
+    }
 
     fun addByAddress() {
         val value = query.trim()

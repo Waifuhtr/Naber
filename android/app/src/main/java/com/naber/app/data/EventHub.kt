@@ -1,6 +1,8 @@
 package com.naber.app.data
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import com.naber.app.push.SoundPlayer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -75,13 +77,20 @@ class EventHub(
             while (isActive) {
                 try {
                     val conversationId = activeConversationId.takeIf { it > 0 }
+                    // Olculu (mobil veri) baglantida daha uzun bekleme: ayni
+                    // sure icinde daha az istek acilir, veri kullanimi duser.
+                    // Yeni bir sey oldugunda yanit yine aninda doner, gecikme
+                    // yaratmaz; bu yalnizca bos donen isteklerin sikligini
+                    // azaltir. Sunucu zaten en fazla 30 saniyeye sabitliyor.
+                    val waitSeconds = if (isMeteredConnection()) 30 else 20
                     val batch = api.events(
                         sinceMessageId = sinceMessageId,
                         sinceSignalId = sinceSignalId,
                         conversationId = conversationId,
                         typingSignature = typingSignature,
                         presenceSignature = presenceSignature,
-                        revisionSignature = revisionSignature
+                        revisionSignature = revisionSignature,
+                        wait = waitSeconds
                     )
                     _connected.value = true
                     sinceMessageId = maxOf(sinceMessageId, batch.sinceMessageId)
@@ -127,6 +136,18 @@ class EventHub(
         _incomingCall.value = null
     }
 
+    /**
+     * Okunmamis rozet sayisini cihazda hesaplanan degerle hemen gunceller.
+     *
+     * Sohbet listesi yeni bir mesajla yerel olarak guncellendiginde rozet
+     * bir sonraki sunucu yoklamasini beklemeden aninda degisir; sunucudan
+     * gelen deger her yoklamada zaten ustune yazar, boylece sapma kendini
+     * duzeltir.
+     */
+    fun setUnreadTotal(value: Int) {
+        _unreadTotal.value = value
+    }
+
     fun reset() {
         stop()
         sinceMessageId = 0
@@ -150,4 +171,12 @@ class EventHub(
     fun launchInScope(block: suspend () -> Unit) {
         scope.launch { runCatching { block() } }
     }
+
+    /** Kullanici mobil veri gibi olculu bir baglantida mi? */
+    private fun isMeteredConnection(): Boolean = runCatching {
+        val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return@runCatching false
+        val capabilities = manager.getNetworkCapabilities(manager.activeNetwork) ?: return@runCatching false
+        !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+    }.getOrDefault(false)
 }

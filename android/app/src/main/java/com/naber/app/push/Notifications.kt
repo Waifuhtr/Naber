@@ -15,6 +15,13 @@ object Notifications {
     // Sohbet bildirimleri conversationId + 1000 kullaniyor; durtme icin
     // ayri ve yeterince uzak bir taban degeri.
     private const val POKE_NOTIFICATION_BASE_ID = 900_000
+    private const val MESSAGE_GROUP_KEY = "com.naber.app.MESSAGES"
+    private const val MESSAGE_SUMMARY_ID = 999_000
+
+    // Su an bildirimi asili duran sohbetler: id -> gonderen adi. Iki veya
+    // daha fazla sohbetten bildirim varsa Android'in bildirim cekmecesinde
+    // ayri ayri kabarmasin diye tek bir ozet altinda toplanir.
+    private val activeMessageNotifications = java.util.concurrent.ConcurrentHashMap<Int, String>()
 
     fun showMessage(context: Context, senderName: String, preview: String, conversationId: Int) {
         val intent = Intent(context, MainActivity::class.java).apply {
@@ -35,6 +42,7 @@ object Notifications {
             .setStyle(NotificationCompat.BigTextStyle().bigText(preview))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setGroup(MESSAGE_GROUP_KEY)
             .setAutoCancel(true)
             .setContentIntent(pending)
             .apply {
@@ -44,6 +52,39 @@ object Notifications {
             .build()
 
         notify(context, conversationId + 1000, notification)
+        if (conversationId > 0) {
+            activeMessageNotifications[conversationId] = senderName
+            updateMessageSummary(context)
+        }
+    }
+
+    /**
+     * Iki veya daha fazla sohbetten bildirim varken tek bir ozet gosterir;
+     * tek sohbet kaldiginda ozet kaldirilir (bos "ozet" bildirimi kalmaz).
+     */
+    private fun updateMessageSummary(context: Context) {
+        if (activeMessageNotifications.size < 2) {
+            runCatching { manager(context).cancel(MESSAGE_SUMMARY_ID) }
+            return
+        }
+
+        val names = activeMessageNotifications.values.distinct()
+        val text = "${activeMessageNotifications.size} sohbetten yeni mesaj"
+        val summary = NotificationCompat.Builder(context, NaberApp.CHANNEL_MESSAGES)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("Naber")
+            .setContentText(text)
+            .setStyle(
+                NotificationCompat.InboxStyle()
+                    .also { style -> names.forEach { style.addLine(it) } }
+                    .setSummaryText(text)
+            )
+            .setGroup(MESSAGE_GROUP_KEY)
+            .setGroupSummary(true)
+            .setAutoCancel(true)
+            .build()
+
+        notify(context, MESSAGE_SUMMARY_ID, summary)
     }
 
     /** Durtme bildirimi. Tiklaninca sohbete degil, durten kisinin profiline gider. */
@@ -140,6 +181,8 @@ object Notifications {
 
     fun cancelConversation(context: Context, conversationId: Int) {
         runCatching { manager(context).cancel(conversationId + 1000) }
+        activeMessageNotifications.remove(conversationId)
+        updateMessageSummary(context)
     }
 
     private fun notify(context: Context, id: Int, notification: android.app.Notification) {

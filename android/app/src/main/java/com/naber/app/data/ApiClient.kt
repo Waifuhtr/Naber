@@ -451,14 +451,40 @@ class ApiClient(private val session: Session) {
 
     // ----------------------------------------------------------- arama
 
-    suspend fun iceServers(): List<IceServer> = IceServer.listFrom(call("/ice-servers").optJSONArray("ice_servers"))
+    // Metered kimlik bilgileri kisa surede degismez; sunucu zaten kendi
+    // tarafinda onbellekliyor ama her arama kabulunde ayri bir HTTP isteği
+    // gereksiz gecikme yaratir. Istemci tarafinda da kisa bir sure saklanir.
+    private var cachedIceServers: List<IceServer>? = null
+    private var iceServersCachedAt = 0L
+    private val iceServersCacheMs = 5 * 60 * 1000L
+
+    /**
+     * ICE sunucu listesi. Son bes dakika icinde alindiysa tekrar sorulmaz;
+     * [forceRefresh] ile onbellek atlanip taze veri istenebilir.
+     */
+    suspend fun iceServers(forceRefresh: Boolean = false): List<IceServer> {
+        val cached = cachedIceServers
+        val fresh = System.currentTimeMillis() - iceServersCachedAt < iceServersCacheMs
+        if (!forceRefresh && cached != null && fresh) return cached
+
+        val servers = IceServer.listFrom(call("/ice-servers").optJSONArray("ice_servers"))
+        cachedIceServers = servers
+        iceServersCachedAt = System.currentTimeMillis()
+        return servers
+    }
 
     suspend fun startCall(userId: Int = 0, conversationId: Int = 0): Triple<CallInfo, List<Int>, List<IceServer>> {
         val payload = JSONObject()
         if (conversationId > 0) payload.put("conversation_id", conversationId) else payload.put("user_id", userId)
         val json = call("/calls/start", "POST", payload)
         val info = CallInfo.from(json.optJSONObject("call")) ?: throw ApiException("Arama baslatilamadi.")
-        return Triple(info, json.optJSONArray("peers").toIntList(), IceServer.listFrom(json.optJSONArray("ice_servers")))
+        val servers = IceServer.listFrom(json.optJSONArray("ice_servers"))
+        // Arama baslatirken zaten taze ICE bilgisi geldi; onbellek buradan da beslenir.
+        if (servers.isNotEmpty()) {
+            cachedIceServers = servers
+            iceServersCachedAt = System.currentTimeMillis()
+        }
+        return Triple(info, json.optJSONArray("peers").toIntList(), servers)
     }
 
     suspend fun callAction(callId: Int, action: String): Pair<CallInfo?, List<Int>> {

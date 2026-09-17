@@ -25,6 +25,7 @@ object LocalStore {
 
     private const val DIR = "naber-store"
     private const val CHATS_FILE = "chats.json"
+    private const val CONTACTS_FILE = "contacts.json"
     /** Sohbet basina saklanan en fazla mesaj sayisi. */
     private const val MAX_MESSAGES = 300
 
@@ -34,6 +35,7 @@ object LocalStore {
         File(context.filesDir, DIR).apply { if (!exists()) mkdirs() }
 
     private fun chatsFile(context: Context): File = File(dir(context), CHATS_FILE)
+    private fun contactsFile(context: Context): File = File(dir(context), CONTACTS_FILE)
 
     private fun messagesFile(context: Context, conversationId: Int): File =
         File(dir(context), "messages-$conversationId.json")
@@ -60,6 +62,31 @@ object LocalStore {
             val json = JSONObject(text)
             Chat.listFrom(json.optJSONArray("chats")) to json.optInt("unread_total")
         }.getOrNull() ?: (emptyList<Chat>() to 0)
+    }
+
+    // -------------------------------------------------------------- kisiler
+
+    /** Kisiler sekmesi de aninda dolu acilsin diye kisi listeleri saklanir. */
+    suspend fun saveContacts(context: Context, contacts: List<User>, directory: List<User>) =
+        withContext(Dispatchers.IO) {
+            lock.withLock {
+                runCatching {
+                    val payload = JSONObject()
+                        .put("contacts", JSONArray(contacts.map { it.toJson() }))
+                        .put("directory", JSONArray(directory.map { it.toJson() }))
+                    writeAtomic(contactsFile(context), payload.toString())
+                }
+                Unit
+            }
+        }
+
+    /** @return kisilerim ve tum kullanicilar listesi; kayit yoksa ikisi de bos. */
+    suspend fun loadContacts(context: Context): Pair<List<User>, List<User>> = withContext(Dispatchers.IO) {
+        runCatching {
+            val text = contactsFile(context).takeIf { it.exists() }?.readText() ?: return@runCatching null
+            val json = JSONObject(text)
+            User.listFrom(json.optJSONArray("contacts")) to User.listFrom(json.optJSONArray("directory"))
+        }.getOrNull() ?: (emptyList<User>() to emptyList())
     }
 
     // -------------------------------------------------------------- mesajlar

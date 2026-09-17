@@ -112,6 +112,12 @@ fun ChatsTab(
         if (startConversationId > 0) onOpenChat(startConversationId)
     }
 
+    // Rozet sayisi aninda cihazda hesaplanir; sunucu yoklamasini beklemez.
+    // Bir sonraki yoklama sunucu degerini getirdiginde ustune yazar.
+    LaunchedEffect(chats) {
+        if (chats.isNotEmpty()) Naber.events.setUnreadTotal(chats.sumOf { it.unread })
+    }
+
     // Liste degistiginde cihazdaki kopya tazelenir; art arda gelen
     // degisikliklerde tek yazma yapmak icin kisa bir bekleme konur.
     LaunchedEffect(chats) {
