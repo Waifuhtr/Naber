@@ -237,18 +237,40 @@ sordu, asagidakiler eklendi (Ek ozellik onerileri listesindeki
 
 **Ikinci tur oneriler:**
 
-- [ ] **ONEMLI — Sahiplik devri.** Su an owner rolu hic el
-  degistirmiyor: kurucu gruptan ayrilirsa grup sahipsiz kalir. Kurucu
-  "Sahipligi devret" diyip owner rolunu baska bir uyeye birakabilmeli
-  (en azindan ayrilmadan once). Gercek bir eksiklik, oncelik verilmeli.
+- [ ] **ONEMLI — Sahiplik devri + otomatik yedek atama.** Su an
+  owner rolu hic el degistirmiyor: kurucu gruptan ayrilirsa grup
+  sahipsiz kalir. Kurucu "Sahipligi devret" diyip owner rolunu elle
+  baska bir uyeye birakabilmeli; bunu yapmadan ayrilirsa sahiplik
+  kalan uyelerden rastgele birine otomatik atansin (grup asla sahipsiz
+  kalmasin). Gercek bir eksiklik, oncelik verilmeli.
 - [ ] **ONEMLI — Sistem mesajlari.** "X gruba katildi", "Y grubu
   birakti", "Z cikarildi", "Grup adi/fotografi degisti" gibi olaylar
   su an sohbet akisinda hic gorunmuyor (WhatsApp'in standart ozelligi).
   Gri bilgi balonu olarak akisa eklenmeli.
+- [ ] **Sahibi cikarmaya calisana saka savunmasi.** Rol hiyerarsisi
+  zaten var (`can_act_on()` bir yonetici/yetkilinin sahibi
+  cikarmasina izin vermiyor). Biri bunu zorlarsa: once sahibin
+  yonetici etiketi bir anlik kaybolur (saldirgan basardigini sansin —
+  "zafer" hissi), hemen ardindan saldirganin kendisi gruptan atilir ve
+  ekraninda komik bir mesaj cikar; 10 saniye sonra hem sahibin etiketi
+  hem de saldirganin uyeligi otomatik geri gelir. Gercek bir guvenlik
+  onlemi degil, kucuk arkadas grubu icin eglence amacli bir "tuzak".
+- [ ] **Ayrintili yetki sistemi.** Su an yalnizca owner/admin/member
+  uc sabit rol var. Sahip birine yetki verirken artik hangi yetkilerin
+  verildigini tek tek secebilmeli: ornegin "uye cikarabilir" ve
+  "baskasinin mesajini silebilir" ayri ayri acilip kapatilabilsin.
+  Boylece tam admin yapmadan yalnizca belirli bir yetkiyi (ornegin
+  sadece mesaj silme) veren "yetkili uye" tanimlanabilir. (Mesaj
+  silme yetkisi su an zaten admin/owner icin var — ikisi de herkesin
+  mesajini herkesten silebiliyor; bu genisletmeyle sade bir "yetkili"
+  uyeye de ayrica verilebilecek.)
 - **Davet kodunu harici paylasma**: kopyalamanin yanina Android
   paylasim sayfasini (Intent.ACTION_SEND) acan bir "Paylas" dugmesi.
-- **Sabitlenmis mesajlar listesi**: tek duyuru yerine, sabitlenen
-  mesajlari ayri bir ekranda listeleme.
+- [ ] **Sabitlenmis mesaj — ayri ekran degil, sohbetin en ustune
+  sabitleme.** Onceki "ayri ekranda listeleme" fikrinden vazgecildi:
+  sabitlenen mesaj normal akistan cikmaz, sohbetin en ustune yapisik
+  durur ve yaninda kucuk bir pano igne (📌) isareti gorunur; dokununca
+  asil mesaja atlanir.
 - **"@herkes" kisitlamasi**: grup izinlerine ek olarak, "@herkes"
   bahsetmesini yalnizca yoneticilerin kullanabilmesi secenegi.
 
