@@ -41,6 +41,7 @@ import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
@@ -54,6 +55,7 @@ import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -118,6 +120,17 @@ import java.util.UUID
 /** Basili tutunca gosterilen hizli reaksiyon secenekleri. */
 private val QUICK_REACTIONS = listOf("👍", "❤️", "😂", "😮", "😢", "🙏")
 
+/** Kaybolan mesaj sureleri; sunucudaki DISAPPEAR_OPTIONS ile ayni olmali. */
+private val DISAPPEAR_OPTIONS = listOf(0, 3600, 86400, 604800, 2592000)
+
+private fun disappearLabel(seconds: Int): String = when (seconds) {
+    3600 -> "1 saat"
+    86400 -> "24 saat"
+    604800 -> "7 gun"
+    2592000 -> "30 gun"
+    else -> "Kapali"
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Unit, onOpenProfile: (Int) -> Unit) {
@@ -148,6 +161,7 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
     var forwardTarget by remember { mutableStateOf<Message?>(null) }
     var attachMenuOpen by remember { mutableStateOf(false) }
     var muteDialogOpen by remember { mutableStateOf(false) }
+    var disappearDialogOpen by remember { mutableStateOf(false) }
     var infoTarget by remember { mutableStateOf<MessageInfo?>(null) }
     val retriedImages = remember { mutableStateListOf<Int>() }
     // "Yaziyor" bilgisi her tusa basista degil, en fazla 3 saniyede bir gonderilir.
@@ -487,6 +501,19 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
     }
 
     val current = chat
+
+    // Kaybolan mesajlar aciksa suresi dolanlar cihazda da gizlenir: sunucu
+    // onlari siliyor ama yerel kopya bir sonraki yenilemeye kadar duruyor.
+    val visibleMessages = remember(messages, current?.disappearSeconds) {
+        val seconds = current?.disappearSeconds ?: 0
+        if (seconds <= 0) {
+            messages
+        } else {
+            val cutoff = System.currentTimeMillis() / 1000 - seconds
+            messages.filter { it.createdAt >= cutoff }
+        }
+    }
+
     val typingActive = typing.isNotEmpty() && (tick - typingAt) < 6000
     val peerPresence = current?.peer?.id?.let { presenceMap[it] }
     val peerOnline = peerPresence?.online ?: (current?.peer?.online == true)
@@ -609,8 +636,41 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
                             }
                         }
                     )
+                    // Gruplarda ayari yalnizca yonetici degistirebilir; sunucu da
+                    // ayni kurali uygular, buradaki kontrol sadece gorsel.
+                    val canSetDisappear = current != null &&
+                        (!current.isGroup || current.role == "owner" || current.role == "admin")
+                    if (canSetDisappear) {
+                        DropdownMenuItem(
+                            text = { Text("Kaybolan mesajlar") },
+                            trailingIcon = {
+                                Text(
+                                    disappearLabel(current?.disappearSeconds ?: 0),
+                                    fontSize = 12.sp,
+                                    color = NaberColors.TextSecondary
+                                )
+                            },
+                            onClick = {
+                                menuOpen = false
+                                disappearDialogOpen = true
+                            }
+                        )
+                    }
                 }
             }
+        }
+
+        val disappearSeconds = current?.disappearSeconds ?: 0
+        if (disappearSeconds > 0) {
+            Text(
+                "Kaybolan mesajlar acik: mesajlar ${disappearLabel(disappearSeconds)} sonra siliniyor.",
+                fontSize = 12.sp,
+                color = NaberColors.TextSecondary,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(NaberColors.SurfaceHigh)
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            )
         }
 
         if (current?.chatMuted == true) {
@@ -631,7 +691,7 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
                     CircularProgressIndicator(color = NaberColors.Accent)
                 }
 
-                messages.isEmpty() -> EmptyState(
+                visibleMessages.isEmpty() -> EmptyState(
                     "Sohbeti baslatin",
                     "Ilk mesaji gonderin, karsi taraf aninda gorecek.",
                     modifier = Modifier.align(Alignment.Center)
@@ -657,7 +717,7 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
                             }
                         }
                     }
-                    items(messages, key = { it.key }) { message ->
+                    items(visibleMessages, key = { it.key }) { message ->
                         MessageRow(
                             message = message,
                             mine = message.senderId == myId,
@@ -1049,6 +1109,41 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
             },
             confirmButton = {
                 TextButton(onClick = { muteDialogOpen = false }) { Text("Vazgec", color = NaberColors.TextSecondary) }
+            }
+        )
+    }
+
+    if (disappearDialogOpen) {
+        AlertDialog(
+            containerColor = NaberColors.Surface,
+            onDismissRequest = { disappearDialogOpen = false },
+            title = { Text("Kaybolan mesajlar") },
+            text = {
+                Column {
+                    Text(
+                        "Secilen sureden eski mesajlar hem sunucudan hem cihazlardan " +
+                            "silinir. Ayar sohbetin iki tarafi icin de gecerlidir.",
+                        fontSize = 13.sp,
+                        color = NaberColors.TextSecondary
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    DISAPPEAR_OPTIONS.forEach { seconds ->
+                        val selected = (chat?.disappearSeconds ?: 0) == seconds
+                        MessageAction(
+                            label = disappearLabel(seconds),
+                            icon = if (selected) Icons.Filled.Check else Icons.Filled.Timer
+                        ) {
+                            disappearDialogOpen = false
+                            scope.launch {
+                                runCatching { Naber.api.setDisappearing(conversationId, seconds) }
+                                    .onSuccess { updated -> chat = updated ?: chat?.copy(disappearSeconds = seconds) }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { disappearDialogOpen = false }) { Text("Vazgec", color = NaberColors.TextSecondary) }
             }
         )
     }

@@ -90,7 +90,10 @@ listeden cikarildi, istenmiyor.**
   artik mesaj metinlerinde de ariyor; arama cihazda yapildigi icin
   cevrimdisi da calisir). Not: yalnizca cihazda saklanan gecmis
   (sohbet basina son 300 mesaj) taranir.
-- [ ] **Kaybolan mesajlar — ISTEGE BAGLI (opt-in)** — henuz yapilmadi.
+- [x] **Kaybolan mesajlar — ISTEGE BAGLI (opt-in)** — tamamlandi
+  (conversations.disappear_seconds; kapali/1 saat/24 saat/7 gun/30 gun.
+  Varsayilan kapali. Suresi dolan mesajlar sohbet her acildiginda
+  sunucudan silinir, cihazda da gizlenir).
 
 **Grup ozellikleri:**
 
@@ -139,13 +142,13 @@ duruyor:
 
 Tamamlanan: hata duzeltmesi (1/1), durtme ozelligi, optimizasyonlar
 (9/15 yapildi, 2 kasitli atlandi/ertelendi, 4 kaldi), genel ozellikler
-(10/19 yapildi: yanitla, duzenle, reaksiyon, iletme, kamera, sabitleme,
-sureli sessize alma, davet kodu, uygulama kilidi, global arama).
+(11/19 yapildi: yanitla, duzenle, reaksiyon, iletme, kamera, sabitleme,
+sureli sessize alma, davet kodu, uygulama kilidi, global arama,
+kaybolan mesajlar).
 
-Eklenti surumu: 1.12.0. Toplam test: 185, hepsi geciyor.
+Eklenti surumu: 1.13.0. Toplam test: 196, hepsi geciyor.
 
-Kalan buyuk is: sesli mesaj, kaybolan mesajlar,
-bahsetme, anket, engelleme, gizlilik secenekleri, acik tema, sohbet
+Kalan buyuk is: sesli mesaj, bahsetme, anket, engelleme, gizlilik secenekleri, acik tema, sohbet
 arka plani, konum paylasma, lazy medya indirme, delta senkronizasyon,
 WorkManager.
 
@@ -154,5 +157,5 @@ WorkManager.
 1. [x] Tam ekran gorsel siyah ekran duzeltmesi.
 2. [x] Durtme ozelligi (sunucu + istemci).
 3. Onaylanan optimizasyonlar — 9/15 yapildi, kalanlar surdurulecek.
-4. Onaylanan genel ozellikler — 10/19 yapildi, kalanlar surdurulecek.
+4. Onaylanan genel ozellikler — 11/19 yapildi, kalanlar surdurulecek.
 5. Ek oneriler arasindan kullanicinin sectikleri (henuz baslanmadi).

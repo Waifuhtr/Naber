@@ -14,6 +14,15 @@ class Naber_REST {
 	/** Bir mesaj gonderimden sonra en fazla bu kadar saniye duzenlenebilir. */
 	const EDIT_WINDOW_SECONDS = 900;
 
+	/**
+	 * Kaybolan mesajlar icin izin verilen sureler (saniye).
+	 *
+	 * Serbest sayi kabul edilmez: kullanici arayuzunde de bu secenekler
+	 * var, boylece "1 saniye" gibi veriyi aninda yok eden degerler ya da
+	 * ay suren bekleyisler olusmaz.
+	 */
+	const DISAPPEAR_OPTIONS = array( 0, 3600, 86400, 604800, 2592000 );
+
 	public function register_routes() {
 		$ns = NABER_CHAT_NS;
 
@@ -52,6 +61,7 @@ class Naber_REST {
 		$this->route( $ns, '/chats/(?P<id>\d+)/leave', 'POST', 'leave_chat', $user );
 		$this->route( $ns, '/chats/(?P<id>\d+)/notifications', 'POST', 'toggle_notifications', $user );
 		$this->route( $ns, '/chats/(?P<id>\d+)/pin', 'POST', 'toggle_pin', $user );
+		$this->route( $ns, '/chats/(?P<id>\d+)/disappearing', 'POST', 'set_disappearing', $user );
 		$this->route( $ns, '/chats/(?P<id>\d+)/messages', 'GET', 'list_messages', $user );
 		$this->route( $ns, '/chats/(?P<id>\d+)/read', 'POST', 'mark_read', $user );
 		$this->route( $ns, '/chats/(?P<id>\d+)/typing', 'POST', 'typing', $user );
@@ -726,6 +736,32 @@ class Naber_REST {
 		return rest_ensure_response( array( 'pinned' => $pinned, 'chat' => $chat ) );
 	}
 
+	/**
+	 * Kaybolan mesajlari acar/kapatir.
+	 *
+	 * Ayar sohbetin tamamini ilgilendirir: grupta yalnizca yonetici,
+	 * birebir sohbette iki taraftan biri degistirebilir.
+	 */
+	public function set_disappearing( WP_REST_Request $request ) {
+		$conversation = $this->authorized_conversation( (int) $request['id'] );
+		if ( is_wp_error( $conversation ) ) {
+			return $conversation;
+		}
+
+		$user_id = get_current_user_id();
+		if ( 'group' === $conversation['type'] && ! Naber_Chat_Repo::is_group_admin( (int) $conversation['id'], $user_id ) ) {
+			return new WP_Error( 'naber_forbidden', 'Bu ayari yalnizca grup yoneticisi degistirebilir.', array( 'status' => 403 ) );
+		}
+
+		$seconds = self::sanitize_disappear_seconds( $request->get_param( 'seconds' ) );
+		Naber_Chat_Repo::set_disappearing( (int) $conversation['id'], $seconds );
+		// Ayar acilir acilmaz suresi zaten dolmus olan mesajlar temizlenir.
+		Naber_Chat_Repo::purge_disappeared( (int) $conversation['id'], $seconds );
+
+		$chat = Naber_Chat_Repo::conversation_payload( (int) $conversation['id'], $user_id );
+		return rest_ensure_response( array( 'seconds' => $seconds, 'chat' => $chat ) );
+	}
+
 	public function list_messages( WP_REST_Request $request ) {
 		$conversation = $this->authorized_conversation( (int) $request['id'] );
 		if ( is_wp_error( $conversation ) ) {
@@ -734,6 +770,13 @@ class Naber_REST {
 
 		$user_id  = get_current_user_id();
 		$is_group = 'group' === $conversation['type'];
+
+		// Kaybolan mesajlar aciksa suresi dolanlar listelenmeden once silinir;
+		// boylece hem sunucuda kalmazlar hem de istemciye hic gitmezler.
+		Naber_Chat_Repo::purge_disappeared(
+			(int) $conversation['id'],
+			(int) ( $conversation['disappear_seconds'] ?? 0 )
+		);
 
 		$messages = Naber_Chat_Repo::messages( (int) $conversation['id'], array(
 			'limit'    => (int) $request->get_param( 'limit' ),
@@ -1307,6 +1350,12 @@ class Naber_REST {
 
 	/** @var array|null Istek suresince gecerli kisi listesi. */
 	private static $peer_ids = null;
+
+	/** Gecersiz deger kapali (0) sayilir. (saf fonksiyon) */
+	public static function sanitize_disappear_seconds( $value ) {
+		$seconds = (int) $value;
+		return in_array( $seconds, self::DISAPPEAR_OPTIONS, true ) ? $seconds : 0;
+	}
 
 	/** Gecen saniyeye gore mesaj hala duzenlenebilir mi? (saf fonksiyon) */
 	public static function within_edit_window( $elapsed_seconds ) {

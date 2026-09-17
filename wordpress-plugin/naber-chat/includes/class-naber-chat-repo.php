@@ -328,6 +328,53 @@ class Naber_Chat_Repo {
 		);
 	}
 
+	/**
+	 * Kaybolan mesajlar: sohbetteki mesajlarin kac saniye sonra silinecegi.
+	 *
+	 * Istege baglidir, varsayilan kapalidir (0). Ayar sohbetin tamamini
+	 * ilgilendirdigi icin uye tablosunda degil sohbette tutulur; bir taraf
+	 * acinca herkes icin acilir.
+	 */
+	public static function set_disappearing( $conversation_id, $seconds ) {
+		global $wpdb;
+		self::touch_conversation( $conversation_id );
+		return (bool) $wpdb->update(
+			Naber_DB::table( 'conversations' ),
+			array( 'disappear_seconds' => max( 0, (int) $seconds ) ),
+			array( 'id' => (int) $conversation_id ),
+			array( '%d' ),
+			array( '%d' )
+		);
+	}
+
+	/**
+	 * Suresi dolan mesajlari siler.
+	 *
+	 * Ayri bir zamanlanmis gorev yerine sohbet her okundugunda calisir:
+	 * ~10 kisilik bir kurulumda ek bir cron'a deger yok, ayrica mesaji
+	 * goren herkes ayni anda temizlemis olur.
+	 *
+	 * @return int silinen mesaj sayisi.
+	 */
+	public static function purge_disappeared( $conversation_id, $seconds ) {
+		global $wpdb;
+		$seconds = (int) $seconds;
+		if ( $seconds <= 0 ) {
+			return 0;
+		}
+
+		$messages = Naber_DB::table( 'messages' );
+		$cutoff   = gmdate( 'Y-m-d H:i:s', time() - $seconds );
+
+		return (int) $wpdb->query(
+			$wpdb->prepare(
+				"DELETE FROM {$messages} WHERE conversation_id = %d AND created_at < %s",
+				(int) $conversation_id,
+				$cutoff
+			)
+		);
+	}
+
 	public static function set_role( $conversation_id, $user_id, $role ) {
 		global $wpdb;
 		self::touch_conversation( $conversation_id );
@@ -471,6 +518,8 @@ class Naber_Chat_Repo {
 			'invite_code'  => 'group' === $row['type']
 				? ( (string) $row['invite_code'] ?: self::assign_invite_code( (int) $row['id'] ) )
 				: '',
+			// Kaybolan mesajlar: 0 kapali, degilse mesaj omru (saniye).
+			'disappear_seconds' => (int) ( $row['disappear_seconds'] ?? 0 ),
 			'unread'       => $unread,
 			'updated_at'   => self::ts( $row['updated_at'] ),
 			'last_message' => $last,

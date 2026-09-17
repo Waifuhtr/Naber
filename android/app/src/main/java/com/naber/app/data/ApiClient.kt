@@ -236,6 +236,12 @@ class ApiClient(private val session: Session) {
         return Chat.from(json.optJSONObject("chat"))
     }
 
+    /** Kaybolan mesajlar: 0 kapatir, digerleri mesaj omrunu saniye olarak belirler. */
+    suspend fun setDisappearing(conversationId: Int, seconds: Int): Chat? {
+        val json = call("/chats/$conversationId/disappearing", "POST", JSONObject().put("seconds", seconds))
+        return Chat.from(json.optJSONObject("chat"))
+    }
+
     suspend fun messages(conversationId: Int, before: Int? = null, limit: Int = 50): Triple<List<Message>, Chat?, List<TypingUser>> {
         val json = call("/chats/$conversationId/messages", "GET", query = mapOf("before" to before, "limit" to limit))
         val typing = json.optJSONArray("typing").mapObjects { TypingUser(it.optInt("id"), it.optString("name")) }
