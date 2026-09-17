@@ -42,6 +42,7 @@ class Naber_REST {
 		$this->route( $ns, '/users/lookup', 'GET', 'lookup_user', $user );
 		$this->route( $ns, '/users/(?P<id>\d+)', 'GET', 'get_user_profile', $user );
 		$this->route( $ns, '/users/(?P<id>\d+)/poke', 'POST', 'poke_user', $user );
+		$this->route( $ns, '/users/(?P<id>\d+)/block', 'POST', 'block_user', $user );
 		$this->route( $ns, '/contacts', 'GET', 'list_contacts', $user );
 		$this->route( $ns, '/contacts', 'POST', 'add_contact', $user );
 		$this->route( $ns, '/contacts/(?P<id>\d+)', 'DELETE', 'remove_contact', $user );
@@ -361,7 +362,21 @@ class Naber_REST {
 		$payload               = Naber_Auth::user_payload( $target );
 		$payload['is_contact'] = in_array( $target_id, Naber_Auth::contacts( get_current_user_id() ), true );
 		$payload['poke_cooldown'] = Naber_Pokes::cooldown_remaining( get_current_user_id(), $target_id );
+		// "blocked": bu kisiyi ben engelledim mi. Karsi tarafin beni
+		// engelleyip engellemedigi bilgisi verilmez; engelleme sessizdir.
+		$payload['blocked'] = Naber_Blocks::has_blocked( get_current_user_id(), $target_id );
 		return rest_ensure_response( array( 'user' => $payload ) );
+	}
+
+	/** Bir kullaniciyi engeller veya engeli kaldirir. */
+	public function block_user( WP_REST_Request $request ) {
+		$target_id = (int) $request['id'];
+		$blocked   = rest_sanitize_boolean( $request->get_param( 'blocked' ) );
+		$result    = Naber_Blocks::set( get_current_user_id(), $target_id, $blocked );
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+		return rest_ensure_response( array( 'blocked' => (bool) $blocked ) );
 	}
 
 	/** Bir kullaniciyi durtme; sohbet acmaz, yalnizca bildirim gonderir. */
@@ -373,7 +388,11 @@ class Naber_REST {
 		}
 
 		$user_id = get_current_user_id();
-		$result  = Naber_Pokes::poke( $user_id, $target_id );
+		if ( Naber_Blocks::between( $user_id, $target_id ) ) {
+			return Naber_Blocks::blocked_error( 'poke' );
+		}
+
+		$result = Naber_Pokes::poke( $user_id, $target_id );
 		if ( is_wp_error( $result ) ) {
 			return $result;
 		}
@@ -832,6 +851,11 @@ class Naber_REST {
 		$is_group    = 'group' === $conversation['type'];
 		$receiver_id = $is_group ? 0 : Naber_Chat_Repo::other_user( $conversation, $user_id );
 
+		// Engelleme yalnizca birebir sohbetleri kapatir; gruplar etkilenmez.
+		if ( ! $is_group && $receiver_id && Naber_Blocks::between( $user_id, $receiver_id ) ) {
+			return Naber_Blocks::blocked_error( 'message' );
+		}
+
 		if ( 'image' === $type ) {
 			$media = Naber_Media::get( $media_id );
 			if ( ! $media || (int) $media['owner_id'] !== $user_id ) {
@@ -863,7 +887,13 @@ class Naber_REST {
 		$title   = $is_group ? (string) $conversation['title'] : $sender['display_name'];
 		$text    = $is_group ? $sender['display_name'] . ': ' . $preview : $preview;
 
-		self::notify_conversation_members( $conversation_id, $user_id, $sender['display_name'], $title, $text, (int) $message['id'] );
+		// Bahsedilen uyeler sohbeti sessize almis olsa da bildirim alir;
+		// bahsetmenin amaci zaten dikkat cekmek.
+		$mentioned = $is_group
+			? Naber_Chat_Repo::mentioned_ids( $body, Naber_Chat_Repo::members( $conversation_id ) )
+			: array();
+
+		self::notify_conversation_members( $conversation_id, $user_id, $sender['display_name'], $title, $text, (int) $message['id'], $mentioned );
 
 		return rest_ensure_response( array( 'message' => $message ) );
 	}
@@ -873,25 +903,32 @@ class Naber_REST {
 	 * ve sessize almis olanlar haric). send_message ve forward_message
 	 * arasinda paylasilir.
 	 */
-	private static function notify_conversation_members( $conversation_id, $sender_id, $sender_name, $title, $text, $message_id ) {
+	private static function notify_conversation_members( $conversation_id, $sender_id, $sender_name, $title, $text, $message_id, array $mentioned = array() ) {
 		foreach ( Naber_Chat_Repo::member_ids( $conversation_id ) as $member_id ) {
 			if ( $member_id === (int) $sender_id ) {
 				continue;
 			}
+
+			$is_mentioned  = in_array( (int) $member_id, $mentioned, true );
 			$target_member = Naber_Chat_Repo::member( $conversation_id, $member_id );
-			if ( $target_member && Naber_Chat_Repo::is_notify_muted( $target_member ) ) {
+			// Sessize alinmis sohbet susar, ama kisiden bahsedildiyse susmaz.
+			if ( ! $is_mentioned && $target_member && Naber_Chat_Repo::is_notify_muted( $target_member ) ) {
 				continue;
 			}
+
+			$body = $is_mentioned ? sprintf( '%s sizden bahsetti: %s', $sender_name, $text ) : $text;
+
 			Naber_Push::send_to_user(
 				$member_id,
-				array( 'title' => $title, 'body' => $text ),
+				array( 'title' => $title, 'body' => $body ),
 				array(
 					'type'            => 'message',
 					'conversation_id' => (int) $conversation_id,
 					'message_id'      => (int) $message_id,
 					'sender_id'       => (int) $sender_id,
 					'sender_name'     => $sender_name,
-					'preview'         => $text,
+					'preview'         => $body,
+					'mention'         => $is_mentioned,
 				)
 			);
 		}
@@ -1504,11 +1541,18 @@ class Naber_REST {
 			if ( 'group' === $conversation['type'] ) {
 				$call = Naber_Calls::start_group( $user_id, $conversation_id );
 			} else {
-				$call = Naber_Calls::start_direct( $user_id, Naber_Chat_Repo::other_user( $conversation, $user_id ) );
+				$other = (int) Naber_Chat_Repo::other_user( $conversation, $user_id );
+				if ( Naber_Blocks::between( $user_id, $other ) ) {
+					return Naber_Blocks::blocked_error( 'call' );
+				}
+				$call = Naber_Calls::start_direct( $user_id, $other );
 			}
 		} else {
 			if ( $callee_id <= 0 || $callee_id === $user_id || ! get_userdata( $callee_id ) ) {
 				return new WP_Error( 'naber_user_not_found', 'Aranacak kullanici bulunamadi.', array( 'status' => 404 ) );
+			}
+			if ( Naber_Blocks::between( $user_id, $callee_id ) ) {
+				return Naber_Blocks::blocked_error( 'call' );
 			}
 			$call = Naber_Calls::start_direct( $user_id, $callee_id );
 		}

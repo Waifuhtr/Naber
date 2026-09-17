@@ -20,9 +20,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BackHand
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -37,6 +39,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.naber.app.Naber
@@ -67,6 +70,8 @@ fun UserProfileScreen(userId: Int, onBack: () -> Unit, onOpenChat: (Int) -> Unit
     var cooldown by remember { mutableIntStateOf(0) }
     var pokeMessage by remember { mutableStateOf<String?>(null) }
     var chatBusy by remember { mutableStateOf(false) }
+    var blockBusy by remember { mutableStateOf(false) }
+    var blockConfirm by remember { mutableStateOf(false) }
 
     suspend fun load() {
         try {
@@ -103,6 +108,29 @@ fun UserProfileScreen(userId: Int, onBack: () -> Unit, onOpenChat: (Int) -> Unit
                 pokeMessage = e.message
             } finally {
                 pokeBusy = false
+            }
+        }
+    }
+
+    fun toggleBlock() {
+        val current = profile ?: return
+        if (blockBusy) return
+        blockBusy = true
+        val next = !current.blocked
+        scope.launch {
+            try {
+                val result = Naber.api.setBlocked(userId, next)
+                profile = current.copy(blocked = result)
+                pokeMessage = if (result) {
+                    "${current.user.displayName} engellendi. Artik birbirinize mesaj gonderemezsiniz."
+                } else {
+                    "${current.user.displayName} icin engel kaldirildi."
+                }
+            } catch (e: Exception) {
+                pokeMessage = e.message
+            } finally {
+                blockBusy = false
+                blockConfirm = false
             }
         }
     }
@@ -243,6 +271,28 @@ fun UserProfileScreen(userId: Int, onBack: () -> Unit, onOpenChat: (Int) -> Unit
                         }
                     }
 
+                    Spacer(Modifier.height(10.dp))
+
+                    Text(
+                        text = when {
+                            blockBusy -> "Kaydediliyor..."
+                            current.blocked -> "Engeli kaldir"
+                            else -> "Engelle"
+                        },
+                        color = if (current.blocked) NaberColors.TextSecondary else NaberColors.Danger,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 14.sp,
+                        modifier = Modifier
+                            .padding(horizontal = 20.dp)
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .clickable(enabled = !blockBusy) {
+                                if (current.blocked) toggleBlock() else blockConfirm = true
+                            }
+                            .padding(vertical = 14.dp),
+                        textAlign = TextAlign.Center
+                    )
+
                     pokeMessage?.let {
                         Text(
                             it,
@@ -256,6 +306,26 @@ fun UserProfileScreen(userId: Int, onBack: () -> Unit, onOpenChat: (Int) -> Unit
                 }
             }
         }
+    }
+
+    if (blockConfirm) {
+        AlertDialog(
+            containerColor = NaberColors.Surface,
+            onDismissRequest = { blockConfirm = false },
+            title = { Text("${profile?.user?.displayName ?: "Bu kisi"} engellensin mi?") },
+            text = {
+                Text(
+                    "Engellediginizde birbirinize mesaj gonderemez, arayamaz ve " +
+                        "durtemezsiniz. Ortak gruplardaki mesajlar etkilenmez."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { toggleBlock() }) { Text("Engelle", color = NaberColors.Danger) }
+            },
+            dismissButton = {
+                TextButton(onClick = { blockConfirm = false }) { Text("Vazgec", color = NaberColors.TextSecondary) }
+            }
+        )
     }
 }
 

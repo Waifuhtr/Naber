@@ -73,7 +73,10 @@ data class User(
 data class UserProfile(
     val user: User,
     /** Su an durtulursa kac saniye sonra tekrar durtulebilir; 0 ise hemen durtulebilir. */
-    val pokeCooldown: Int
+    val pokeCooldown: Int,
+    /** Bu kisiyi ben engelledim mi. Karsi tarafin beni engelleyip
+     *  engellemedigi bilgisi sunucudan gelmez; engelleme sessizdir. */
+    val blocked: Boolean = false
 )
 
 @Immutable

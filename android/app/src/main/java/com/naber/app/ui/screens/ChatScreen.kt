@@ -82,7 +82,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -101,6 +104,7 @@ import com.naber.app.data.SendState
 import com.naber.app.data.MessageInfo
 import com.naber.app.data.TickState
 import com.naber.app.data.TypingUser
+import com.naber.app.data.User
 import com.naber.app.ui.SenderAvatar
 import com.naber.app.ui.ChatAvatar
 import com.naber.app.ui.EmptyState
@@ -123,6 +127,33 @@ private val QUICK_REACTIONS = listOf("👍", "❤️", "😂", "😮", "😢", "
 
 /** Kaybolan mesaj sureleri; sunucudaki DISAPPEAR_OPTIONS ile ayni olmali. */
 private val DISAPPEAR_OPTIONS = listOf(0, 3600, 86400, 604800, 2592000)
+
+/** Grubun tamamini kapsayan bahsetme sozcukleri; sunucu ile ayni olmali. */
+private val MENTION_ALL_TOKENS = listOf("herkes", "hepsi", "everyone")
+
+/**
+ * "@isim" gecen yerleri vurgular.
+ *
+ * Isimler sohbetin uye listesinden gelir; boylece metindeki bir e-posta
+ * adresi yanlislikla bahsetme gibi gorunmez.
+ */
+private fun mentionText(body: String, names: List<String>, highlight: Color): AnnotatedString {
+    if (names.isEmpty() || !body.contains('@')) return AnnotatedString(body)
+    return buildAnnotatedString {
+        append(body)
+        val style = SpanStyle(color = highlight, fontWeight = FontWeight.SemiBold)
+        // Uzun isimler once: "@Ali Veli" yazilmisken yalnizca "Ali" kismi
+        // vurgulanip geri kalani duz kalmasin.
+        names.sortedByDescending { it.length }.forEach { name ->
+            val token = "@" + name
+            var index = body.indexOf(token, ignoreCase = true)
+            while (index >= 0) {
+                addStyle(style, index, index + token.length)
+                index = body.indexOf(token, index + token.length, ignoreCase = true)
+            }
+        }
+    }
+}
 
 private fun disappearLabel(seconds: Int): String = when (seconds) {
     3600 -> "1 saat"
@@ -515,6 +546,41 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
         }
     }
 
+    // Grupta "@" yazilirken uye onerisi: son "@" isaretinden sonrasi
+    // aranan metin sayilir. Bosluk iceren isimler de yazilabilsin diye
+    // arama ilk bosluktan sonra kesilmez, yalnizca uzunlugu sinirlanir.
+    val mentionQuery = remember(draft, current?.isGroup) {
+        if (current?.isGroup != true) {
+            null
+        } else {
+            val at = draft.lastIndexOf('@')
+            when {
+                at < 0 -> null
+                at > 0 && !draft[at - 1].isWhitespace() -> null
+                else -> draft.substring(at + 1).takeIf { !it.contains('\n') && it.length <= 24 }
+            }
+        }
+    }
+
+    val mentionSuggestions: List<User> = remember(mentionQuery, current?.members) {
+        val query = mentionQuery
+        val members = current?.members.orEmpty().filter { it.id != myId }
+        when {
+            query == null -> emptyList()
+            query.isBlank() -> members.take(6)
+            else -> members.filter { it.displayName.contains(query, ignoreCase = true) }.take(6)
+        }
+    }
+
+    val mentionNames: List<String> = remember(current?.members) {
+        val group = current?.takeIf { it.isGroup }
+        if (group == null) {
+            emptyList()
+        } else {
+            group.members.map { it.displayName }.filter { it.isNotBlank() } + MENTION_ALL_TOKENS
+        }
+    }
+
     val typingActive = typing.isNotEmpty() && (tick - typingAt) < 6000
     val peerPresence = current?.peer?.id?.let { presenceMap[it] }
     val peerOnline = peerPresence?.online ?: (current?.peer?.online == true)
@@ -723,6 +789,7 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
                             message = message,
                             mine = message.senderId == myId,
                             isGroup = current?.isGroup == true,
+                            mentionNames = mentionNames,
                             tick = tickFor(message, chat?.deliveredWatermark ?: 0, chat?.readWatermark ?: 0),
                             onImageClick = { fullScreen = it },
                             onLongPress = { actionTarget = message },
@@ -761,6 +828,37 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
                 LaunchedEffect(it) {
                     delay(4000)
                     error = null
+                }
+            }
+        }
+
+        // Grupta "@" yazilinca uye onerileri cikar; dokununca isim eklenir.
+        if (mentionSuggestions.isNotEmpty()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(NaberColors.TopBar)
+            ) {
+                mentionSuggestions.forEach { member ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                val at = draft.lastIndexOf('@')
+                                if (at >= 0) draft = draft.substring(0, at) + "@${member.displayName} "
+                            }
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        SenderAvatar(
+                            name = member.displayName,
+                            url = member.avatar,
+                            id = member.id,
+                            size = 26.dp
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text(member.displayName, color = NaberColors.TextPrimary, fontSize = 14.sp)
+                    }
                 }
             }
         }
@@ -1253,6 +1351,8 @@ private fun MessageRow(
     message: Message,
     mine: Boolean,
     isGroup: Boolean,
+    /** Vurgulanacak "@isim"ler; grup disinda bos gelir. */
+    mentionNames: List<String>,
     tick: TickState,
     onImageClick: (Any) -> Unit,
     onLongPress: () -> Unit,
@@ -1393,7 +1493,11 @@ private fun MessageRow(
 
                 if (message.body.isNotBlank()) {
                     Text(
-                        message.body,
+                        mentionText(
+                            message.body,
+                            mentionNames,
+                            if (mine) Color.White else NaberColors.Accent
+                        ),
                         fontSize = 15.sp,
                         color = if (mine) Color.White else NaberColors.TextPrimary,
                         modifier = Modifier.padding(horizontal = 2.dp, vertical = if (message.type == "image") 4.dp else 0.dp)

@@ -375,6 +375,84 @@ class Naber_Chat_Repo {
 		);
 	}
 
+	/** Grubun tamamini kapsayan bahsetme sozcukleri. */
+	const MENTION_ALL_TOKENS = array( '@herkes', '@hepsi', '@everyone' );
+
+	/**
+	 * Mesaj metninde bahsedilen ("@isim") uyeleri bulur. Saf fonksiyon:
+	 * veritabanina dokunmaz, uye listesi disaridan verilir.
+	 *
+	 * @param string $body    Mesaj metni.
+	 * @param array  $members Her biri 'id' ve 'display_name' iceren uyeler.
+	 * @return int[] Bahsedilen uye kimlikleri.
+	 */
+	public static function mentioned_ids( $body, array $members ) {
+		$body = (string) $body;
+		if ( '' === $body || false === strpos( $body, '@' ) ) {
+			return array();
+		}
+
+		$haystack = self::fold_for_match( $body );
+
+		foreach ( self::MENTION_ALL_TOKENS as $token ) {
+			if ( false !== strpos( $haystack, $token ) ) {
+				return array_values( array_unique( array_map(
+					function ( $member ) {
+						return (int) $member['id'];
+					},
+					$members
+				) ) );
+			}
+		}
+
+		// Uzun isimler once denenir: "@Ali Veli" yazilmisken "Ali" adli
+		// uyenin de bahsedilmis sayilmasi icin eslesen bolum metinden
+		// silinir.
+		usort(
+			$members,
+			function ( $a, $b ) {
+				return strlen( (string) $b['display_name'] ) - strlen( (string) $a['display_name'] );
+			}
+		);
+
+		$found = array();
+		foreach ( $members as $member ) {
+			$name = trim( (string) $member['display_name'] );
+			if ( '' === $name ) {
+				continue;
+			}
+			$token  = '@' . self::fold_for_match( $name );
+			$offset = strpos( $haystack, $token );
+			if ( false === $offset ) {
+				continue;
+			}
+			$found[]  = (int) $member['id'];
+			$haystack = substr_replace( $haystack, str_repeat( ' ', strlen( $token ) ), $offset, strlen( $token ) );
+		}
+
+		return array_values( array_unique( $found ) );
+	}
+
+	/**
+	 * Buyuk/kucuk harf ve Turkce harf farklarini yok sayar.
+	 *
+	 * "@ALI" yazan biri "Ali" adli uyeden bahsetmis sayilmali; ayrica
+	 * Turkce klavyesi olmayan biri "@Sukru" yazip "Sukru" adli uyeyi
+	 * bulabilmeli.
+	 */
+	private static function fold_for_match( $text ) {
+		$map = array(
+			'İ' => 'i', 'I' => 'i', 'ı' => 'i',
+			'Ş' => 's', 'ş' => 's',
+			'Ğ' => 'g', 'ğ' => 'g',
+			'Ü' => 'u', 'ü' => 'u',
+			'Ö' => 'o', 'ö' => 'o',
+			'Ç' => 'c', 'ç' => 'c',
+		);
+		$text = strtr( (string) $text, $map );
+		return function_exists( 'mb_strtolower' ) ? mb_strtolower( $text, 'UTF-8' ) : strtolower( $text );
+	}
+
 	public static function set_role( $conversation_id, $user_id, $role ) {
 		global $wpdb;
 		self::touch_conversation( $conversation_id );

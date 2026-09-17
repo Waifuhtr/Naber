@@ -142,8 +142,17 @@ class ApiClient(private val session: Session) {
     suspend fun userProfile(userId: Int): UserProfile {
         val userJson = call("/users/$userId").optJSONObject("user")
         val user = User.from(userJson) ?: throw ApiException("Kullanici bulunamadi.")
-        return UserProfile(user, userJson?.optInt("poke_cooldown") ?: 0)
+        return UserProfile(
+            user = user,
+            pokeCooldown = userJson?.optInt("poke_cooldown") ?: 0,
+            blocked = userJson?.optBoolean("blocked") == true
+        )
     }
+
+    /** Engeller veya engeli kaldirir. @return sunucunun dondugu son durum. */
+    suspend fun setBlocked(userId: Int, blocked: Boolean): Boolean =
+        call("/users/$userId/block", "POST", JSONObject().put("blocked", blocked))
+            .optBoolean("blocked", blocked)
 
     /** Bir kullaniciyi durtme; sohbet acmaz, yalnizca bildirim gonderir. */
     suspend fun pokeUser(userId: Int): Int =

@@ -103,6 +103,7 @@ require_once dirname( __DIR__ ) . '/includes/class-naber-auth.php';
 require_once dirname( __DIR__ ) . '/includes/class-naber-chat-repo.php';
 require_once dirname( __DIR__ ) . '/includes/class-naber-pokes.php';
 require_once dirname( __DIR__ ) . '/includes/class-naber-reactions.php';
+require_once dirname( __DIR__ ) . '/includes/class-naber-blocks.php';
 require_once dirname( __DIR__ ) . '/includes/class-naber-rest.php';
 
 /**

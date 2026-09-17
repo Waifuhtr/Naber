@@ -97,7 +97,9 @@ listeden cikarildi, istenmiyor.**
 
 **Grup ozellikleri:**
 
-- [ ] **@bahsetme (mention)** — henuz yapilmadi.
+- [x] **@bahsetme (mention)** — tamamlandi (grupta "@" yazinca uye
+  onerisi cikar, mesajda vurgulanir; bahsedilen kisi sohbeti sessize
+  almis olsa bile bildirim alir. "@herkes" grubun tamamini kapsar).
 - [x] **Grup davet KODU + "Kod ile grup bul"** — tamamlandi (8 haneli
   kod, yoneticinin yenileyebilmesi). commit: "Grup davet kodu".
 - [ ] **Anket (poll)** — henuz yapilmadi.
@@ -107,7 +109,9 @@ listeden cikarildi, istenmiyor.**
 - [x] **Uygulama kilidi** — tamamlandi (PIN: tuza dayali SHA-256 ozet,
   arka plana alininca ve uygulama sifirdan acilinca kilitlenir).
   Parmak izi sonraya birakildi.
-- [ ] **Kullanici engelleme** — henuz yapilmadi.
+- [x] **Kullanici engelleme** — tamamlandi (naber_blocks tablosu;
+  engel karsilikli etki eder: iki taraf da mesaj gonderemez, arayamaz,
+  durtemez. Ortak gruplar etkilenmez. Profil ekranindan acilir).
 - [ ] **Son gorulme / okundu bilgisini gizleme secenegi** — henuz
   yapilmadi.
 
@@ -142,20 +146,20 @@ duruyor:
 
 Tamamlanan: hata duzeltmesi (1/1), durtme ozelligi, optimizasyonlar
 (9/15 yapildi, 2 kasitli atlandi/ertelendi, 4 kaldi), genel ozellikler
-(11/19 yapildi: yanitla, duzenle, reaksiyon, iletme, kamera, sabitleme,
+(13/19 yapildi: yanitla, duzenle, reaksiyon, iletme, kamera, sabitleme,
 sureli sessize alma, davet kodu, uygulama kilidi, global arama,
-kaybolan mesajlar).
+kaybolan mesajlar, engelleme, bahsetme).
 
-Eklenti surumu: 1.13.0. Toplam test: 196, hepsi geciyor.
+Eklenti surumu: 1.14.0. Toplam test: 217, hepsi geciyor.
 
-Kalan buyuk is: sesli mesaj, bahsetme, anket, engelleme, gizlilik secenekleri, acik tema, sohbet
-arka plani, konum paylasma, lazy medya indirme, delta senkronizasyon,
-WorkManager.
+Kalan buyuk is: sesli mesaj, anket, gizlilik secenekleri,
+acik tema, sohbet arka plani, konum paylasma, lazy medya indirme,
+delta senkronizasyon, WorkManager.
 
 ## Kodlamaya gecince siralama
 
 1. [x] Tam ekran gorsel siyah ekran duzeltmesi.
 2. [x] Durtme ozelligi (sunucu + istemci).
 3. Onaylanan optimizasyonlar — 9/15 yapildi, kalanlar surdurulecek.
-4. Onaylanan genel ozellikler — 11/19 yapildi, kalanlar surdurulecek.
+4. Onaylanan genel ozellikler — 13/19 yapildi, kalanlar surdurulecek.
 5. Ek oneriler arasindan kullanicinin sectikleri (henuz baslanmadi).

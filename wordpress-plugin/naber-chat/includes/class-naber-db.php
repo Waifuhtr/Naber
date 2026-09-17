@@ -9,7 +9,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class Naber_DB {
 
-	const DB_VERSION = '1.12.0';
+	const DB_VERSION = '1.13.0';
 
 	public static function table( $name ) {
 		global $wpdb;
@@ -31,6 +31,7 @@ class Naber_DB {
 		$devices       = self::table( 'devices' );
 		$pokes         = self::table( 'pokes' );
 		$reactions     = self::table( 'reactions' );
+		$blocks        = self::table( 'blocks' );
 
 		$sql = array();
 
@@ -191,6 +192,18 @@ class Naber_DB {
 
 		// Emoji reaksiyonu: kullanici basina mesaj basina en fazla bir emoji
 		// (WhatsApp'taki gibi); ayni emojiye tekrar basmak kaldirir.
+		// Engelleme: A, B'yi engellerse ikisi de birbirine birebir mesaj
+		// gonderemez, arayamaz, durtemez. Gruplar etkilenmez.
+		$sql[] = "CREATE TABLE {$blocks} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			blocker_id bigint(20) unsigned NOT NULL,
+			blocked_id bigint(20) unsigned NOT NULL,
+			created_at datetime NOT NULL DEFAULT '0000-00-00 00:00:00',
+			PRIMARY KEY  (id),
+			UNIQUE KEY pair (blocker_id,blocked_id),
+			KEY blocked_id (blocked_id)
+		) {$charset};";
+
 		$sql[] = "CREATE TABLE {$reactions} (
 			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
 			message_id bigint(20) unsigned NOT NULL,
@@ -274,6 +287,7 @@ class Naber_DB {
 		$wpdb->delete( self::table( 'devices' ), array( 'user_id' => $user_id ), array( '%d' ) );
 		$wpdb->query( $wpdb->prepare( 'DELETE FROM ' . self::table( 'pokes' ) . ' WHERE from_id = %d OR to_id = %d', $user_id, $user_id ) );
 		$wpdb->delete( self::table( 'reactions' ), array( 'user_id' => $user_id ), array( '%d' ) );
+		$wpdb->query( $wpdb->prepare( 'DELETE FROM ' . self::table( 'blocks' ) . ' WHERE blocker_id = %d OR blocked_id = %d', $user_id, $user_id ) );
 		$wpdb->delete( self::table( 'members' ), array( 'user_id' => $user_id ), array( '%d' ) );
 		$wpdb->delete( self::table( 'call_participants' ), array( 'user_id' => $user_id ), array( '%d' ) );
 		$wpdb->query( $wpdb->prepare( 'DELETE FROM ' . self::table( 'signals' ) . ' WHERE sender_id = %d OR receiver_id = %d', $user_id, $user_id ) );
