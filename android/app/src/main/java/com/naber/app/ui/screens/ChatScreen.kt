@@ -46,7 +46,9 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.MoreVert
@@ -144,6 +146,7 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
     var replyTarget by remember { mutableStateOf<Message?>(null) }
     var editTarget by remember { mutableStateOf<Message?>(null) }
     var forwardTarget by remember { mutableStateOf<Message?>(null) }
+    var attachMenuOpen by remember { mutableStateOf(false) }
     var muteDialogOpen by remember { mutableStateOf(false) }
     var infoTarget by remember { mutableStateOf<MessageInfo?>(null) }
     val retriedImages = remember { mutableStateListOf<Int>() }
@@ -474,6 +477,15 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
         uri?.let { sendImage(it) }
     }
 
+    // Kamerayla cekilen fotograf: cekim basarili olursa hazirlanan hedef
+    // dosyanin adresi dogrudan gonderilir (galeriye dusmez).
+    var cameraUri by remember { mutableStateOf<Uri?>(null) }
+    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        val taken = cameraUri
+        cameraUri = null
+        if (success && taken != null) sendImage(taken)
+    }
+
     val current = chat
     val typingActive = typing.isNotEmpty() && (tick - typingAt) < 6000
     val peerPresence = current?.peer?.id?.let { presenceMap[it] }
@@ -734,17 +746,41 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
                     .padding(horizontal = 10.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(38.dp)
-                        .clip(CircleShape)
-                        .background(NaberColors.SurfaceHigh)
-                        .clickable {
-                            imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Filled.Add, contentDescription = "Gorsel ekle", tint = NaberColors.TextSecondary, modifier = Modifier.size(20.dp))
+                Box {
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(NaberColors.SurfaceHigh)
+                            .clickable { attachMenuOpen = true },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Filled.Add, contentDescription = "Gorsel ekle", tint = NaberColors.TextSecondary, modifier = Modifier.size(20.dp))
+                    }
+                    DropdownMenu(expanded = attachMenuOpen, onDismissRequest = { attachMenuOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Galeriden sec") },
+                            leadingIcon = { Icon(Icons.Filled.Image, null) },
+                            onClick = {
+                                attachMenuOpen = false
+                                imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Fotograf cek") },
+                            leadingIcon = { Icon(Icons.Filled.PhotoCamera, null) },
+                            onClick = {
+                                attachMenuOpen = false
+                                val target = LocalFiles.cameraTarget(context)
+                                if (target == null) {
+                                    error = "Kamera acilamadi."
+                                } else {
+                                    cameraUri = Uri.fromFile(target.first)
+                                    cameraLauncher.launch(target.second)
+                                }
+                            }
+                        )
+                    }
                 }
 
                 Spacer(Modifier.width(8.dp))

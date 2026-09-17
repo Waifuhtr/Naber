@@ -33,6 +33,24 @@ object LocalFiles {
         Uri.fromFile(file).toString()
     }.getOrNull()
 
+    /**
+     * Kamerayla cekilecek fotograf icin bos bir hedef dosya ve onun
+     * FileProvider adresi.
+     *
+     * Kamera uygulamasi baska bir uygulamadir; kendi klasorumuze dogrudan
+     * yazamaz. FileProvider ile gecici yazma izni verilen bir content://
+     * adresi uretilir.
+     */
+    fun cameraTarget(context: Context): Pair<File, Uri>? = runCatching {
+        val file = File(dir(context), "cam-${System.currentTimeMillis()}.jpg")
+        val uri = androidx.core.content.FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            file
+        )
+        file to uri
+    }.getOrNull()
+
     fun exists(path: String?): Boolean {
         if (path.isNullOrBlank()) return false
         val uri = runCatching { Uri.parse(path) }.getOrNull() ?: return false

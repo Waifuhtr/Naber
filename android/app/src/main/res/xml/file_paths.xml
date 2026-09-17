@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Kamera uygulamasinin fotografi yazabilecegi klasorler.
+    naber-media: LocalFiles'in kullandigi kalici kopya klasoru.
+-->
+<paths>
+    <files-path name="naber_media" path="naber-media/" />
+    <cache-path name="naber_cache" path="." />
+</paths>
