@@ -43,6 +43,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -64,6 +65,7 @@ import com.naber.app.ui.UnreadBadge
 import com.naber.app.ui.formatChatTime
 import com.naber.app.ui.theme.NaberColors
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun ChatsTab(
@@ -82,6 +84,7 @@ fun ChatsTab(
     var menuOpen by remember { mutableStateOf(false) }
     var fabMenu by remember { mutableStateOf(false) }
     var joinByCodeOpen by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     val me = Naber.session.user
     val connected by Naber.events.connected.collectAsState()
