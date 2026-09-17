@@ -24,9 +24,11 @@ import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.NotificationsOff
+import androidx.compose.material.icons.filled.Numbers
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -34,6 +36,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -78,6 +81,7 @@ fun ChatsTab(
     var filter by remember { mutableStateOf(0) }
     var menuOpen by remember { mutableStateOf(false) }
     var fabMenu by remember { mutableStateOf(false) }
+    var joinByCodeOpen by remember { mutableStateOf(false) }
 
     val me = Naber.session.user
     val connected by Naber.events.connected.collectAsState()
@@ -319,8 +323,72 @@ fun ChatsTab(
                     leadingIcon = { Icon(Icons.Filled.Group, null) },
                     onClick = { fabMenu = false; onNewGroup() }
                 )
+                DropdownMenuItem(
+                    text = { Text("Kod ile grup bul") },
+                    leadingIcon = { Icon(Icons.Filled.Numbers, null) },
+                    onClick = { fabMenu = false; joinByCodeOpen = true }
+                )
             }
         }
+    }
+
+    if (joinByCodeOpen) {
+        var code by remember { mutableStateOf("") }
+        var joining by remember { mutableStateOf(false) }
+        var joinError by remember { mutableStateOf<String?>(null) }
+
+        AlertDialog(
+            containerColor = NaberColors.Surface,
+            onDismissRequest = { joinByCodeOpen = false },
+            title = { Text("Kod ile grup bul") },
+            text = {
+                Column {
+                    Text(
+                        "Bir arkadasinizin grup davet kodunu girin.",
+                        fontSize = 13.sp,
+                        color = NaberColors.TextSecondary
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = code,
+                        onValueChange = { code = it.uppercase().take(10) },
+                        singleLine = true,
+                        placeholder = { Text("Orn: 7K9XPQ") },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = NaberColors.TextPrimary,
+                            unfocusedTextColor = NaberColors.TextPrimary
+                        )
+                    )
+                    joinError?.let {
+                        Spacer(Modifier.height(6.dp))
+                        Text(it, color = NaberColors.Danger, fontSize = 12.5.sp)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = code.isNotBlank() && !joining,
+                    onClick = {
+                        joining = true
+                        joinError = null
+                        scope.launch {
+                            try {
+                                val joined = Naber.api.joinGroupByCode(code.trim())
+                                joinByCodeOpen = false
+                                onOpenChat(joined.id)
+                            } catch (e: Exception) {
+                                joinError = e.message
+                            } finally {
+                                joining = false
+                            }
+                        }
+                    }
+                ) { Text(if (joining) "Katiliniyor..." else "Katil", color = NaberColors.Accent) }
+            },
+            dismissButton = {
+                TextButton(onClick = { joinByCodeOpen = false }) { Text("Vazgec", color = NaberColors.TextSecondary) }
+            }
+        )
     }
 }
 

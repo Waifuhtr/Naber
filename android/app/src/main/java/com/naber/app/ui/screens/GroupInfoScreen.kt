@@ -1,5 +1,8 @@
 package com.naber.app.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -23,6 +26,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -40,6 +44,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -59,6 +64,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun GroupInfoScreen(conversationId: Int, onBack: () -> Unit, onLeft: () -> Unit) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var chat by remember { mutableStateOf<Chat?>(null) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -67,6 +73,8 @@ fun GroupInfoScreen(conversationId: Int, onBack: () -> Unit, onLeft: () -> Unit)
     var confirmLeave by remember { mutableStateOf(false) }
     var addMembers by remember { mutableStateOf(false) }
     var candidates by remember { mutableStateOf<List<User>>(emptyList()) }
+    var codeMessage by remember { mutableStateOf<String?>(null) }
+    var regenerating by remember { mutableStateOf(false) }
 
     val myId = Naber.session.user?.id ?: 0
 
@@ -180,6 +188,62 @@ fun GroupInfoScreen(conversationId: Int, onBack: () -> Unit, onLeft: () -> Unit)
             error?.let {
                 item {
                     Text(it, color = NaberColors.Danger, fontSize = 12.5.sp, modifier = Modifier.padding(16.dp))
+                }
+            }
+
+            item {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Text(
+                        "Davet kodu",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = NaberColors.TextSecondary
+                    )
+                    Spacer(Modifier.size(4.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            current.inviteCode.ifBlank { "......" },
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = NaberColors.Accent,
+                            modifier = Modifier
+                                .clickable(enabled = current.inviteCode.isNotBlank()) {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                    clipboard?.setPrimaryClip(ClipData.newPlainText("Naber", current.inviteCode))
+                                    codeMessage = "Kod kopyalandi."
+                                }
+                        )
+                        if (current.amAdmin) {
+                            Spacer(Modifier.width(12.dp))
+                            Icon(
+                                Icons.Filled.Refresh,
+                                contentDescription = "Kodu yenile",
+                                tint = NaberColors.TextSecondary,
+                                modifier = Modifier
+                                    .size(18.dp)
+                                    .clickable(enabled = !regenerating) {
+                                        regenerating = true
+                                        scope.launch {
+                                            runCatching { Naber.api.regenerateInviteCode(conversationId) }
+                                                .onSuccess { newCode ->
+                                                    chat = chat?.copy(inviteCode = newCode)
+                                                    codeMessage = "Yeni kod uretildi."
+                                                }
+                                                .onFailure { error = it.message }
+                                            regenerating = false
+                                        }
+                                    }
+                            )
+                        }
+                    }
+                    Text(
+                        "Bu kodu bilen, uygulamaya giris yapmis herkes \"Kod ile grup bul\" ile katilabilir.",
+                        fontSize = 11.5.sp,
+                        color = NaberColors.TextSecondary
+                    )
+                    codeMessage?.let {
+                        Text(it, fontSize = 11.5.sp, color = NaberColors.Accent, modifier = Modifier.padding(top = 4.dp))
+                    }
                 }
             }
 

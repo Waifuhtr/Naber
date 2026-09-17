@@ -219,6 +219,8 @@ data class Chat(
     val notifyMutedUntil: Long = 0L,
     /** Sohbet listesinde bu kullanici tarafindan sabitlendi mi. */
     val pinned: Boolean = false,
+    /** Yalnizca gruplarda dolu; "Kod ile grup bul" ekraninda kullanilir. */
+    val inviteCode: String = "",
     val unread: Int,
     val updatedAt: Long,
     val lastMessage: Message?,
@@ -248,6 +250,7 @@ data class Chat(
                 notifyMuted = json.optBoolean("notify_muted"),
                 notifyMutedUntil = json.optLong("notify_muted_until"),
                 pinned = json.optBoolean("pinned"),
+                inviteCode = json.optString("invite_code"),
                 unread = json.optInt("unread"),
                 updatedAt = json.optLong("updated_at"),
                 lastMessage = Message.from(json.optJSONObject("last_message")),
@@ -529,6 +532,7 @@ fun Chat.toJson(): JSONObject = JSONObject()
     .put("notify_muted", notifyMuted)
     .put("notify_muted_until", notifyMutedUntil)
     .put("pinned", pinned)
+    .put("invite_code", inviteCode)
     .put("unread", unread)
     .put("updated_at", updatedAt)
     .put("last_message", lastMessage?.toJson())

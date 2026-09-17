@@ -87,6 +87,69 @@ class Naber_Chat_Repo {
 			}
 		}
 
+		self::assign_invite_code( $conversation_id );
+
+		return $conversation_id;
+	}
+
+	/**
+	 * Karisik gelmeyen karakterlerden (0/O, 1/I/l yok) rastgele davet kodu.
+	 * Saf fonksiyon: veritabanina dokunmaz, testlerde dogrudan cagrilir.
+	 */
+	public static function random_invite_code( $length = 6 ) {
+		$alphabet = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+		$code     = '';
+		for ( $i = 0; $i < $length; $i++ ) {
+			$code .= $alphabet[ random_int( 0, strlen( $alphabet ) - 1 ) ];
+		}
+		return $code;
+	}
+
+	/** Gruba benzersiz bir davet kodu atar (cakisirsa tekrar dener). */
+	public static function assign_invite_code( $conversation_id ) {
+		global $wpdb;
+		$table = Naber_DB::table( 'conversations' );
+
+		for ( $attempt = 0; $attempt < 10; $attempt++ ) {
+			$code    = self::random_invite_code();
+			$updated = $wpdb->query(
+				$wpdb->prepare(
+					"UPDATE {$table} SET invite_code = %s WHERE id = %d AND NOT EXISTS (SELECT 1 FROM {$table} t2 WHERE t2.invite_code = %s)",
+					$code,
+					(int) $conversation_id,
+					$code
+				)
+			);
+			if ( $updated ) {
+				return $code;
+			}
+		}
+		return '';
+	}
+
+	/** Davet kodundan gruba katilir. Zaten uyeyse tekrar eklemez. */
+	public static function join_by_code( $code, $user_id ) {
+		global $wpdb;
+		$code = strtoupper( trim( (string) $code ) );
+		if ( '' === $code ) {
+			return new WP_Error( 'naber_invalid_code', 'Gecerli bir kod girin.', array( 'status' => 400 ) );
+		}
+
+		$conversation_id = (int) $wpdb->get_var(
+			$wpdb->prepare(
+				'SELECT id FROM ' . Naber_DB::table( 'conversations' ) . " WHERE invite_code = %s AND type = 'group'",
+				$code
+			)
+		);
+		if ( ! $conversation_id ) {
+			return new WP_Error( 'naber_code_not_found', 'Bu koda sahip bir grup bulunamadi.', array( 'status' => 404 ) );
+		}
+
+		if ( ! self::member( $conversation_id, $user_id ) ) {
+			self::add_member( $conversation_id, $user_id, 'member' );
+			self::touch_conversation( $conversation_id );
+		}
+
 		return $conversation_id;
 	}
 
@@ -402,6 +465,12 @@ class Naber_Chat_Repo {
 			// Sureli sessize almanin ne zaman bitecegi (unix saniye); suresiz ise 0.
 			'notify_muted_until' => ( $member && ! empty( $member['notify_muted_until'] ) ) ? self::ts( $member['notify_muted_until'] ) : 0,
 			'pinned'       => $member ? ! empty( $member['pinned_at'] ) : false,
+			// Sadece gruplarda anlamli; "Kod ile grup bul" ekraninda kullanilir.
+			// Bu ozellikten once olusmus gruplarin kodu yoktur; ilk gorulduginde
+			// bir kereye mahsus olusturulup kaydedilir.
+			'invite_code'  => 'group' === $row['type']
+				? ( (string) $row['invite_code'] ?: self::assign_invite_code( (int) $row['id'] ) )
+				: '',
 			'unread'       => $unread,
 			'updated_at'   => self::ts( $row['updated_at'] ),
 			'last_message' => $last,

@@ -9,7 +9,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class Naber_DB {
 
-	const DB_VERSION = '1.10.0';
+	const DB_VERSION = '1.11.0';
 
 	public static function table( $name ) {
 		global $wpdb;
@@ -47,12 +47,14 @@ class Naber_DB {
 			user_two bigint(20) unsigned NOT NULL DEFAULT 0,
 			last_message_id bigint(20) unsigned NOT NULL DEFAULT 0,
 			meta_rev bigint(20) unsigned NOT NULL DEFAULT 1,
+			invite_code varchar(10) NOT NULL DEFAULT '',
 			created_at datetime NOT NULL DEFAULT '0000-00-00 00:00:00',
 			updated_at datetime NOT NULL DEFAULT '0000-00-00 00:00:00',
 			PRIMARY KEY  (id),
 			UNIQUE KEY pair_key (pair_key),
 			KEY type (type),
-			KEY updated_at (updated_at)
+			KEY updated_at (updated_at),
+			KEY invite_code (invite_code)
 		) {$charset};";
 
 		// Her sohbetin katilimcilari: birebir sohbette 2, grupta N kisi.

@@ -41,6 +41,8 @@ class Naber_REST {
 		$this->route( $ns, '/chats', 'GET', 'list_chats', $user );
 		$this->route( $ns, '/chats', 'POST', 'open_chat', $user );
 		$this->route( $ns, '/groups', 'POST', 'create_group', $user );
+		$this->route( $ns, '/groups/join', 'POST', 'join_group_by_code', $user );
+		$this->route( $ns, '/groups/(?P<id>\d+)/invite-code/regenerate', 'POST', 'regenerate_invite_code', $user );
 		$this->route( $ns, '/chats/(?P<id>\d+)', 'GET', 'chat_info', $user );
 		$this->route( $ns, '/chats/(?P<id>\d+)', 'POST', 'update_chat', $user );
 		$this->route( $ns, '/chats/(?P<id>\d+)/members', 'POST', 'add_members', $user );
@@ -481,6 +483,41 @@ class Naber_REST {
 		}
 
 		return rest_ensure_response( array( 'chat' => Naber_Chat_Repo::conversation_payload( $conversation_id, $user_id, true ) ) );
+	}
+
+	/**
+	 * Davet kodu ile gruba katilir.
+	 * Grup davet linkinden farkli olarak kod disaridan tiklanabilir bir URL
+	 * degildir; yalnizca uygulamaya zaten giris yapmis, kodu bilen kisi
+	 * "Kod ile grup bul" ekranindan katilabilir.
+	 */
+	public function join_group_by_code( WP_REST_Request $request ) {
+		$user_id = get_current_user_id();
+		$code    = (string) $request->get_param( 'code' );
+
+		$conversation_id = Naber_Chat_Repo::join_by_code( $code, $user_id );
+		if ( is_wp_error( $conversation_id ) ) {
+			return $conversation_id;
+		}
+
+		return rest_ensure_response( array( 'chat' => Naber_Chat_Repo::conversation_payload( $conversation_id, $user_id, true ) ) );
+	}
+
+	/** Grup yoneticisi eski kodu gecersiz kilip yenisini uretir. */
+	public function regenerate_invite_code( WP_REST_Request $request ) {
+		$conversation_id = (int) $request['id'];
+		$conversation    = Naber_Chat_Repo::get_conversation( $conversation_id );
+		if ( ! $conversation || 'group' !== $conversation['type'] ) {
+			return new WP_Error( 'naber_group_not_found', 'Grup bulunamadi.', array( 'status' => 404 ) );
+		}
+
+		$user_id = get_current_user_id();
+		if ( ! Naber_Chat_Repo::is_group_admin( $conversation_id, $user_id ) ) {
+			return new WP_Error( 'naber_forbidden', 'Yalnizca yoneticiler kodu yenileyebilir.', array( 'status' => 403 ) );
+		}
+
+		$code = Naber_Chat_Repo::assign_invite_code( $conversation_id );
+		return rest_ensure_response( array( 'invite_code' => $code ) );
 	}
 
 	public function chat_info( WP_REST_Request $request ) {

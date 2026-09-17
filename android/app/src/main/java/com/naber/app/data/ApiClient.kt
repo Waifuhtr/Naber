@@ -182,6 +182,15 @@ class ApiClient(private val session: Session) {
     suspend fun chatInfo(conversationId: Int): Chat =
         Chat.from(call("/chats/$conversationId").optJSONObject("chat")) ?: throw ApiException("Sohbet bulunamadi.")
 
+    /** Davet koduyla gruba katilir. */
+    suspend fun joinGroupByCode(code: String): Chat =
+        Chat.from(call("/groups/join", "POST", JSONObject().put("code", code)).optJSONObject("chat"))
+            ?: throw ApiException("Bu koda sahip bir grup bulunamadi.")
+
+    /** Grup yoneticisi eski kodu gecersiz kilip yenisini uretir. */
+    suspend fun regenerateInviteCode(conversationId: Int): String =
+        call("/groups/$conversationId/invite-code/regenerate", "POST").optString("invite_code")
+
     suspend fun updateGroup(conversationId: Int, title: String?, about: String?, avatarMediaId: Int?): Chat {
         val payload = JSONObject()
         title?.let { payload.put("title", it) }
