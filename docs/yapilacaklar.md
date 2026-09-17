@@ -151,7 +151,7 @@ listeden cikarildi, istenmiyor.**
 Kullanici WhatsApp ekran goruntuleri paylasti (17 Eylul), su ikisi
 onaylandi:
 
-1. [ ] **Mesaj eylem menusu — WhatsApp tarzi yeniden tasarim.** Mesaja
+1. [x] **Mesaj eylem menusu — WhatsApp tarzi yeniden tasarim.** Mesaja
    uzun basinca cikan menu tek govde halinde olsun: ustte yatay emoji
    reaksiyon seridi, altinda yuvarlak koseli koyu kart icinde Yanitla /
    Duzenle / Ilet / Kopyala / Bilgi / Kendimden Sil / Herkesten Sil
@@ -160,13 +160,13 @@ onaylandi:
    menu ayni kart icinde birlesiyor. WhatsApp'a ozgu "Guvenlik kodunu
    dogrula" ve "Cevir" secenekleri bizde anlamsiz (uctan uca sifreleme
    dogrulamasi ve ceviri ozelligi yok), eklenmeyecek.
-2. [ ] **Mesaji saga kaydirarak hizli yanitlama (swipe-to-reply).**
+2. [x] **Mesaji saga kaydirarak hizli yanitlama (swipe-to-reply).**
    Uzun basip menuden "Yanitla" secmek yerine, mesaj balonunu saga
    dogru kaydirinca otomatik yanit moduna gecilsin (WhatsApp'taki
    gibi) — uzun basip menuyu acmaktan daha pratik. Uzun basma
    menusundeki "Yanitla" secenegi de kalir, kaydirma ek bir kisayol
    olur.
-3. [ ] **Tam emoji secici (uzun basma menusundeki reaksiyon seridinin
+3. [x] **Tam emoji secici (uzun basma menusundeki reaksiyon seridinin
    genisletilmis hali).** Su an sabit 6 emoji var (QUICK_REACTIONS).
    Bunun yaninda/ucunda bir "+" ile acilan, arama kutusu + kategoriler
    + "sik kullanilanlar" iceren tam emoji secici eklenecek — kullanici
@@ -324,6 +324,7 @@ degisiklikleri" bolumu, henuz kodlanmadi).
 3. [x] Onaylanan optimizasyonlar — 12/15 yapildi; kalan 3 madde bilerek
    birakildi (ayrintilar yukarida).
 4. [x] Onaylanan genel ozellikler — 19/19 tamamlandi.
-5. [ ] Tasarim degisiklikleri — mesaj eylem menusu yeniden tasarimi +
-   saga kaydirarak yanitlama (henuz baslanmadi).
+5. [x] Tasarim degisiklikleri — mesaj eylem menusu yeniden tasarimi,
+   saga kaydirarak yanitlama ve tam emoji secici tamamlandi. Kalan:
+   grup ayarlari ekraninin genisletilmesi.
 6. Ek oneriler arasindan kullanicinin sectikleri (henuz baslanmadi).

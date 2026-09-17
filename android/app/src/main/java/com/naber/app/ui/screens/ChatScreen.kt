@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -38,7 +39,11 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
@@ -112,6 +117,7 @@ import androidx.core.content.ContextCompat
 import com.naber.app.Naber
 import com.naber.app.data.Chat
 import com.naber.app.data.ChatWallpaper
+import com.naber.app.data.EmojiCatalog
 import com.naber.app.data.LocalFiles
 import com.naber.app.data.LocalMedia
 import com.naber.app.data.LocalStore
@@ -132,6 +138,7 @@ import com.naber.app.data.VoicePlayer
 import com.naber.app.data.VoiceRecorder
 import com.naber.app.data.User
 import com.naber.app.ui.SenderAvatar
+import com.naber.app.ui.ThinDivider
 import com.naber.app.ui.ChatAvatar
 import com.naber.app.ui.EmptyState
 import com.naber.app.ui.MessageImage
@@ -232,6 +239,7 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
     var fullScreen by remember { mutableStateOf<Any?>(null) }
     var menuOpen by remember { mutableStateOf(false) }
     var actionTarget by remember { mutableStateOf<Message?>(null) }
+    var emojiTarget by remember { mutableStateOf<Message?>(null) }
     var replyTarget by remember { mutableStateOf<Message?>(null) }
     var editTarget by remember { mutableStateOf<Message?>(null) }
     var forwardTarget by remember { mutableStateOf<Message?>(null) }
@@ -1380,104 +1388,154 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
 
     actionTarget?.let { message ->
         val canDeleteForAll = (message.senderId == myId || chat?.amAdmin == true) && !message.deleted
-        AlertDialog(
-            containerColor = NaberColors.Surface,
-            onDismissRequest = { actionTarget = null },
-            title = { Text("Mesaj") },
-            text = {
-                Column {
-                    if (!message.deleted && message.id > 0) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
-                            horizontalArrangement = Arrangement.SpaceEvenly
+        val reactable = !message.deleted && message.id > 0
+        // WhatsApp tarzi tek govde: ustte reaksiyon seridi, altinda menu
+        // maddeleri; ikisi de ayni yuvarlak koseli kartin icinde.
+        Dialog(onDismissRequest = { actionTarget = null }) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(NaberColors.Surface)
+                    .verticalScroll(rememberScrollState())
+                    .padding(vertical = 10.dp)
+            ) {
+                if (reactable) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        QUICK_REACTIONS.forEach { emoji ->
+                            Text(
+                                emoji,
+                                fontSize = 26.sp,
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .clickable {
+                                        react(message, emoji)
+                                        EmojiCatalog.remember(context, emoji)
+                                        actionTarget = null
+                                    }
+                                    .padding(6.dp)
+                            )
+                        }
+                        // Seridin ucundaki "+" tam emoji seciciyi acar.
+                        Box(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(NaberColors.SurfaceHigh)
+                                .clickable {
+                                    emojiTarget = message
+                                    actionTarget = null
+                                }
+                                .padding(7.dp),
+                            contentAlignment = Alignment.Center
                         ) {
-                            QUICK_REACTIONS.forEach { emoji ->
-                                Text(
-                                    emoji,
-                                    fontSize = 24.sp,
-                                    modifier = Modifier
-                                        .clip(CircleShape)
-                                        .clickable {
-                                            react(message, emoji)
-                                            actionTarget = null
-                                        }
-                                        .padding(6.dp)
-                                )
+                            Icon(
+                                Icons.Filled.Add,
+                                contentDescription = "Tum emojiler",
+                                tint = NaberColors.TextSecondary,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+                    ThinDivider(startIndent = 16.dp)
+                    Spacer(Modifier.height(4.dp))
+                }
+
+                if (reactable) {
+                    MessageAction("Yanitla", Icons.AutoMirrored.Filled.Reply) {
+                        replyTarget = message
+                        actionTarget = null
+                    }
+                }
+                if (message.senderId == myId && message.type == "text" && reactable) {
+                    MessageAction("Duzenle", Icons.Filled.Edit) {
+                        editTarget = message
+                        actionTarget = null
+                    }
+                }
+                if (reactable) {
+                    MessageAction("Ilet", Icons.AutoMirrored.Filled.Send) {
+                        forwardTarget = message
+                        actionTarget = null
+                    }
+                }
+                if (message.body.isNotBlank() && !message.deleted) {
+                    MessageAction("Kopyala", Icons.Filled.ContentCopy) {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                        clipboard?.setPrimaryClip(ClipData.newPlainText("Naber", message.body))
+                        actionTarget = null
+                        error = "Mesaj kopyalandi."
+                    }
+                }
+                MessageAction("Bilgi", Icons.Filled.Info) {
+                    val target = message
+                    actionTarget = null
+                    scope.launch {
+                        runCatching { Naber.api.messageInfo(target.id) }
+                            .onSuccess { infoTarget = it }
+                            .onFailure { error = it.message }
+                    }
+                }
+                MessageAction("Kendimden sil", Icons.Filled.DeleteOutline) {
+                    val target = message
+                    actionTarget = null
+                    // Mesaj hemen kalkar, istek arka planda gider: sunucu
+                    // yaniti beklenirse silme gecikmeli gorunuyordu.
+                    // Basarisiz olursa mesaj geri gelir.
+                    val before = messages
+                    messages = messages.filterNot { it.id == target.id }
+                    scope.launch {
+                        runCatching { Naber.api.deleteMessage(target.id, "me") }
+                            .onFailure {
+                                messages = before
+                                error = it.message
                             }
-                        }
                     }
-                    if (!message.deleted && message.id > 0) {
-                        MessageAction("Yanitla", Icons.AutoMirrored.Filled.Reply) {
-                            replyTarget = message
-                            actionTarget = null
-                        }
-                    }
-                    if (message.senderId == myId && message.type == "text" && !message.deleted && message.id > 0) {
-                        MessageAction("Duzenle", Icons.Filled.Edit) {
-                            editTarget = message
-                            actionTarget = null
-                        }
-                    }
-                    if (!message.deleted && message.id > 0) {
-                        MessageAction("Ilet", Icons.AutoMirrored.Filled.Send) {
-                            forwardTarget = message
-                            actionTarget = null
-                        }
-                    }
-                    if (message.body.isNotBlank() && !message.deleted) {
-                        MessageAction("Kopyala", Icons.Filled.ContentCopy) {
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                            clipboard?.setPrimaryClip(ClipData.newPlainText("Naber", message.body))
-                            actionTarget = null
-                            error = "Mesaj kopyalandi."
-                        }
-                    }
-                    MessageAction("Bilgi", Icons.Filled.Info) {
+                }
+                if (canDeleteForAll) {
+                    MessageAction("Herkesten sil", Icons.Filled.Delete, NaberColors.Danger) {
                         val target = message
                         actionTarget = null
-                        scope.launch {
-                            runCatching { Naber.api.messageInfo(target.id) }
-                                .onSuccess { infoTarget = it }
-                                .onFailure { error = it.message }
-                        }
-                    }
-                    MessageAction("Kendimden sil", Icons.Filled.DeleteOutline) {
-                        val target = message
-                        actionTarget = null
-                        // Mesaj hemen kalkar, istek arka planda gider: sunucu
-                        // yaniti beklenirse silme gecikmeli gorunuyordu.
-                        // Basarisiz olursa mesaj geri gelir.
                         val before = messages
-                        messages = messages.filterNot { it.id == target.id }
+                        messages = messages.map {
+                            if (it.id == target.id) it.copy(deleted = true, body = "", media = null) else it
+                        }
                         scope.launch {
-                            runCatching { Naber.api.deleteMessage(target.id, "me") }
+                            runCatching { Naber.api.deleteMessage(target.id, "all") }
                                 .onFailure {
                                     messages = before
                                     error = it.message
                                 }
                         }
                     }
-                    if (canDeleteForAll) {
-                        MessageAction("Herkesten sil", Icons.Filled.Delete, NaberColors.Danger) {
-                            val target = message
-                            actionTarget = null
-                            val before = messages
-                            messages = messages.map {
-                                if (it.id == target.id) it.copy(deleted = true, body = "", media = null) else it
-                            }
-                            scope.launch {
-                                runCatching { Naber.api.deleteMessage(target.id, "all") }
-                                    .onFailure {
-                                        messages = before
-                                        error = it.message
-                                    }
-                            }
-                        }
-                    }
                 }
-            },
-            confirmButton = {
-                TextButton(onClick = { actionTarget = null }) { Text("Kapat", color = NaberColors.TextSecondary) }
+
+                Text(
+                    "Kapat",
+                    color = NaberColors.TextSecondary,
+                    fontSize = 14.sp,
+                    modifier = Modifier
+                        .align(Alignment.End)
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable { actionTarget = null }
+                        .padding(horizontal = 22.dp, vertical = 12.dp)
+                )
+            }
+        }
+    }
+
+    emojiTarget?.let { message ->
+        EmojiPickerDialog(
+            onDismiss = { emojiTarget = null },
+            onPicked = { emoji ->
+                react(message, emoji)
+                EmojiCatalog.remember(context, emoji)
+                emojiTarget = null
             }
         )
     }
@@ -1686,6 +1744,119 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
     }
 }
 
+/**
+ * Tam emoji secici: arama kutusu, kategori sekmeleri ve "sik kullanilanlar".
+ * Uzun basma menusundeki reaksiyon seridinin "+" dugmesinden acilir.
+ */
+@Composable
+private fun EmojiPickerDialog(onDismiss: () -> Unit, onPicked: (String) -> Unit) {
+    val context = LocalContext.current
+    var query by remember { mutableStateOf("") }
+    var tabIndex by remember { mutableStateOf(0) }
+    // Sik kullanilanlar acilista bir kez okunur; secim sonrasi dialog
+    // zaten kapandigi icin canli guncellemeye gerek yok.
+    val tabs = remember {
+        val recent = EmojiCatalog.recent(context)
+        if (recent.isEmpty()) EmojiCatalog.CATEGORIES
+        else listOf(EmojiCatalog.Category("Sik kullanilan", "🕘", recent)) + EmojiCatalog.CATEGORIES
+    }
+    val searching = query.isNotBlank()
+    val shown = if (searching) EmojiCatalog.search(query)
+    else tabs[tabIndex.coerceIn(0, tabs.size - 1)].emojis
+
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 460.dp)
+                .clip(RoundedCornerShape(22.dp))
+                .background(NaberColors.Surface)
+                .padding(vertical = 12.dp)
+        ) {
+            Text(
+                "Emoji sec",
+                fontSize = 17.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = NaberColors.TextPrimary,
+                modifier = Modifier.padding(start = 20.dp, bottom = 8.dp)
+            )
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                singleLine = true,
+                placeholder = { Text("Ara: gul, kalp, ates, yemek...") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+            )
+            if (!searching) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    tabs.forEachIndexed { index, category ->
+                        val selected = index == tabIndex
+                        Text(
+                            category.icon,
+                            fontSize = 20.sp,
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(
+                                    if (selected) NaberColors.Accent.copy(alpha = 0.25f) else Color.Transparent
+                                )
+                                .clickable { tabIndex = index }
+                                .padding(horizontal = 8.dp, vertical = 5.dp)
+                        )
+                    }
+                }
+            } else {
+                Spacer(Modifier.height(8.dp))
+            }
+            if (shown.isEmpty()) {
+                Text(
+                    "Eslesen emoji yok.",
+                    color = NaberColors.TextSecondary,
+                    fontSize = 14.sp,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp)
+                )
+            } else {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(7),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f, fill = false)
+                        .padding(horizontal = 10.dp)
+                ) {
+                    items(shown.size) { index ->
+                        val emoji = shown[index]
+                        Text(
+                            emoji,
+                            fontSize = 26.sp,
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .clickable { onPicked(emoji) }
+                                .padding(8.dp)
+                        )
+                    }
+                }
+            }
+            Text(
+                "Kapat",
+                color = NaberColors.TextSecondary,
+                fontSize = 14.sp,
+                modifier = Modifier
+                    .align(Alignment.End)
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable { onDismiss() }
+                    .padding(horizontal = 22.dp, vertical = 10.dp)
+            )
+        }
+    }
+}
 /** Iletilecek sohbeti secmek icin kucuk bir liste. */
 @Composable
 private fun ForwardDialog(onDismiss: () -> Unit, onPicked: (Int) -> Unit) {
