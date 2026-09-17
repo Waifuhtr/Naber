@@ -94,6 +94,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import com.naber.app.Naber
 import com.naber.app.data.Chat
+import com.naber.app.data.ChatWallpaper
 import com.naber.app.data.LocalFiles
 import com.naber.app.data.LocalMedia
 import com.naber.app.data.LocalStore
@@ -194,6 +195,8 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
     var attachMenuOpen by remember { mutableStateOf(false) }
     var muteDialogOpen by remember { mutableStateOf(false) }
     var disappearDialogOpen by remember { mutableStateOf(false) }
+    var wallpaperDialogOpen by remember { mutableStateOf(false) }
+    var wallpaperId by remember(conversationId) { mutableStateOf(ChatWallpaper.idFor(context, conversationId)) }
     var infoTarget by remember { mutableStateOf<MessageInfo?>(null) }
     val retriedImages = remember { mutableStateListOf<Int>() }
     // "Yaziyor" bilgisi her tusa basista degil, en fazla 3 saniyede bir gonderilir.
@@ -581,6 +584,10 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
         }
     }
 
+    val wallpaper = remember(wallpaperId, NaberColors.dark) {
+        ChatWallpaper.PRESETS.firstOrNull { it.id == wallpaperId } ?: ChatWallpaper.PRESETS.first()
+    }
+
     val typingActive = typing.isNotEmpty() && (tick - typingAt) < 6000
     val peerPresence = current?.peer?.id?.let { presenceMap[it] }
     val peerOnline = peerPresence?.online ?: (current?.peer?.online == true)
@@ -703,8 +710,16 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
                             }
                         }
                     )
-                    // Gruplarda ayari yalnizca yonetici degistirebilir; sunucu da
-                    // ayni kurali uygular, buradaki kontrol sadece gorsel.
+                    DropdownMenuItem(
+                        text = { Text("Sohbet arka plani") },
+                        onClick = {
+                            menuOpen = false
+                            wallpaperDialogOpen = true
+                        }
+                    )
+                    // Kaybolan mesajlar ayarini grupta yalnizca yonetici
+                    // degistirebilir; sunucu da ayni kurali uygular,
+                    // buradaki kontrol sadece gorsel.
                     val canSetDisappear = current != null &&
                         (!current.isGroup || current.role == "owner" || current.role == "admin")
                     if (canSetDisappear) {
@@ -752,7 +767,11 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
             )
         }
 
-        Box(modifier = Modifier.weight(1f)) {
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .background(wallpaper.color)
+        ) {
             when {
                 loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = NaberColors.Accent)
@@ -1208,6 +1227,58 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
             },
             confirmButton = {
                 TextButton(onClick = { muteDialogOpen = false }) { Text("Vazgec", color = NaberColors.TextSecondary) }
+            }
+        )
+    }
+
+    if (wallpaperDialogOpen) {
+        AlertDialog(
+            containerColor = NaberColors.Surface,
+            onDismissRequest = { wallpaperDialogOpen = false },
+            title = { Text("Sohbet arka plani") },
+            text = {
+                Column {
+                    Text(
+                        "Secim yalnizca bu sohbet ve bu cihaz icindir; karsi taraf gormez.",
+                        fontSize = 13.sp,
+                        color = NaberColors.TextSecondary
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    ChatWallpaper.PRESETS.forEach { preset ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    ChatWallpaper.set(context, conversationId, preset.id)
+                                    wallpaperId = preset.id
+                                    wallpaperDialogOpen = false
+                                }
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(26.dp)
+                                    .clip(CircleShape)
+                                    .background(preset.color)
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Text(preset.label, color = NaberColors.TextPrimary, fontSize = 14.5.sp)
+                            if (preset.id == wallpaperId) {
+                                Spacer(Modifier.width(8.dp))
+                                Icon(
+                                    Icons.Filled.Check,
+                                    contentDescription = null,
+                                    tint = NaberColors.Accent,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { wallpaperDialogOpen = false }) { Text("Kapat", color = NaberColors.TextSecondary) }
             }
         )
     }
