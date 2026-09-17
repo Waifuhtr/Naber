@@ -84,6 +84,7 @@ fun ChatsTab(
     var menuOpen by remember { mutableStateOf(false) }
     var fabMenu by remember { mutableStateOf(false) }
     var joinByCodeOpen by remember { mutableStateOf(false) }
+    var messageHits by remember { mutableStateOf<List<LocalStore.SearchHit>>(emptyList()) }
     val scope = rememberCoroutineScope()
 
     val me = Naber.session.user
@@ -118,6 +119,18 @@ fun ChatsTab(
         }
         reload()
         if (startConversationId > 0) onOpenChat(startConversationId)
+    }
+
+    // Global arama: mesaj gecmisi cihazda arandigi icin sunucuya istek
+    // gitmez. Her harfte dosyalari taramamak icin kisa bir bekleme konur.
+    LaunchedEffect(search) {
+        val query = search.trim()
+        if (query.length < 2) {
+            messageHits = emptyList()
+            return@LaunchedEffect
+        }
+        delay(250)
+        messageHits = LocalStore.searchMessages(context, query)
     }
 
     // Rozet sayisi aninda cihazda hesaplanir; sunucu yoklamasini beklemez.
@@ -252,7 +265,7 @@ fun ChatsTab(
                 OutlinedTextField(
                     value = search,
                     onValueChange = { search = it },
-                    placeholder = { Text("Sohbetlerde ara") },
+                    placeholder = { Text("Sohbetlerde ve mesajlarda ara") },
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(
@@ -282,7 +295,7 @@ fun ChatsTab(
 
                 error != null -> EmptyState("Baglanti sorunu", error ?: "")
 
-                filtered.isEmpty() -> EmptyState(
+                filtered.isEmpty() && messageHits.isEmpty() -> EmptyState(
                     title = if (chats.isEmpty()) "Henuz sohbet yok" else "Sonuc bulunamadi",
                     description = if (chats.isEmpty()) {
                         "Sag alttaki butondan bir kisi ekleyin ya da grup olusturun."
@@ -298,6 +311,17 @@ fun ChatsTab(
                             online = chat.peer?.id?.let { presenceMap[it]?.online } ?: (chat.peer?.online == true),
                             onClick = { onOpenChat(chat.id) }
                         )
+                    }
+
+                    if (messageHits.isNotEmpty()) {
+                        item(key = "hits-header") { SectionLabel("Mesajlar") }
+                        items(messageHits, key = { "hit-${it.conversationId}-${it.message.key}" }) { hit ->
+                            MessageHitRow(
+                                title = chats.firstOrNull { it.id == hit.conversationId }?.title ?: "Sohbet",
+                                hit = hit,
+                                onClick = { onOpenChat(hit.conversationId) }
+                            )
+                        }
                     }
                 }
             }
@@ -391,6 +415,65 @@ fun ChatsTab(
             dismissButton = {
                 TextButton(onClick = { joinByCodeOpen = false }) { Text("Vazgec", color = NaberColors.TextSecondary) }
             }
+        )
+    }
+}
+
+@Composable
+private fun SectionLabel(text: String) {
+    Text(
+        text,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.SemiBold,
+        color = NaberColors.TextSecondary,
+        modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 14.dp, bottom = 6.dp)
+    )
+}
+
+/** Global aramada bulunan bir mesaj satiri. */
+@Composable
+private fun MessageHitRow(title: String, hit: LocalStore.SearchHit, onClick: () -> Unit) {
+    val myId = Naber.session.user?.id ?: 0
+    val message = hit.message
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            Icons.Filled.Search,
+            contentDescription = null,
+            tint = NaberColors.TextSecondary,
+            modifier = Modifier.size(18.dp)
+        )
+        Spacer(Modifier.width(13.dp))
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(
+                title,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = NaberColors.TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            val prefix = if (message.senderId == myId) "Sen: " else {
+                if (message.senderName.isNotBlank()) "${message.senderName}: " else ""
+            }
+            Text(
+                prefix + message.body,
+                fontSize = 13.sp,
+                color = NaberColors.TextSecondary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Spacer(Modifier.width(8.dp))
+        Text(
+            formatChatTime(message.createdAt),
+            fontSize = 11.sp,
+            color = NaberColors.TextSecondary
         )
     }
 }

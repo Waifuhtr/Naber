@@ -137,6 +137,69 @@ object LocalStore {
             }.getOrDefault(emptyList())
         }
 
+    /** Global aramada bulunan bir mesaj ve ait oldugu sohbet. */
+    data class SearchHit(val conversationId: Int, val message: Message)
+
+    /**
+     * Tum sohbetlerin cihazdaki kopyalarinda metin arar.
+     *
+     * Arama sunucuya gitmez: saklanan JSON dosyalari taranir, boylece
+     * cevrimdisiyken de calisir ve sunucuya yuk binmez. Sohbet basina en
+     * fazla [MAX_MESSAGES] mesaj saklandigi icin taranan veri kucuktur.
+     */
+    suspend fun searchMessages(
+        context: Context,
+        query: String,
+        limit: Int = 80
+    ): List<SearchHit> = withContext(Dispatchers.IO) {
+        val needle = searchKey(query)
+        if (needle.isBlank()) return@withContext emptyList()
+
+        val files = dir(context).listFiles { file -> file.name.startsWith("messages-") }
+            ?: return@withContext emptyList()
+
+        val hits = mutableListOf<SearchHit>()
+        for (file in files) {
+            runCatching {
+                val json = JSONObject(file.readText())
+                val conversationId = json.optInt("conversation_id")
+                if (conversationId <= 0) return@runCatching
+                Message.listFrom(json.optJSONArray("messages")).forEach { message ->
+                    if (!message.deleted && searchKey(message.body).contains(needle)) {
+                        hits += SearchHit(conversationId, message)
+                    }
+                }
+            }
+        }
+        hits.sortByDescending { it.message.createdAt }
+        hits.take(limit)
+    }
+
+    /**
+     * Aramayi buyuk/kucuk harfe ve Turkce harflere karsi duyarsizlastirir.
+     *
+     * Turkce'de I/i ve İ/ı ayrimi dogru yapilinca "ISTANBUL" yazan birisi
+     * "istanbul" mesajini bulamiyor. Arama icin ikisi de ayni kabul edilir;
+     * amac dilbilgisi degil, kullanicinin aradigini bulmasi.
+     */
+    private fun searchKey(text: String): String {
+        val builder = StringBuilder(text.length)
+        for (char in text) {
+            builder.append(
+                when (char) {
+                    'I', 'İ', 'ı' -> 'i'
+                    'Ş', 'ş' -> 's'
+                    'Ğ', 'ğ' -> 'g'
+                    'Ü', 'ü' -> 'u'
+                    'Ö', 'ö' -> 'o'
+                    'Ç', 'ç' -> 'c'
+                    else -> char.lowercaseChar()
+                }
+            )
+        }
+        return builder.toString().trim()
+    }
+
     /** Henuz sunucuya ulasmamis (kimligi olmayan) mesajlar. */
     private fun pendingOf(messages: List<Message>): List<Message> =
         messages.filter { it.id <= 0 && it.clientId.isNotBlank() }

@@ -42,8 +42,9 @@ gorsel sikistirma, yerel onbellek (MediaStore + LocalStore).
    bir ozellik yok).
 8. [x] **Baglanti turune gore polling hizi** — olculu baglantida
    30 sn, wifi'de 20 sn bekleme (sunucu zaten 30 sn'ye sabitliyor).
-9. [ ] **Cihazda tam metin arama indeksi** — "Global arama" ozelligiyle
-   birlikte yapilacak (asagida).
+9. [x] **Cihazda tam metin arama indeksi** — "Global arama" ile birlikte
+   yapildi: `LocalStore.searchMessages()` saklanan JSON dosyalarini
+   tarar, sunucuya istek gitmez.
 10. [ ] **BILEREK ATLANDI: Sinyal/ICE adaylarini toplu gonderme.**
     Arama baglantisini kuran kritik ve kirilgan bir yol (bu projede
     daha once echo/mute/hangup hatalarina sebep olmustu); gercek
@@ -85,7 +86,10 @@ listeden cikarildi, istenmiyor.**
   sessize alma".
 - [x] **Sureli sessize alma** — tamamlandi (notify_muted_until: 8 saat,
   1 hafta, suresiz). commit: "Sohbeti sabitleme ve sureli sessize alma".
-- [ ] **Global arama** — henuz yapilmadi.
+- [x] **Global arama** — tamamlandi (sohbet listesindeki arama kutusu
+  artik mesaj metinlerinde de ariyor; arama cihazda yapildigi icin
+  cevrimdisi da calisir). Not: yalnizca cihazda saklanan gecmis
+  (sohbet basina son 300 mesaj) taranir.
 - [ ] **Kaybolan mesajlar — ISTEGE BAGLI (opt-in)** — henuz yapilmadi.
 
 **Grup ozellikleri:**
@@ -134,13 +138,13 @@ duruyor:
 ## Durum ozeti (en son guncelleme: Persembe 05:00 tetikleyicisi)
 
 Tamamlanan: hata duzeltmesi (1/1), durtme ozelligi, optimizasyonlar
-(8/15 yapildi, 2 kasitli atlandi/ertelendi, 5 kaldi), genel ozellikler
-(9/19 yapildi: yanitla, duzenle, reaksiyon, iletme, kamera, sabitleme,
-sureli sessize alma, davet kodu, uygulama kilidi).
+(9/15 yapildi, 2 kasitli atlandi/ertelendi, 4 kaldi), genel ozellikler
+(10/19 yapildi: yanitla, duzenle, reaksiyon, iletme, kamera, sabitleme,
+sureli sessize alma, davet kodu, uygulama kilidi, global arama).
 
 Eklenti surumu: 1.12.0. Toplam test: 185, hepsi geciyor.
 
-Kalan buyuk is: sesli mesaj, global arama, kaybolan mesajlar,
+Kalan buyuk is: sesli mesaj, kaybolan mesajlar,
 bahsetme, anket, engelleme, gizlilik secenekleri, acik tema, sohbet
 arka plani, konum paylasma, lazy medya indirme, delta senkronizasyon,
 WorkManager.
@@ -149,6 +153,6 @@ WorkManager.
 
 1. [x] Tam ekran gorsel siyah ekran duzeltmesi.
 2. [x] Durtme ozelligi (sunucu + istemci).
-3. Onaylanan optimizasyonlar — 8/15 yapildi, kalanlar surdurulecek.
-4. Onaylanan genel ozellikler — 9/19 yapildi, kalanlar surdurulecek.
+3. Onaylanan optimizasyonlar — 9/15 yapildi, kalanlar surdurulecek.
+4. Onaylanan genel ozellikler — 10/19 yapildi, kalanlar surdurulecek.
 5. Ek oneriler arasindan kullanicinin sectikleri (henuz baslanmadi).
