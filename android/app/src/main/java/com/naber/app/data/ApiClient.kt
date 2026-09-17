@@ -597,7 +597,7 @@ class ApiClient(private val session: Session) {
     // ----------------------------------------------------------- arama
 
     // Metered kimlik bilgileri kisa surede degismez; sunucu zaten kendi
-    // tarafinda onbellekliyor ama her arama kabulunde ayri bir HTTP isteği
+    // tarafinda onbellekliyor ama her arama kabulunde ayri bir HTTP istegi
     // gereksiz gecikme yaratir. Istemci tarafinda da kisa bir sure saklanir.
     private var cachedIceServers: List<IceServer>? = null
     private var iceServersCachedAt = 0L
