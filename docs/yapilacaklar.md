@@ -186,7 +186,7 @@ maddeler kaldi (gzip sunucu ayari, sticker paketi, ICE toplu gonderme).
 
 1. [x] Tam ekran gorsel siyah ekran duzeltmesi.
 2. [x] Durtme ozelligi (sunucu + istemci).
-3. [x] Onaylanan optimizasyonlar — 12/15 yapildi, kalan 3 madde bilerek
-   birakildi (ayrintilar yukarida)., kalanlar surdurulecek.
+3. [x] Onaylanan optimizasyonlar — 12/15 yapildi; kalan 3 madde bilerek
+   birakildi (ayrintilar yukarida).
 4. [x] Onaylanan genel ozellikler — 19/19 tamamlandi.
 5. Ek oneriler arasindan kullanicinin sectikleri (henuz baslanmadi).
