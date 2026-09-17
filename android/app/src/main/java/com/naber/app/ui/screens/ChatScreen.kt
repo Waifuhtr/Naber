@@ -37,12 +37,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.DoneAll
@@ -133,6 +136,8 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
     var fullScreen by remember { mutableStateOf<Any?>(null) }
     var menuOpen by remember { mutableStateOf(false) }
     var actionTarget by remember { mutableStateOf<Message?>(null) }
+    var replyTarget by remember { mutableStateOf<Message?>(null) }
+    var editTarget by remember { mutableStateOf<Message?>(null) }
     var infoTarget by remember { mutableStateOf<MessageInfo?>(null) }
     val retriedImages = remember { mutableStateListOf<Int>() }
     // "Yaziyor" bilgisi her tusa basista degil, en fazla 3 saniyede bir gonderilir.
@@ -270,11 +275,15 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
         messages = messages.map { if (it.clientId == clientId) it.copy(sendState = state) else it }
     }
 
-    /** Sunucuya metin mesajini ulastirir. Basarisiz olursa kuyrukta kalir. */
+    /**
+     * Sunucuya metin mesajini ulastirir. Basarisiz olursa kuyrukta kalir.
+     * Yanit bilgisi yerel taslaktan okunur; boylece yeniden denemede de korunur.
+     */
     suspend fun deliverText(clientId: String, body: String) {
         try {
             mark(clientId, SendState.SENDING)
-            val sent = Naber.api.sendText(conversationId, body, clientId)
+            val replyId = messages.firstOrNull { it.clientId == clientId }?.replyTo?.id ?: 0
+            val sent = Naber.api.sendText(conversationId, body, clientId, replyId)
             messages = messages.map { if (it.clientId == clientId) sent else it }
             SoundPlayer.playSent(context)
         } catch (e: Exception) {
@@ -313,7 +322,8 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
             // Gonderilen gorsel de ortak depoya yazilir; ileride ayni
             // kayittan okunur, tekrar indirilmez.
             MediaStore.store(context, media.id, prepared.bytes)
-            val sent = Naber.api.sendImage(conversationId, media.id, "", clientId, prepared.preview)
+            val replyId = messages.firstOrNull { it.clientId == clientId }?.replyTo?.id ?: 0
+            val sent = Naber.api.sendImage(conversationId, media.id, "", clientId, prepared.preview, replyId)
             messages = messages.map {
                 if (it.clientId == clientId) sent.copy(localImageUri = localCopy) else it
             }
@@ -324,10 +334,25 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
         }
     }
 
+    /** Yanitlanan mesajin balonun ustunde gosterilecek kisa ozetini kurar. */
+    fun buildReplySummary(target: Message): MessageReplySummary = MessageReplySummary(
+        id = target.id,
+        senderId = target.senderId,
+        senderName = when {
+            target.senderId == myId -> "Siz"
+            target.senderName.isNotBlank() -> target.senderName
+            else -> chat?.peer?.displayName.orEmpty()
+        },
+        type = target.type,
+        body = if (target.type == "image") "Fotograf" else target.body,
+        deleted = target.deleted
+    )
+
     fun sendText() {
         val body = draft.trim()
         if (body.isEmpty()) return
         val clientId = UUID.randomUUID().toString()
+        val reply = replyTarget?.let { buildReplySummary(it) }
         messages = messages + Message(
             id = 0,
             conversationId = conversationId,
@@ -339,9 +364,11 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
             deleted = false,
             createdAt = System.currentTimeMillis() / 1000,
             media = null,
-            sendState = SendState.SENDING
+            sendState = SendState.SENDING,
+            replyTo = reply
         )
         draft = ""
+        replyTarget = null
         lastTypingSent[0] = 0L
         Naber.events.launchInScope { Naber.api.sendTyping(conversationId, false) }
         scope.launch { deliverText(clientId, body) }
@@ -349,6 +376,7 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
 
     fun sendImage(uri: Uri) {
         val clientId = UUID.randomUUID().toString()
+        val reply = replyTarget?.let { buildReplySummary(it) }
         // Gorsel once yerel dosyadan gosterilir; yukleme arka planda surer.
         LocalMedia.remember(clientId, uri.toString())
         messages = messages + Message(
@@ -363,8 +391,10 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
             createdAt = System.currentTimeMillis() / 1000,
             media = null,
             localImageUri = uri.toString(),
-            sendState = SendState.SENDING
+            sendState = SendState.SENDING,
+            replyTo = reply
         )
+        replyTarget = null
         scope.launch { deliverImage(clientId, uri) }
     }
 
@@ -625,6 +655,39 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
             }
         }
 
+        // Yanitlanacak mesaj secildiyse yazma alaninin ustunde on izlemesi gorunur.
+        replyTarget?.let { target ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(NaberColors.TopBar)
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        if (target.senderId == myId) "Kendinize yanit" else "${target.senderName.ifBlank { current?.peer?.displayName.orEmpty() }} kisisine yanit",
+                        color = NaberColors.Accent,
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        if (target.type == "image") "Fotograf" else target.body,
+                        color = NaberColors.TextSecondary,
+                        fontSize = 13.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Icon(
+                    Icons.Filled.Close,
+                    contentDescription = "Yanitlamayi iptal et",
+                    tint = NaberColors.TextSecondary,
+                    modifier = Modifier.size(20.dp).clickable { replyTarget = null }
+                )
+            }
+        }
+
         // Mesaj yazma alani — klavye acilinca yukari kayar.
         if (current?.chatMuted != true) {
             Row(
@@ -737,6 +800,18 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
             title = { Text("Mesaj") },
             text = {
                 Column {
+                    if (!message.deleted && message.id > 0) {
+                        MessageAction("Yanitla", Icons.AutoMirrored.Filled.Reply) {
+                            replyTarget = message
+                            actionTarget = null
+                        }
+                    }
+                    if (message.senderId == myId && message.type == "text" && !message.deleted && message.id > 0) {
+                        MessageAction("Duzenle", Icons.Filled.Edit) {
+                            editTarget = message
+                            actionTarget = null
+                        }
+                    }
                     if (message.body.isNotBlank() && !message.deleted) {
                         MessageAction("Kopyala", Icons.Filled.ContentCopy) {
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
@@ -832,6 +907,23 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
             }
         )
     }
+
+    editTarget?.let { target ->
+        TextFieldDialog(
+            title = "Mesaji duzenle",
+            initial = target.body,
+            onDismiss = { editTarget = null }
+        ) { newBody ->
+            editTarget = null
+            val body = newBody.trim()
+            if (body.isEmpty() || body == target.body) return@TextFieldDialog
+            scope.launch {
+                runCatching { Naber.api.editMessage(target.id, body) }
+                    .onSuccess { updated -> messages = messages.map { if (it.id == target.id) updated else it } }
+                    .onFailure { error = it.message }
+            }
+        }
+    }
 }
 
 /** Mesaj durumundan tik gorunumunu belirler. */
@@ -923,6 +1015,37 @@ private fun MessageRow(
                 )
             }
 
+            message.replyTo?.let { reply ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 5.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(
+                            if (mine) Color.White.copy(alpha = 0.12f) else NaberColors.SurfaceHigh
+                        )
+                        .padding(horizontal = 8.dp, vertical = 5.dp)
+                ) {
+                    Text(
+                        reply.senderName,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (mine) Color.White.copy(alpha = 0.9f) else NaberColors.Accent
+                    )
+                    Text(
+                        when {
+                            reply.deleted -> "Bu mesaj silindi"
+                            reply.type == "image" -> "Fotograf"
+                            else -> reply.body
+                        },
+                        fontSize = 12.5.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = if (mine) Color.White.copy(alpha = 0.75f) else NaberColors.TextSecondary
+                    )
+                }
+            }
+
             if (message.deleted) {
                 Text(
                     "Bu mesaj silindi",
@@ -999,6 +1122,14 @@ private fun MessageRow(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
+                if (message.edited && !message.deleted) {
+                    Text(
+                        "duzenlendi",
+                        fontSize = 10.sp,
+                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                        color = if (mine) Color.White.copy(alpha = 0.6f) else NaberColors.TextSecondary
+                    )
+                }
                 Text(
                     formatClock(message.createdAt),
                     fontSize = 10.5.sp,

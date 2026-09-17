@@ -222,7 +222,7 @@ class ApiClient(private val session: Session) {
         return Triple(Message.listFrom(json.optJSONArray("messages")), Chat.from(json.optJSONObject("chat")), typing)
     }
 
-    suspend fun sendText(conversationId: Int, body: String, clientId: String): Message =
+    suspend fun sendText(conversationId: Int, body: String, clientId: String, replyTo: Int = 0): Message =
         Message.from(
             call(
                 "/messages", "POST",
@@ -231,6 +231,7 @@ class ApiClient(private val session: Session) {
                     .put("type", "text")
                     .put("body", body)
                     .put("client_id", clientId)
+                    .put("reply_to", replyTo)
             ).optJSONObject("message")
         ) ?: throw ApiException("Mesaj gonderilemedi.")
 
@@ -243,7 +244,8 @@ class ApiClient(private val session: Session) {
         mediaId: Int,
         caption: String,
         clientId: String,
-        preview: String = ""
+        preview: String = "",
+        replyTo: Int = 0
     ): Message =
         Message.from(
             call(
@@ -255,6 +257,7 @@ class ApiClient(private val session: Session) {
                     .put("body", caption)
                     .put("client_id", clientId)
                     .put("preview", preview)
+                    .put("reply_to", replyTo)
             ).optJSONObject("message")
         ) ?: throw ApiException("Gorsel gonderilemedi.")
 
@@ -262,6 +265,12 @@ class ApiClient(private val session: Session) {
     suspend fun deleteMessage(messageId: Int, scope: String = "all") {
         call("/messages/$messageId", "DELETE", JSONObject().put("scope", scope), query = mapOf("scope" to scope))
     }
+
+    /** Yalnizca metin mesajlari, yalnizca gonderen ve gonderimden sonraki 15 dakika icinde. */
+    suspend fun editMessage(messageId: Int, body: String): Message =
+        Message.from(
+            call("/messages/$messageId", "POST", JSONObject().put("body", body)).optJSONObject("message")
+        ) ?: throw ApiException("Mesaj duzenlenemedi.")
 
     suspend fun messageInfo(messageId: Int): MessageInfo {
         val json = call("/messages/$messageId/info").optJSONObject("info")

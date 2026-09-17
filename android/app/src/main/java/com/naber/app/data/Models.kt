@@ -100,6 +100,31 @@ data class Media(
 
 enum class SendState { SENDING, SENT, FAILED }
 
+/** Yanitlanan mesajin balonun ustunde gosterilen kisa ozeti. */
+@Immutable
+data class MessageReplySummary(
+    val id: Int,
+    val senderId: Int,
+    val senderName: String,
+    val type: String,
+    val body: String,
+    val deleted: Boolean
+) {
+    companion object {
+        fun from(json: JSONObject?): MessageReplySummary? {
+            if (json == null) return null
+            return MessageReplySummary(
+                id = json.optInt("id"),
+                senderId = json.optInt("sender_id"),
+                senderName = json.optString("sender_name"),
+                type = json.optString("type", "text"),
+                body = json.optString("body"),
+                deleted = json.optBoolean("deleted")
+            )
+        }
+    }
+}
+
 @Immutable
 data class Message(
     val id: Int,
@@ -118,7 +143,11 @@ data class Message(
     val sendState: SendState = SendState.SENT,
     val uploadProgress: Int = 0,
     /** Cok kucuk base64 JPEG. Asil dosya inene kadar bulanik on izleme cizilir. */
-    val preview: String = ""
+    val preview: String = "",
+    /** Sonradan degistirildiyse true; balonda "(duzenlendi)" etiketi gosterilir. */
+    val edited: Boolean = false,
+    /** Yanitlanan mesajin kisa ozeti; yoksa null. */
+    val replyTo: MessageReplySummary? = null
 ) {
     val key: String get() = if (id > 0) "id-$id" else "c-$clientId"
 
@@ -145,6 +174,8 @@ data class Message(
                 senderName = json.optString("sender_name"),
                 senderAvatar = json.optString("sender_avatar"),
                 preview = json.optString("preview"),
+                edited = json.optBoolean("edited"),
+                replyTo = MessageReplySummary.from(json.optJSONObject("reply")),
                 // Sunucu bu alani gondermez; yalnizca cihazdaki kopyada bulunur.
                 localImageUri = json.optString("local_image_uri").ifBlank { null }
             )
@@ -443,7 +474,17 @@ fun Message.toJson(): JSONObject = JSONObject()
     .put("sender_name", senderName)
     .put("sender_avatar", senderAvatar)
     .put("preview", preview)
+    .put("edited", edited)
+    .put("reply", replyTo?.toJson())
     .put("local_image_uri", localImageUri.orEmpty())
+
+fun MessageReplySummary.toJson(): JSONObject = JSONObject()
+    .put("id", id)
+    .put("sender_id", senderId)
+    .put("sender_name", senderName)
+    .put("type", type)
+    .put("body", body)
+    .put("deleted", deleted)
 
 fun Chat.toJson(): JSONObject = JSONObject()
     .put("id", id)

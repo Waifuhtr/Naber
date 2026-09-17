@@ -9,7 +9,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class Naber_DB {
 
-	const DB_VERSION = '1.7.0';
+	const DB_VERSION = '1.8.0';
 
 	public static function table( $name ) {
 		global $wpdb;
@@ -80,6 +80,8 @@ class Naber_DB {
 			media_id bigint(20) unsigned NOT NULL DEFAULT 0,
 			preview mediumtext NULL,
 			client_id varchar(64) NOT NULL DEFAULT '',
+			reply_to_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			edited_at datetime NULL,
 			is_read tinyint(1) NOT NULL DEFAULT 0,
 			read_at datetime NULL,
 			delivered_at datetime NULL,
@@ -90,7 +92,8 @@ class Naber_DB {
 			KEY conversation_id (conversation_id,id),
 			KEY receiver_unread (receiver_id,is_read),
 			KEY sender_id (sender_id),
-			KEY client_id (client_id)
+			KEY client_id (client_id),
+			KEY reply_to_id (reply_to_id)
 		) {$charset};";
 
 		$sql[] = "CREATE TABLE {$media} (

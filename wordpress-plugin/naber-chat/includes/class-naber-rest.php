@@ -11,6 +11,8 @@ class Naber_REST {
 
 	/** On izleme base64 metninin ust siniri (yaklasik 6 KB ikili veri). */
 	const MAX_PREVIEW_CHARS = 8000;
+	/** Bir mesaj gonderimden sonra en fazla bu kadar saniye duzenlenebilir. */
+	const EDIT_WINDOW_SECONDS = 900;
 
 	public function register_routes() {
 		$ns = NABER_CHAT_NS;
@@ -54,6 +56,7 @@ class Naber_REST {
 		// --- Mesajlar ---
 		$this->route( $ns, '/messages', 'POST', 'send_message', $user );
 		$this->route( $ns, '/messages/(?P<id>\d+)', 'DELETE', 'delete_message', $user );
+		$this->route( $ns, '/messages/(?P<id>\d+)', 'POST', 'edit_message', $user );
 		$this->route( $ns, '/messages/(?P<id>\d+)/info', 'GET', 'message_info', $user );
 
 		// --- Medya ---
@@ -745,8 +748,9 @@ class Naber_REST {
 
 		// Gorselin cok kucuk on izlemesi (base64 JPEG). Mesajla birlikte tasindigi
 		// icin alici, asil dosya inmeden once bulanik bir goruntu gorebilir.
-		$thumb   = 'image' === $type ? self::sanitize_preview( $request->get_param( 'preview' ) ) : '';
-		$message = Naber_Chat_Repo::insert_message( $conversation_id, $user_id, $receiver_id, $type, $body, $media_id, $client, $thumb );
+		$thumb    = 'image' === $type ? self::sanitize_preview( $request->get_param( 'preview' ) ) : '';
+		$reply_to = (int) $request->get_param( 'reply_to' );
+		$message  = Naber_Chat_Repo::insert_message( $conversation_id, $user_id, $receiver_id, $type, $body, $media_id, $client, $thumb, $reply_to );
 		if ( $is_group ) {
 			$message['sender_name'] = Naber_Auth::user_payload( $user_id )['display_name'];
 		}
@@ -814,6 +818,49 @@ class Naber_REST {
 
 		Naber_Chat_Repo::delete_message( (int) $message['id'] );
 		return rest_ensure_response( array( 'ok' => true, 'scope' => 'all' ) );
+	}
+
+	/**
+	 * Metin mesajini duzenler.
+	 * Yalnizca gonderen, yalnizca metin mesajlari ve gonderimden sonraki
+	 * 15 dakika icinde duzenleyebilir (WhatsApp'taki gibi bir sinir).
+	 */
+	public function edit_message( WP_REST_Request $request ) {
+		$message = Naber_Chat_Repo::get_message( (int) $request['id'] );
+		if ( ! $message || (int) $message['deleted'] === 1 ) {
+			return new WP_Error( 'naber_message_not_found', 'Mesaj bulunamadi.', array( 'status' => 404 ) );
+		}
+
+		$user_id = get_current_user_id();
+		if ( (int) $message['sender_id'] !== $user_id ) {
+			return new WP_Error( 'naber_forbidden', 'Yalnizca kendi mesajinizi duzenleyebilirsiniz.', array( 'status' => 403 ) );
+		}
+		if ( 'text' !== $message['message_type'] ) {
+			return new WP_Error( 'naber_not_editable', 'Yalnizca metin mesajlari duzenlenebilir.', array( 'status' => 400 ) );
+		}
+
+		if ( ! self::within_edit_window( time() - Naber_Chat_Repo::ts( $message['created_at'] ) ) ) {
+			return new WP_Error( 'naber_edit_expired', 'Bu mesaj artik duzenlenemez (15 dakikayi gecti).', array( 'status' => 403 ) );
+		}
+
+		$body = wp_kses_post( trim( (string) $request->get_param( 'body' ) ) );
+		if ( '' === $body ) {
+			return new WP_Error( 'naber_empty_message', 'Bos mesaj birakilamaz.', array( 'status' => 400 ) );
+		}
+		if ( mb_strlen( $body ) > 5000 ) {
+			$body = mb_substr( $body, 0, 5000 );
+		}
+
+		$conversation = Naber_Chat_Repo::get_conversation( (int) $message['conversation_id'] );
+		$updated      = Naber_Chat_Repo::edit_message( (int) $message['id'], $body );
+		if ( ! $updated ) {
+			return new WP_Error( 'naber_edit_failed', 'Mesaj duzenlenemedi.', array( 'status' => 500 ) );
+		}
+		if ( $conversation && 'group' === $conversation['type'] ) {
+			$updated['sender_name'] = Naber_Auth::user_payload( $user_id )['display_name'];
+		}
+
+		return rest_ensure_response( array( 'message' => $updated ) );
 	}
 
 	public function message_info( WP_REST_Request $request ) {
@@ -1095,6 +1142,11 @@ class Naber_REST {
 
 	/** @var array|null Istek suresince gecerli kisi listesi. */
 	private static $peer_ids = null;
+
+	/** Gecen saniyeye gore mesaj hala duzenlenebilir mi? (saf fonksiyon) */
+	public static function within_edit_window( $elapsed_seconds ) {
+		return (int) $elapsed_seconds <= self::EDIT_WINDOW_SECONDS;
+	}
 
 	/**
 	 * Dosya ozeti: yalnizca 64 haneli onaltilik SHA-256 kabul edilir.

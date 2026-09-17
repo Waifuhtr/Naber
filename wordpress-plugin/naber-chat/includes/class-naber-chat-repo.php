@@ -447,7 +447,7 @@ class Naber_Chat_Repo {
 		return $out;
 	}
 
-	public static function insert_message( $conversation_id, $sender_id, $receiver_id, $type, $body, $media_id = 0, $client_id = '', $preview = '' ) {
+	public static function insert_message( $conversation_id, $sender_id, $receiver_id, $type, $body, $media_id = 0, $client_id = '', $preview = '', $reply_to = 0 ) {
 		global $wpdb;
 		$messages      = Naber_DB::table( 'messages' );
 		$conversations = Naber_DB::table( 'conversations' );
@@ -463,6 +463,22 @@ class Naber_Chat_Repo {
 			}
 		}
 
+		// Yanitlanan mesaj gercekten bu sohbette mi? Baska sohbetten sizma
+		// veya silinmis/yok bir mesaja baglanmaya calisilirsa yok sayilir.
+		$reply_to = (int) $reply_to;
+		if ( $reply_to > 0 ) {
+			$valid = $wpdb->get_var(
+				$wpdb->prepare(
+					"SELECT id FROM {$messages} WHERE id = %d AND conversation_id = %d AND deleted = 0",
+					$reply_to,
+					(int) $conversation_id
+				)
+			);
+			if ( ! $valid ) {
+				$reply_to = 0;
+			}
+		}
+
 		$wpdb->insert(
 			$messages,
 			array(
@@ -474,10 +490,11 @@ class Naber_Chat_Repo {
 				'media_id'        => (int) $media_id,
 				'preview'         => (string) $preview,
 				'client_id'       => (string) $client_id,
+				'reply_to_id'     => $reply_to,
 				'is_read'         => 0,
 				'created_at'      => $now,
 			),
-			array( '%d', '%d', '%d', '%s', '%s', '%d', '%s', '%s', '%d', '%s' )
+			array( '%d', '%d', '%d', '%s', '%s', '%d', '%s', '%s', '%d', '%d', '%s' )
 		);
 
 		$message_id = (int) $wpdb->insert_id;
@@ -523,6 +540,28 @@ class Naber_Chat_Repo {
 	public static function get_message( $message_id ) {
 		global $wpdb;
 		return $wpdb->get_row( $wpdb->prepare( 'SELECT * FROM ' . Naber_DB::table( 'messages' ) . ' WHERE id = %d', (int) $message_id ), ARRAY_A );
+	}
+
+	/**
+	 * Metin mesajini duzenler. Yalnizca metin mesajlarinda anlamlidir;
+	 * gorsel/silinmis mesajlar cagiran tarafta elenmis olmali.
+	 */
+	public static function edit_message( $message_id, $body ) {
+		global $wpdb;
+		$messages = Naber_DB::table( 'messages' );
+		$updated  = (bool) $wpdb->update(
+			$messages,
+			array( 'body' => (string) $body, 'edited_at' => Naber_DB::now() ),
+			array( 'id' => (int) $message_id ),
+			array( '%s', '%s' ),
+			array( '%d' )
+		);
+
+		$row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$messages} WHERE id = %d", (int) $message_id ), ARRAY_A );
+		if ( $row ) {
+			self::touch_conversation( (int) $row['conversation_id'] );
+		}
+		return $updated ? self::message_payload( $row ) : null;
 	}
 
 	public static function mark_read( $conversation_id, $reader_id ) {
@@ -938,6 +977,8 @@ class Naber_Chat_Repo {
 			'media'           => null,
 			'sender_name'     => '',
 			'sender_avatar'   => '',
+			'edited'          => ! empty( $row['edited_at'] ) && '0000-00-00 00:00:00' !== $row['edited_at'],
+			'reply'           => null,
 		);
 
 		if ( $is_group ) {
@@ -952,7 +993,39 @@ class Naber_Chat_Repo {
 			$payload['media'] = Naber_Media::payload( (int) $row['media_id'] );
 		}
 
+		if ( ! empty( $row['reply_to_id'] ) && (int) $row['reply_to_id'] > 0 ) {
+			$payload['reply'] = self::reply_summary( (int) $row['reply_to_id'] );
+		}
+
 		return $payload;
+	}
+
+	/**
+	 * Yanitlanan mesajin kisa ozeti (balonun ustunde gosterilir).
+	 * Tam mesaj payload'u degil; gereksiz alanlar (kendi reply'i, medyanin
+	 * tamami vb.) tasinmaz.
+	 */
+	private static function reply_summary( $message_id ) {
+		global $wpdb;
+		$row = $wpdb->get_row(
+			$wpdb->prepare( 'SELECT * FROM ' . Naber_DB::table( 'messages' ) . ' WHERE id = %d', $message_id ),
+			ARRAY_A
+		);
+		if ( ! $row ) {
+			return null;
+		}
+
+		$sender = Naber_Auth::user_payload( (int) $row['sender_id'] );
+		$deleted = (bool) (int) $row['deleted'];
+
+		return array(
+			'id'          => (int) $row['id'],
+			'sender_id'   => (int) $row['sender_id'],
+			'sender_name' => $sender ? $sender['display_name'] : '',
+			'type'        => (string) $row['message_type'],
+			'body'        => $deleted ? '' : (string) $row['body'],
+			'deleted'     => $deleted,
+		);
 	}
 
 	public static function ts( $mysql_date ) {
