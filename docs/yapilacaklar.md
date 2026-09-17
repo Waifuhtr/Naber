@@ -249,30 +249,30 @@ Kullanici grup gelistirmesi sirasinda baska onerilerim olup olmadigini
 sordu, asagidakiler eklendi (Ek ozellik onerileri listesindeki
 "Grupta sabitlenmis mesaj/duyuru" ve "Duyuru modu" ile ortusmeyenler):
 
-- **Uyelik onayi**: davet koduyla katilmak isteyen kisi once bekleme
+- [ ] **Uyelik onayi**: davet koduyla katilmak isteyen kisi once bekleme
   listesine dusup yoneticinin onayindan sonra uye olsun (su an kod
   bilen herkes dogrudan katiliyor).
-- **Katilma tarihi gosterimi**: uye satirinda "X tarihinde katildi"
+- [x] **Katilma tarihi gosterimi**: uye satirinda "X tarihinde katildi"
   bilgisi (joined_at zaten veritabaninda var, sadece goruntuleme
   eklenir).
-- **Toplu susturma suresi**: "Sureli sessize alma" zaten sohbet
+- [ ] **Toplu susturma suresi**: "Sureli sessize alma" zaten sohbet
   ekraninda var; grup ayarlarindan da kisayol olarak erisilebilir.
-- **Grup istatistigi**: en aktif uye, toplam mesaj sayisi gibi kucuk
+- [ ] **Grup istatistigi**: en aktif uye, toplam mesaj sayisi gibi kucuk
   bir ozet (dusuk oncelik, eglence amacli).
 
 **Ikinci tur oneriler:**
 
-- [ ] **ONEMLI — Sahiplik devri + otomatik yedek atama.** Su an
+- [x] **ONEMLI — Sahiplik devri + otomatik yedek atama.** Su an
   owner rolu hic el degistirmiyor: kurucu gruptan ayrilirsa grup
   sahipsiz kalir. Kurucu "Sahipligi devret" diyip owner rolunu elle
   baska bir uyeye birakabilmeli; bunu yapmadan ayrilirsa sahiplik
   kalan uyelerden rastgele birine otomatik atansin (grup asla sahipsiz
   kalmasin). Gercek bir eksiklik, oncelik verilmeli.
-- [ ] **ONEMLI — Sistem mesajlari.** "X gruba katildi", "Y grubu
+- [x] **ONEMLI — Sistem mesajlari.** "X gruba katildi", "Y grubu
   birakti", "Z cikarildi", "Grup adi/fotografi degisti" gibi olaylar
   su an sohbet akisinda hic gorunmuyor (WhatsApp'in standart ozelligi).
   Gri bilgi balonu olarak akisa eklenmeli.
-- [ ] **Sahibi cikarmaya calisana saka savunmasi.** Rol hiyerarsisi
+- [x] **Sahibi cikarmaya calisana saka savunmasi.** Rol hiyerarsisi
   zaten var (`can_act_on()` bir yonetici/yetkilinin sahibi
   cikarmasina izin vermiyor). Biri bunu zorlarsa: once sahibin
   yonetici etiketi bir anlik kaybolur (saldirgan basardigini sansin —
@@ -280,7 +280,7 @@ sordu, asagidakiler eklendi (Ek ozellik onerileri listesindeki
   ekraninda komik bir mesaj cikar; 10 saniye sonra hem sahibin etiketi
   hem de saldirganin uyeligi otomatik geri gelir. Gercek bir guvenlik
   onlemi degil, kucuk arkadas grubu icin eglence amacli bir "tuzak".
-- [ ] **Ayrintili yetki sistemi.** Su an yalnizca owner/admin/member
+- [x] **Ayrintili yetki sistemi.** Su an yalnizca owner/admin/member
   uc sabit rol var. Sahip birine yetki verirken artik hangi yetkilerin
   verildigini tek tek secebilmeli: ornegin "uye cikarabilir" ve
   "baskasinin mesajini silebilir" ayri ayri acilip kapatilabilsin.
