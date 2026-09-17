@@ -399,7 +399,8 @@ fun AddStickerDialog(onDismiss: () -> Unit, onSaved: (Sticker) -> Unit) {
             androidx.compose.material3.TextButton(
                 enabled = !busy && pickedUri != null && name.isNotBlank(),
                 onClick = {
-                    val uri = pickedUri ?: return@TextButton
+                    val uri = pickedUri
+                    if (uri != null) {
                     busy = true
                     error = null
                     scope.launch {
@@ -426,6 +427,7 @@ fun AddStickerDialog(onDismiss: () -> Unit, onSaved: (Sticker) -> Unit) {
                         } finally {
                             busy = false
                         }
+                    }
                     }
                 }
             ) { Text(if (busy) "Yukleniyor..." else "Ekle", color = NaberColors.Accent) }

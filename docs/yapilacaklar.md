@@ -299,23 +299,45 @@ sordu, asagidakiler eklendi (Ek ozellik onerileri listesindeki
 - [x] **"@herkes" kisitlamasi**: grup izinlerine ek olarak, "@herkes"
   bahsetmesini yalnizca yoneticilerin kullanabilmesi secenegi.
 
-## Durum ozeti (en son guncelleme: Persembe 05:00 tetikleyicisi)
+## Durum ozeti (en son guncelleme: 17 Eylul gece calismasi)
 
 Tamamlanan: hata duzeltmesi (1/1), durtme ozelligi, optimizasyonlar
 (12/15 yapildi, 2 kasitli atlandi/ertelendi, 1 kaldi), genel ozellikler
-(19/19 yapildi: yanitla, duzenle, reaksiyon, iletme, kamera, sabitleme,
-sureli sessize alma, davet kodu, uygulama kilidi, global arama,
-kaybolan mesajlar, engelleme, bahsetme, gizlilik secenekleri,
-acik tema, sohbet arka plani, konum paylasma, anket, sesli mesaj).
+(19/19), bildirilen bes sorunun tamami, tasarim degisikliklerinin
+tamami, arama deneyiminin tamami, grup ozelliklerinin tamami ve
+cikartma / ozel emoji.
 
-Eklenti surumu: 1.19.0. Toplam test: 253, hepsi geciyor.
+**Bu turda kapanan sorunlar**
+
+1. Grup sohbetinde cokme — kosullu `remember` cagrisi (kisa devre
+   yuzunden Compose slot tablosu bozuluyordu).
+2. Mesaj gonderimi 3-4 saniye — uzun yoklama PHP isciligini tutuyordu;
+   ayri dispatcher, acil isteklerin yoklamayi kesmesi ve fazladan
+   "yaziyor" istegi kaldirilarak cozuldu.
+3. Sohbetlerin her girişte yeniden yuklenmesi — MemoryCache.
+4. Silme gecikmesi — iyimser silme.
+5. Hayalet arama — sunucunun gonderdigi `age_seconds` kullaniliyor.
+
+**Bu turda eklenen ozellikler**
+
+- Mesaj eylem menusu WhatsApp tarzi tek kart, saga kaydirarak
+  yanitlama, tam emoji secici.
+- Discord tarzi arama baloncugu (sessize alma, sagirlastirma,
+  konusanin fotografinda yanip sonme, bos kalinca saydamlasma).
+- Grup aramasinda "Katil" dugmesi ve aramadakilerin profil seridi.
+- Ayrintili grup yetkileri, sahiplik devri (elle + rastgele otomatik),
+  saka savunmasi, sistem mesajlari.
+- Sabitlenmis mesaj sohbetin en ustunde pano ignesiyle.
+- Grup ayarlari: fotograf degistirme, davet kodu paylasma, "@herkes"
+  kisitlamasi, grubu silme, katilma tarihi, uyelik onayi, grup ozeti.
+- Cikartma paketleri ve Discord tarzi ozel emoji (statik + hareketli).
+
+Eklenti surumu: 1.26.0. Veritabani surumu: 1.19.0.
 
 Kalan is: onaylanan butun ozellikler ve optimizasyonlar bitti.
-Geriye kod degisikligi gerektirmeyen/bilerek ertelenen maddeler
-(gzip sunucu ayari, ICE toplu gonderme) ve yeni onaylanan bir
-tasarim isi kaldi: mesaj eylem menusunun WhatsApp tarzi yeniden
-tasarimi + saga kaydirarak yanitlama (yukaridaki "Tasarim
-degisiklikleri" bolumu, henuz kodlanmadi).
+Geriye yalnizca kod degisikligi gerektirmeyen/bilerek ertelenen
+maddeler kaldi (gzip sunucu ayari, ICE toplu gonderme) ve
+"Ek ozellik onerileri" basligindaki henuz onaylanmamis fikirler.
 
 ## Kodlamaya gecince siralama
 
@@ -324,7 +346,12 @@ degisiklikleri" bolumu, henuz kodlanmadi).
 3. [x] Onaylanan optimizasyonlar — 12/15 yapildi; kalan 3 madde bilerek
    birakildi (ayrintilar yukarida).
 4. [x] Onaylanan genel ozellikler — 19/19 tamamlandi.
-5. [x] Tasarim degisiklikleri — mesaj eylem menusu yeniden tasarimi,
-   saga kaydirarak yanitlama ve tam emoji secici tamamlandi. Kalan:
-   grup ayarlari ekraninin genisletilmesi.
-6. Ek oneriler arasindan kullanicinin sectikleri (henuz baslanmadi).
+5. [x] Tasarim degisiklikleri — mesaj eylem menusu, saga kaydirarak
+   yanitlama, tam emoji secici ve grup ayarlari ekrani tamamlandi.
+6. [x] Bildirilen bes sorun (cokme, gecikme, yavas yuklenme, silme
+   gecikmesi, hayalet arama).
+7. [x] Arama deneyimi (baloncuk, sagirlastirma, katil dugmesi,
+   katilimci seridi).
+8. [x] Grup ozellikleri (yetkiler, sahiplik, saka savunmasi, sistem
+   mesajlari, sabitleme, uyelik onayi, grup ozeti).
+9. [x] Cikartma paketleri ve Discord tarzi ozel emoji.

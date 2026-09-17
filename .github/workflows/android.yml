@@ -30,6 +30,20 @@ jobs:
             echo "::endgroup::"
           done
 
+      # Sunucuya yuklenecek hazir paket; WordPress eklenti yukleme
+      # ekranindan dogrudan kurulabilir.
+      - name: Eklenti zip'i olustur
+        run: |
+          cd wordpress-plugin
+          zip -r ../naber-chat.zip naber-chat -x "*/tests/*"
+
+      - name: Eklenti zip'ini yukle
+        uses: actions/upload-artifact@v4
+        with:
+          name: naber-chat-plugin
+          path: naber-chat.zip
+          if-no-files-found: error
+
   android:
     name: Android APK
     runs-on: ubuntu-latest
