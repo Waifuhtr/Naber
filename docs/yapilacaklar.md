@@ -166,12 +166,33 @@ onaylandi:
    gibi) — uzun basip menuyu acmaktan daha pratik. Uzun basma
    menusundeki "Yanitla" secenegi de kalir, kaydirma ek bir kisayol
    olur.
+3. [ ] **Tam emoji secici (uzun basma menusundeki reaksiyon seridinin
+   genisletilmis hali).** Su an sabit 6 emoji var (QUICK_REACTIONS).
+   Bunun yaninda/ucunda bir "+" ile acilan, arama kutusu + kategoriler
+   + "sik kullanilanlar" iceren tam emoji secici eklenecek — kullanici
+   isterse 6 hazir emojiden birine hizlica basar, isterse "+" ile tum
+   emoji setine erisir.
+4. [ ] **Grup ayarlari ekrani (GroupInfoScreen) WhatsApp tarzi
+   genisletme.** Kullanicinin paylastigi 4 grup ayarlari gorseline
+   gore eklenecekler:
+   - Grup fotografini degistirme (su an yalnizca goruntuleniyor,
+     admin icin tiklanip degistirilebilir hale gelecek).
+   - Grup izinleri (yalnizca admin degistirebilir): "Mesaj
+     gonderebilir" (Herkes / Sadece yoneticiler), "Grup bilgisini
+     duzenleyebilir" (Herkes / Sadece yoneticiler), "Uye ekleyebilir"
+     (Herkes / Sadece yoneticiler).
+   - Davet kodunun yaninda QR kod gosterimi (mevcut kod + kopyalama
+     duruyor, QR gorsel bir ek secenek olarak eklenir).
+   - **Grubu sil** (yalnizca kurucu/owner): "Gruptan ayril"dan farkli,
+     tum grubu ve mesajlarini herkes icin kalici siler. Su an yalnizca
+     kendi cikisimiz var, grubu tamamen kapatma yok.
 
-Not: Kullanicinin bahsettigi ucuncu gorsel (basili tutununca ciken
-emoji secme animasyonunun kendisi) bu planlama turunda ekte
-gelmedi; 1. madde reaksiyon seridini menuyle zaten birlestirdigi icin
-kapsandigi varsayiliyor. Gercek gorsel paylasilirsa tasarim ona gore
-ince ayar gorur.
+   Bize gerekmeyenler, eklenmeyecek: "Guvenlik kodu / uctan uca
+   sifreleme bilgisi" (uygulamada E2E sifreleme yok, gostermek yanlis
+   guven verir), "Grubu sikayet et" (~10 kisilik guvenilir kapali
+   grup, WhatsApp'in genel kullanici kitlesi icin anlamli bir ozellik),
+   "Topluluklar" / "Yayin listesi" gibi buyuk olcekli WhatsApp
+   ozellikleri (proje kapsami disi).
 
 ## Ek ozellik onerileri (henuz onaylanmadi, degerlendirilecek)
 
@@ -196,6 +217,23 @@ duruyor:
 - **Favori/sabit kisiler**
 - **Dogum gunu alani + hatirlatma**
 - **Ana ekran widget'i**
+
+## Grupla ilgili ek oneriler (henuz onaylanmadi, degerlendirilecek)
+
+Kullanici grup gelistirmesi sirasinda baska onerilerim olup olmadigini
+sordu, asagidakiler eklendi (Ek ozellik onerileri listesindeki
+"Grupta sabitlenmis mesaj/duyuru" ve "Duyuru modu" ile ortusmeyenler):
+
+- **Uyelik onayi**: davet koduyla katilmak isteyen kisi once bekleme
+  listesine dusup yoneticinin onayindan sonra uye olsun (su an kod
+  bilen herkes dogrudan katiliyor).
+- **Katilma tarihi gosterimi**: uye satirinda "X tarihinde katildi"
+  bilgisi (joined_at zaten veritabaninda var, sadece goruntuleme
+  eklenir).
+- **Toplu susturma suresi**: "Sureli sessize alma" zaten sohbet
+  ekraninda var; grup ayarlarindan da kisayol olarak erisilebilir.
+- **Grup istatistigi**: en aktif uye, toplam mesaj sayisi gibi kucuk
+  bir ozet (dusuk oncelik, eglence amacli).
 
 ## Durum ozeti (en son guncelleme: Persembe 05:00 tetikleyicisi)
 
