@@ -143,6 +143,7 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
     var actionTarget by remember { mutableStateOf<Message?>(null) }
     var replyTarget by remember { mutableStateOf<Message?>(null) }
     var editTarget by remember { mutableStateOf<Message?>(null) }
+    var forwardTarget by remember { mutableStateOf<Message?>(null) }
     var muteDialogOpen by remember { mutableStateOf(false) }
     var infoTarget by remember { mutableStateOf<MessageInfo?>(null) }
     val retriedImages = remember { mutableStateListOf<Int>() }
@@ -868,6 +869,12 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
                             actionTarget = null
                         }
                     }
+                    if (!message.deleted && message.id > 0) {
+                        MessageAction("Ilet", Icons.AutoMirrored.Filled.Send) {
+                            forwardTarget = message
+                            actionTarget = null
+                        }
+                    }
                     if (message.body.isNotBlank() && !message.deleted) {
                         MessageAction("Kopyala", Icons.Filled.ContentCopy) {
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
@@ -1009,6 +1016,65 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
             }
         )
     }
+
+    forwardTarget?.let { target ->
+        ForwardDialog(
+            onDismiss = { forwardTarget = null },
+            onPicked = { targetConversationId ->
+                scope.launch {
+                    runCatching { Naber.api.forwardMessage(target.id, targetConversationId) }
+                        .onSuccess { forwardTarget = null; error = "Mesaj iletildi." }
+                        .onFailure { error = it.message }
+                }
+            }
+        )
+    }
+}
+
+/** Iletilecek sohbeti secmek icin kucuk bir liste. */
+@Composable
+private fun ForwardDialog(onDismiss: () -> Unit, onPicked: (Int) -> Unit) {
+    var chats by remember { mutableStateOf<List<Chat>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+
+    LaunchedEffect(Unit) {
+        runCatching { Naber.api.chats().first }.onSuccess { chats = it }
+        loading = false
+    }
+
+    AlertDialog(
+        containerColor = NaberColors.Surface,
+        onDismissRequest = onDismiss,
+        title = { Text("Ilet") },
+        text = {
+            if (loading) {
+                Box(Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = NaberColors.Accent)
+                }
+            } else {
+                Column(modifier = Modifier.heightIn(max = 360.dp)) {
+                    LazyColumn {
+                        items(chats, key = { it.id }) { c ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onPicked(c.id) }
+                                    .padding(vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                ChatAvatar(c, size = 36.dp)
+                                Spacer(Modifier.width(10.dp))
+                                Text(c.title, color = NaberColors.TextPrimary, fontSize = 14.5.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Vazgec", color = NaberColors.TextSecondary) }
+        }
+    )
 }
 
 /** Mesaj durumundan tik gorunumunu belirler. */

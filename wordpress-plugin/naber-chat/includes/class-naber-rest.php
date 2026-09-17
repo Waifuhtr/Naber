@@ -62,6 +62,7 @@ class Naber_REST {
 		$this->route( $ns, '/messages/(?P<id>\d+)', 'POST', 'edit_message', $user );
 		$this->route( $ns, '/messages/(?P<id>\d+)/info', 'GET', 'message_info', $user );
 		$this->route( $ns, '/messages/(?P<id>\d+)/react', 'POST', 'react_to_message', $user );
+		$this->route( $ns, '/messages/(?P<id>\d+)/forward', 'POST', 'forward_message', $user );
 
 		// --- Medya ---
 		$this->route( $ns, '/media/find', 'POST', 'media_find', $user );
@@ -819,8 +820,19 @@ class Naber_REST {
 		$title   = $is_group ? (string) $conversation['title'] : $sender['display_name'];
 		$text    = $is_group ? $sender['display_name'] . ': ' . $preview : $preview;
 
+		self::notify_conversation_members( $conversation_id, $user_id, $sender['display_name'], $title, $text, (int) $message['id'] );
+
+		return rest_ensure_response( array( 'message' => $message ) );
+	}
+
+	/**
+	 * Yeni mesaj bildirimini sohbetin butun uyelerine gonderir (gonderen
+	 * ve sessize almis olanlar haric). send_message ve forward_message
+	 * arasinda paylasilir.
+	 */
+	private static function notify_conversation_members( $conversation_id, $sender_id, $sender_name, $title, $text, $message_id ) {
 		foreach ( Naber_Chat_Repo::member_ids( $conversation_id ) as $member_id ) {
-			if ( $member_id === $user_id ) {
+			if ( $member_id === (int) $sender_id ) {
 				continue;
 			}
 			$target_member = Naber_Chat_Repo::member( $conversation_id, $member_id );
@@ -832,16 +844,14 @@ class Naber_REST {
 				array( 'title' => $title, 'body' => $text ),
 				array(
 					'type'            => 'message',
-					'conversation_id' => $conversation_id,
-					'message_id'      => $message['id'],
-					'sender_id'       => $user_id,
-					'sender_name'     => $sender['display_name'],
+					'conversation_id' => (int) $conversation_id,
+					'message_id'      => (int) $message_id,
+					'sender_id'       => (int) $sender_id,
+					'sender_name'     => $sender_name,
 					'preview'         => $text,
 				)
 			);
 		}
-
-		return rest_ensure_response( array( 'message' => $message ) );
 	}
 
 	/**
@@ -849,6 +859,62 @@ class Naber_REST {
 	 * scope=me  -> yalnizca bu kullanicidan gizlenir
 	 * scope=all -> herkesten silinir (kendi mesajin ya da grup yoneticisiysen)
 	 */
+	/**
+	 * Bir mesaji baska bir sohbete iletir.
+	 *
+	 * Gorseller icin ayni medya kaydi (media_id) tekrar kullanilir; dosya
+	 * tekrar yuklenmez. Medyanin sahibi olmasa bile, mesaji gorebilen
+	 * (kaynak sohbetin uyesi olan) herkes iletebilir.
+	 */
+	public function forward_message( WP_REST_Request $request ) {
+		$message = Naber_Chat_Repo::get_message( (int) $request['id'] );
+		if ( ! $message || (int) $message['deleted'] === 1 ) {
+			return new WP_Error( 'naber_message_not_found', 'Mesaj bulunamadi.', array( 'status' => 404 ) );
+		}
+
+		$user_id = get_current_user_id();
+		if ( ! Naber_Chat_Repo::member( (int) $message['conversation_id'], $user_id ) ) {
+			return new WP_Error( 'naber_forbidden', 'Bu mesaja erisim yetkiniz yok.', array( 'status' => 403 ) );
+		}
+
+		$target = $this->authorized_conversation( (int) $request->get_param( 'conversation_id' ) );
+		if ( is_wp_error( $target ) ) {
+			return $target;
+		}
+		$target_id = (int) $target['id'];
+
+		$target_member = Naber_Chat_Repo::member( $target_id, $user_id );
+		if ( $target_member && (int) $target_member['chat_muted'] === 1 ) {
+			return new WP_Error( 'naber_muted', 'Bu sohbette yonetici tarafindan susturuldunuz.', array( 'status' => 403 ) );
+		}
+
+		$is_group    = 'group' === $target['type'];
+		$receiver_id = $is_group ? 0 : Naber_Chat_Repo::other_user( $target, $user_id );
+
+		$forwarded = Naber_Chat_Repo::insert_message(
+			$target_id,
+			$user_id,
+			$receiver_id,
+			(string) $message['message_type'],
+			(string) $message['body'],
+			(int) $message['media_id'],
+			'',
+			isset( $message['preview'] ) ? (string) $message['preview'] : ''
+		);
+		if ( $is_group ) {
+			$forwarded['sender_name'] = Naber_Auth::user_payload( $user_id )['display_name'];
+		}
+
+		$sender  = Naber_Auth::user_payload( $user_id );
+		$preview = 'image' === $message['message_type'] ? 'Fotograf' : wp_trim_words( (string) $message['body'], 12, '...' );
+		$title   = $is_group ? (string) $target['title'] : $sender['display_name'];
+		$text    = $is_group ? $sender['display_name'] . ': ' . $preview : $preview;
+
+		self::notify_conversation_members( $target_id, $user_id, $sender['display_name'], $title, $text, (int) $forwarded['id'] );
+
+		return rest_ensure_response( array( 'message' => $forwarded ) );
+	}
+
 	public function delete_message( WP_REST_Request $request ) {
 		$message = Naber_Chat_Repo::get_message( (int) $request['id'] );
 		if ( ! $message ) {

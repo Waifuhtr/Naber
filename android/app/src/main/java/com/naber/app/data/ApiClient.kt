@@ -302,6 +302,15 @@ class ApiClient(private val session: Session) {
         return json.optJSONArray("reactions").mapObjects { MessageReaction.from(it) }
     }
 
+    /** Bir mesaji baska bir sohbete iletir; gorsel varsa tekrar yuklenmez. */
+    suspend fun forwardMessage(messageId: Int, targetConversationId: Int): Message =
+        Message.from(
+            call(
+                "/messages/$messageId/forward", "POST",
+                JSONObject().put("conversation_id", targetConversationId)
+            ).optJSONObject("message")
+        ) ?: throw ApiException("Mesaj iletilemedi.")
+
     suspend fun messageInfo(messageId: Int): MessageInfo {
         val json = call("/messages/$messageId/info").optJSONObject("info")
             ?: throw ApiException("Mesaj bilgisi alinamadi.")
