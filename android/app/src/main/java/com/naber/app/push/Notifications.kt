@@ -12,6 +12,9 @@ import com.naber.app.R
 object Notifications {
 
     const val CALL_NOTIFICATION_ID = 42
+    // Sohbet bildirimleri conversationId + 1000 kullaniyor; durtme icin
+    // ayri ve yeterince uzak bir taban degeri.
+    private const val POKE_NOTIFICATION_BASE_ID = 900_000
 
     fun showMessage(context: Context, senderName: String, preview: String, conversationId: Int) {
         val intent = Intent(context, MainActivity::class.java).apply {
@@ -41,6 +44,35 @@ object Notifications {
             .build()
 
         notify(context, conversationId + 1000, notification)
+    }
+
+    /** Durtme bildirimi. Tiklaninca sohbete degil, durten kisinin profiline gider. */
+    fun showPoke(context: Context, fromName: String, fromUserId: Int) {
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(MainActivity.EXTRA_POKE_USER_ID, fromUserId)
+        }
+        val pending = PendingIntent.getActivity(
+            context,
+            POKE_NOTIFICATION_BASE_ID + fromUserId,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(context, NaberApp.CHANNEL_MESSAGES)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("Naber")
+            .setContentText("$fromName seni durttu!")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_SOCIAL)
+            .setAutoCancel(true)
+            .setContentIntent(pending)
+            .apply {
+                SoundPlayer.uriFor(context, SoundPlayer.RECEIVED)?.let { setSound(it) }
+            }
+            .build()
+
+        notify(context, POKE_NOTIFICATION_BASE_ID + fromUserId, notification)
     }
 
     /**

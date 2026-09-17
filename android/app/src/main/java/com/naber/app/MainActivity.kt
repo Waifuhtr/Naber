@@ -34,6 +34,7 @@ import com.naber.app.ui.screens.GroupCreateScreen
 import com.naber.app.ui.screens.GroupInfoScreen
 import com.naber.app.ui.screens.HomeScreen
 import com.naber.app.ui.screens.LoginScreen
+import com.naber.app.ui.screens.UserProfileScreen
 import com.naber.app.ui.theme.NaberColors
 import com.naber.app.ui.theme.NaberTheme
 import kotlinx.coroutines.Dispatchers
@@ -42,6 +43,7 @@ import kotlinx.coroutines.withContext
 class MainActivity : ComponentActivity() {
 
     private var pendingConversationId = 0
+    private var pendingProfileUserId = 0
     private var pendingAccept by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -53,6 +55,7 @@ class MainActivity : ComponentActivity() {
         // arama ekrani gorunur.
         Naber.calls.clearStaleState()
         pendingConversationId = intent?.getIntExtra(EXTRA_CONVERSATION_ID, 0) ?: 0
+        pendingProfileUserId = intent?.getIntExtra(EXTRA_POKE_USER_ID, 0) ?: 0
         pendingAccept = intent?.getBooleanExtra(EXTRA_CALL_ACCEPT, false) ?: false
 
         setContent {
@@ -60,6 +63,7 @@ class MainActivity : ComponentActivity() {
                 Box(modifier = Modifier.fillMaxSize().background(NaberColors.Background)) {
                     NaberRoot(
                         startConversationId = pendingConversationId,
+                        startProfileUserId = pendingProfileUserId,
                         autoAcceptCall = pendingAccept,
                         onAcceptConsumed = { pendingAccept = false }
                     )
@@ -133,11 +137,17 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_CONVERSATION_ID = "conversation_id"
         const val EXTRA_CALL_ID = "call_id"
         const val EXTRA_CALL_ACCEPT = "call_accept"
+        const val EXTRA_POKE_USER_ID = "poke_user_id"
     }
 }
 
 @Composable
-private fun NaberRoot(startConversationId: Int, autoAcceptCall: Boolean, onAcceptConsumed: () -> Unit) {
+private fun NaberRoot(
+    startConversationId: Int,
+    startProfileUserId: Int,
+    autoAcceptCall: Boolean,
+    onAcceptConsumed: () -> Unit
+) {
     val navController = rememberNavController()
     var loggedIn by remember { mutableStateOf(Naber.session.isLoggedIn) }
     val callState by Naber.calls.state.collectAsState()
@@ -179,6 +189,13 @@ private fun NaberRoot(startConversationId: Int, autoAcceptCall: Boolean, onAccep
         return
     }
 
+    // Durtme bildirimine dokununca dogrudan o kisinin profili acilir.
+    LaunchedEffect(startProfileUserId) {
+        if (startProfileUserId > 0) {
+            navController.navigate("user/$startProfileUserId")
+        }
+    }
+
     NavHost(navController = navController, startDestination = "home") {
         composable("home") {
             HomeScreen(
@@ -186,7 +203,19 @@ private fun NaberRoot(startConversationId: Int, autoAcceptCall: Boolean, onAccep
                 onOpenChat = { conversationId -> navController.navigate("chat/$conversationId") },
                 onNewGroup = { navController.navigate("group/new") },
                 onAdmin = { navController.navigate("admin") },
+                onOpenProfile = { userId -> navController.navigate("user/$userId") },
                 onLoggedOut = { loggedIn = false }
+            )
+        }
+
+        composable("user/{userId}") { entry ->
+            UserProfileScreen(
+                userId = entry.arguments?.getString("userId")?.toIntOrNull() ?: 0,
+                onBack = { navController.popBackStack() },
+                onOpenChat = { conversationId ->
+                    navController.popBackStack()
+                    navController.navigate("chat/$conversationId")
+                }
             )
         }
 
@@ -194,7 +223,8 @@ private fun NaberRoot(startConversationId: Int, autoAcceptCall: Boolean, onAccep
             ChatScreen(
                 conversationId = entry.arguments?.getString("conversationId")?.toIntOrNull() ?: 0,
                 onBack = { navController.popBackStack() },
-                onGroupInfo = { conversationId -> navController.navigate("group/$conversationId") }
+                onGroupInfo = { conversationId -> navController.navigate("group/$conversationId") },
+                onOpenProfile = { userId -> navController.navigate("user/$userId") }
             )
         }
 

@@ -29,6 +29,8 @@ class Naber_REST {
 		// --- Kisiler ---
 		$this->route( $ns, '/users', 'GET', 'list_users', $user );
 		$this->route( $ns, '/users/lookup', 'GET', 'lookup_user', $user );
+		$this->route( $ns, '/users/(?P<id>\d+)', 'GET', 'get_user_profile', $user );
+		$this->route( $ns, '/users/(?P<id>\d+)/poke', 'POST', 'poke_user', $user );
 		$this->route( $ns, '/contacts', 'GET', 'list_contacts', $user );
 		$this->route( $ns, '/contacts', 'POST', 'add_contact', $user );
 		$this->route( $ns, '/contacts/(?P<id>\d+)', 'DELETE', 'remove_contact', $user );
@@ -324,6 +326,52 @@ class Naber_REST {
 		$payload               = Naber_Auth::user_payload( $user );
 		$payload['is_contact'] = in_array( (int) $user->ID, Naber_Auth::contacts( get_current_user_id() ), true );
 		return rest_ensure_response( array( 'user' => $payload ) );
+	}
+
+	/** Kimlige gore tek bir kullanicinin profil bilgisi (durtme ekrani icin). */
+	public function get_user_profile( WP_REST_Request $request ) {
+		$target_id = (int) $request['id'];
+		if ( $target_id === get_current_user_id() ) {
+			return new WP_Error( 'naber_self_profile', 'Kendi profilinizi buradan goremezsiniz.', array( 'status' => 400 ) );
+		}
+
+		$target = get_userdata( $target_id );
+		if ( ! $target || Naber_Auth::is_banned( $target_id ) || Naber_Auth::is_disabled( $target_id ) ) {
+			return new WP_Error( 'naber_user_not_found', 'Kullanici bulunamadi.', array( 'status' => 404 ) );
+		}
+
+		$payload               = Naber_Auth::user_payload( $target );
+		$payload['is_contact'] = in_array( $target_id, Naber_Auth::contacts( get_current_user_id() ), true );
+		$payload['poke_cooldown'] = Naber_Pokes::cooldown_remaining( get_current_user_id(), $target_id );
+		return rest_ensure_response( array( 'user' => $payload ) );
+	}
+
+	/** Bir kullaniciyi durtme; sohbet acmaz, yalnizca bildirim gonderir. */
+	public function poke_user( WP_REST_Request $request ) {
+		$target_id = (int) $request['id'];
+		$target    = get_userdata( $target_id );
+		if ( ! $target || Naber_Auth::is_banned( $target_id ) || Naber_Auth::is_disabled( $target_id ) ) {
+			return new WP_Error( 'naber_user_not_found', 'Kullanici bulunamadi.', array( 'status' => 404 ) );
+		}
+
+		$user_id = get_current_user_id();
+		$result  = Naber_Pokes::poke( $user_id, $target_id );
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		$sender = Naber_Auth::user_payload( $user_id );
+		Naber_Push::send_to_user(
+			$target_id,
+			array( 'title' => 'Naber', 'body' => $sender['display_name'] . ' seni durttu!' ),
+			array(
+				'type'        => 'poke',
+				'from_id'     => $user_id,
+				'from_name'   => $sender['display_name'],
+			)
+		);
+
+		return rest_ensure_response( $result );
 	}
 
 	public function list_contacts() {

@@ -110,7 +110,7 @@ import java.util.UUID
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Unit) {
+fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Unit, onOpenProfile: (Int) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
@@ -467,7 +467,10 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .clickable(enabled = current?.isGroup == true) { current?.let { onGroupInfo(it.id) } }
+                    .clickable(enabled = current != null) {
+                        val c = current ?: return@clickable
+                        if (c.isGroup) onGroupInfo(c.id) else c.peer?.let { onOpenProfile(it.id) }
+                    }
             ) {
                 Text(
                     current?.title.orEmpty(),

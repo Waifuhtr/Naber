@@ -44,6 +44,7 @@ fun HomeScreen(
     onOpenChat: (Int) -> Unit,
     onNewGroup: () -> Unit,
     onAdmin: () -> Unit,
+    onOpenProfile: (Int) -> Unit,
     onLoggedOut: () -> Unit
 ) {
     var tab by remember { mutableIntStateOf(0) }
@@ -65,7 +66,7 @@ fun HomeScreen(
                     onContacts = { tab = 1 }
                 )
 
-                1 -> ContactsTab(onOpenChat = onOpenChat, onNewGroup = onNewGroup)
+                1 -> ContactsTab(onOpenChat = onOpenChat, onNewGroup = onNewGroup, onOpenProfile = onOpenProfile)
                 2 -> CallsTab()
                 else -> ProfileTab(onAdmin = onAdmin, onLoggedOut = onLoggedOut)
             }

@@ -53,7 +53,7 @@ import kotlinx.coroutines.launch
  * Kullanicilar birbirini Naber adresiyle (kullaniciadi@naber.com) bulur ve ekler.
  */
 @Composable
-fun ContactsTab(onOpenChat: (Int) -> Unit, onNewGroup: () -> Unit) {
+fun ContactsTab(onOpenChat: (Int) -> Unit, onNewGroup: () -> Unit, onOpenProfile: (Int) -> Unit) {
     val scope = rememberCoroutineScope()
     var contacts by remember { mutableStateOf<List<User>>(emptyList()) }
     var directory by remember { mutableStateOf<List<User>>(emptyList()) }
@@ -187,14 +187,24 @@ fun ContactsTab(onOpenChat: (Int) -> Unit, onNewGroup: () -> Unit) {
             if (contacts.isNotEmpty()) {
                 item { SectionTitle("Kisilerim (${contacts.size})") }
                 items(contacts, key = { "c-${it.id}" }) { user ->
-                    UserRow(user = user, actionIcon = Icons.Filled.Chat, onClick = { openWith(user) })
+                    UserRow(
+                        user = user,
+                        actionIcon = Icons.Filled.Chat,
+                        onClick = { openWith(user) },
+                        onAvatarClick = { onOpenProfile(user.id) }
+                    )
                 }
             }
 
             if (filteredDirectory.isNotEmpty()) {
                 item { SectionTitle("Naber'deki diger kisiler") }
                 items(filteredDirectory, key = { "d-${it.id}" }) { user ->
-                    UserRow(user = user, actionIcon = Icons.Filled.PersonAdd, onClick = { openWith(user) })
+                    UserRow(
+                        user = user,
+                        actionIcon = Icons.Filled.PersonAdd,
+                        onClick = { openWith(user) },
+                        onAvatarClick = { onOpenProfile(user.id) }
+                    )
                 }
             }
 
@@ -225,7 +235,9 @@ private fun SectionTitle(text: String) {
 private fun UserRow(
     user: User,
     actionIcon: androidx.compose.ui.graphics.vector.ImageVector,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    // Fotografa dokununca profil acilir; satirin geri kalani sohbet acar.
+    onAvatarClick: () -> Unit = onClick
 ) {
     Row(
         modifier = Modifier
@@ -234,7 +246,7 @@ private fun UserRow(
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box {
+        Box(modifier = Modifier.clickable(onClick = onAvatarClick)) {
             Avatar(user, size = 46.dp)
             if (user.online) OnlineDot(modifier = Modifier.align(Alignment.BottomEnd))
         }

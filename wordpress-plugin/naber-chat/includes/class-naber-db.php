@@ -9,7 +9,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class Naber_DB {
 
-	const DB_VERSION = '1.6.0';
+	const DB_VERSION = '1.7.0';
 
 	public static function table( $name ) {
 		global $wpdb;
@@ -29,6 +29,7 @@ class Naber_DB {
 		$participants  = self::table( 'call_participants' );
 		$signals       = self::table( 'signals' );
 		$devices       = self::table( 'devices' );
+		$pokes         = self::table( 'pokes' );
 
 		$sql = array();
 
@@ -167,6 +168,18 @@ class Naber_DB {
 			KEY user_id (user_id)
 		) {$charset};";
 
+		// Durtme (poke): kim kimi ne zaman durttu. Bekleme suresi kontrolu ve
+		// ileride "kim seni durttu" gecmisi icin ayri satirlar tutulur.
+		$sql[] = "CREATE TABLE {$pokes} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			from_id bigint(20) unsigned NOT NULL,
+			to_id bigint(20) unsigned NOT NULL,
+			created_at datetime NOT NULL DEFAULT '0000-00-00 00:00:00',
+			PRIMARY KEY  (id),
+			KEY pair_time (from_id,to_id,created_at),
+			KEY to_id (to_id,created_at)
+		) {$charset};";
+
 		$previous = get_option( 'naber_db_version', '' );
 
 		// 1.0.0'da user_one/user_two uzerinde UNIQUE index vardi; gruplar icin kaldirilmali.
@@ -237,6 +250,7 @@ class Naber_DB {
 		$user_id = (int) $user_id;
 
 		$wpdb->delete( self::table( 'devices' ), array( 'user_id' => $user_id ), array( '%d' ) );
+		$wpdb->query( $wpdb->prepare( 'DELETE FROM ' . self::table( 'pokes' ) . ' WHERE from_id = %d OR to_id = %d', $user_id, $user_id ) );
 		$wpdb->delete( self::table( 'members' ), array( 'user_id' => $user_id ), array( '%d' ) );
 		$wpdb->delete( self::table( 'call_participants' ), array( 'user_id' => $user_id ), array( '%d' ) );
 		$wpdb->query( $wpdb->prepare( 'DELETE FROM ' . self::table( 'signals' ) . ' WHERE sender_id = %d OR receiver_id = %d', $user_id, $user_id ) );

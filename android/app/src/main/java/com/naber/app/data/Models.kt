@@ -68,6 +68,14 @@ data class User(
     }
 }
 
+/** Baska bir kullanicinin profil ekraninda gosterilen bilgi. */
+@Immutable
+data class UserProfile(
+    val user: User,
+    /** Su an durtulursa kac saniye sonra tekrar durtulebilir; 0 ise hemen durtulebilir. */
+    val pokeCooldown: Int
+)
+
 @Immutable
 data class Media(
     val id: Int,

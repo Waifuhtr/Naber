@@ -138,6 +138,17 @@ class ApiClient(private val session: Session) {
         User.from(call("/users/lookup", "GET", query = mapOf("q" to query)).optJSONObject("user"))
             ?: throw ApiException("Kullanici bulunamadi.")
 
+    /** Baska bir kullanicinin profil ekrani icin guncel bilgisi. */
+    suspend fun userProfile(userId: Int): UserProfile {
+        val userJson = call("/users/$userId").optJSONObject("user")
+        val user = User.from(userJson) ?: throw ApiException("Kullanici bulunamadi.")
+        return UserProfile(user, userJson?.optInt("poke_cooldown") ?: 0)
+    }
+
+    /** Bir kullaniciyi durtme; sohbet acmaz, yalnizca bildirim gonderir. */
+    suspend fun pokeUser(userId: Int): Int =
+        call("/users/$userId/poke", "POST").optInt("next_allowed_in", 60)
+
     suspend fun addContact(userId: Int = 0, email: String = ""): Pair<User, Int> {
         val payload = JSONObject()
         if (userId > 0) payload.put("user_id", userId) else payload.put("email", email)

@@ -48,6 +48,12 @@ class NaberMessagingService : FirebaseMessagingService() {
                 Notifications.showMessage(this, "Naber", "Bildirim testi basarili.", 0)
             }
 
+            "poke" -> {
+                val fromId = data["from_id"]?.toIntOrNull() ?: 0
+                val fromName = data["from_name"] ?: "Bir kullanici"
+                if (fromId > 0) Notifications.showPoke(this, fromName, fromId)
+            }
+
             else -> {
                 val conversationId = data["conversation_id"]?.toIntOrNull() ?: 0
                 val sender = data["sender_name"] ?: message.notification?.title ?: "Yeni mesaj"
