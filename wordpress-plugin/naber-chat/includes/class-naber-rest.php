@@ -62,6 +62,9 @@ class Naber_REST {
 		$this->route( $ns, '/chats/(?P<id>\d+)/members/(?P<user>\d+)/role', 'POST', 'set_member_role', $user );
 		$this->route( $ns, '/chats/(?P<id>\d+)/members/(?P<user>\d+)/mute', 'POST', 'mute_member', $user );
 		$this->route( $ns, '/chats/(?P<id>\d+)/leave', 'POST', 'leave_chat', $user );
+		$this->route( $ns, '/chats/(?P<id>\d+)/requests', 'GET', 'list_join_requests', $user );
+		$this->route( $ns, '/chats/(?P<id>\d+)/requests/(?P<user>\d+)', 'POST', 'resolve_join_request', $user );
+		$this->route( $ns, '/chats/(?P<id>\d+)/stats', 'GET', 'group_stats', $user );
 		$this->route( $ns, '/chats/(?P<id>\d+)/notifications', 'POST', 'toggle_notifications', $user );
 		$this->route( $ns, '/chats/(?P<id>\d+)/pin', 'POST', 'toggle_pin', $user );
 		$this->route( $ns, '/chats/(?P<id>\d+)/disappearing', 'POST', 'set_disappearing', $user );
@@ -565,6 +568,13 @@ class Naber_REST {
 
 		$conversation_id = Naber_Chat_Repo::join_by_code( $code, $user_id );
 		if ( is_wp_error( $conversation_id ) ) {
+			// Onay bekleyen katilma istegi hata degil, bilgilendirmedir.
+			if ( 'naber_join_pending' === $conversation_id->get_error_code() ) {
+				return rest_ensure_response( array(
+					'pending' => true,
+					'message' => $conversation_id->get_error_message(),
+				) );
+			}
 			return $conversation_id;
 		}
 
@@ -610,6 +620,56 @@ class Naber_REST {
 		return rest_ensure_response( array( 'ok' => true ) );
 	}
 
+	/** Bekleyen katilma istekleri; yalnizca yoneticiler gorebilir. */
+	public function list_join_requests( WP_REST_Request $request ) {
+		$conversation = $this->authorized_conversation( (int) $request['id'] );
+		if ( is_wp_error( $conversation ) ) {
+			return $conversation;
+		}
+		if ( ! Naber_Chat_Repo::is_group_admin( (int) $conversation['id'], get_current_user_id() ) ) {
+			return new WP_Error( 'naber_forbidden', 'Istekleri yalnizca yoneticiler gorebilir.', array( 'status' => 403 ) );
+		}
+		return rest_ensure_response( array(
+			'requests' => Naber_Groups::join_requests( (int) $conversation['id'] ),
+		) );
+	}
+
+	/** Katilma istegini onaylar ya da reddeder. */
+	public function resolve_join_request( WP_REST_Request $request ) {
+		$conversation = $this->authorized_conversation( (int) $request['id'] );
+		if ( is_wp_error( $conversation ) ) {
+			return $conversation;
+		}
+		$conversation_id = (int) $conversation['id'];
+		if ( ! Naber_Chat_Repo::is_group_admin( $conversation_id, get_current_user_id() ) ) {
+			return new WP_Error( 'naber_forbidden', 'Istekleri yalnizca yoneticiler yanitlayabilir.', array( 'status' => 403 ) );
+		}
+
+		$target   = (int) $request['user'];
+		$approved = rest_sanitize_boolean( $request->get_param( 'approve' ) );
+		if ( $approved ) {
+			Naber_Groups::approve_request( $conversation_id, $target );
+		} else {
+			Naber_Groups::clear_request( $conversation_id, $target );
+		}
+
+		return rest_ensure_response( array(
+			'chat'     => Naber_Chat_Repo::conversation_payload( $conversation_id, get_current_user_id(), true ),
+			'requests' => Naber_Groups::join_requests( $conversation_id ),
+		) );
+	}
+
+	/** Kucuk grup ozeti (toplam mesaj, bugun, en aktif uye). */
+	public function group_stats( WP_REST_Request $request ) {
+		$conversation = $this->authorized_conversation( (int) $request['id'] );
+		if ( is_wp_error( $conversation ) ) {
+			return $conversation;
+		}
+		return rest_ensure_response( array(
+			'stats' => Naber_Chat_Repo::group_stats( (int) $conversation['id'] ),
+		) );
+	}
+
 	public function chat_info( WP_REST_Request $request ) {
 		$conversation = $this->authorized_conversation( (int) $request['id'] );
 		if ( is_wp_error( $conversation ) ) {
@@ -639,6 +699,14 @@ class Naber_REST {
 				$fields[ $key ] = (string) $value;
 			}
 		}
+		$require_approval = $request->get_param( 'require_approval' );
+		if ( null !== $require_approval ) {
+			if ( ! Naber_Chat_Repo::is_group_admin( (int) $conversation['id'], get_current_user_id() ) ) {
+				return new WP_Error( 'naber_forbidden', 'Bu ayari yalnizca yoneticiler degistirebilir.', array( 'status' => 403 ) );
+			}
+			$fields['require_approval'] = rest_sanitize_boolean( $require_approval );
+		}
+
 		$mention_all = $request->get_param( 'mention_all_admins' );
 		if ( null !== $mention_all ) {
 			if ( ! Naber_Chat_Repo::is_group_admin( (int) $conversation['id'], get_current_user_id() ) ) {

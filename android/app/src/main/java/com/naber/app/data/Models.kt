@@ -91,6 +91,26 @@ data class GroupPrank(
     val victimId: Int
 )
 
+/** Kucuk grup ozeti (grup ayarlari ekraninda gosterilir). */
+@Immutable
+data class GroupStats(
+    val totalMessages: Int,
+    val todayMessages: Int,
+    val topMember: String,
+    val topMessages: Int
+)
+
+/**
+ * Davet koduyla katilma sonucu. Uyelik onayi acik gruplarda kisi
+ * dogrudan uye olmaz, istegi yonetici onayina duser.
+ */
+@Immutable
+data class JoinResult(
+    val chat: Chat? = null,
+    val pending: Boolean = false,
+    val message: String = ""
+)
+
 /** Uye cikarma sonucu: ya guncel sohbet ya da saka cezasi. */
 @Immutable
 data class RemoveMemberResult(
@@ -330,7 +350,11 @@ data class Chat(
     /** Sohbetin en ustune tutturulmus mesaj; yoksa null. */
     val pinnedMessage: Message? = null,
     /** Acikken "@herkes" yalnizca yoneticilerde calisir. */
-    val mentionAllAdmins: Boolean = false
+    val mentionAllAdmins: Boolean = false,
+    /** Acikken davet koduyla gelenler once yonetici onayi bekler. */
+    val requireApproval: Boolean = false,
+    /** Bekleyen katilma istegi sayisi (yalnizca yoneticide dolu gelir). */
+    val pendingRequests: Int = 0
 ) {
     val isGroup: Boolean get() = type == "group"
     val amAdmin: Boolean get() = role == "owner" || role == "admin"
@@ -364,7 +388,9 @@ data class Chat(
                 members = User.listFrom(json.optJSONArray("members")),
                 perms = json.optJSONArray("perms").mapStrings(),
                 pinnedMessage = Message.from(json.optJSONObject("pinned_message")),
-                mentionAllAdmins = json.optBoolean("mention_all_admins")
+                mentionAllAdmins = json.optBoolean("mention_all_admins"),
+                requireApproval = json.optBoolean("require_approval"),
+                pendingRequests = json.optInt("pending_requests")
             )
         }
 
@@ -680,6 +706,8 @@ fun Chat.toJson(): JSONObject = JSONObject()
     .put("perms", JSONArray(perms))
     .put("pinned_message", pinnedMessage?.toJson())
     .put("mention_all_admins", mentionAllAdmins)
+    .put("require_approval", requireApproval)
+    .put("pending_requests", pendingRequests)
 
 /** JSONArray -> List<String> kisayolu (yetki listeleri gibi duz diziler icin). */
 internal fun JSONArray?.mapStrings(): List<String> {

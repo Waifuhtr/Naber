@@ -31,6 +31,8 @@ import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PhotoCamera
@@ -63,6 +65,7 @@ import com.naber.app.Naber
 import com.naber.app.data.Chat
 import com.naber.app.data.GROUP_PERMISSIONS
 import com.naber.app.data.GroupPrank
+import com.naber.app.data.GroupStats
 import com.naber.app.data.User
 import com.naber.app.ui.Avatar
 import com.naber.app.ui.ChatAvatar
@@ -99,6 +102,8 @@ fun GroupInfoScreen(conversationId: Int, onBack: () -> Unit, onLeft: () -> Unit)
     var prankStage by remember { mutableStateOf(0) }
     var confirmDelete by remember { mutableStateOf(false) }
     var photoBusy by remember { mutableStateOf(false) }
+    var requests by remember { mutableStateOf<List<User>>(emptyList()) }
+    var stats by remember { mutableStateOf<GroupStats?>(null) }
 
     LaunchedEffect(prankStage) {
         if (prankStage == 1) {
@@ -116,6 +121,20 @@ fun GroupInfoScreen(conversationId: Int, onBack: () -> Unit, onLeft: () -> Unit)
     }
 
     LaunchedEffect(conversationId) { reload() }
+
+    // Bekleyen katilma istekleri ve kucuk grup ozeti; ikisi de sayfa
+    // acilinca bir kez cekilir, istek yanitlaninca tazelenir.
+    LaunchedEffect(conversationId, chat?.pendingRequests) {
+        if (chat?.amAdmin == true && (chat?.pendingRequests ?: 0) > 0) {
+            runCatching { requests = Naber.api.joinRequests(conversationId) }
+        } else {
+            requests = emptyList()
+        }
+    }
+
+    LaunchedEffect(conversationId) {
+        runCatching { stats = Naber.api.groupStats(conversationId) }
+    }
 
     // Baska bir yonetici uye eklerse/cikarirsa ekran kendiliginden guncellenir.
     val revisions by Naber.events.revisions.collectAsState()
@@ -370,7 +389,122 @@ fun GroupInfoScreen(conversationId: Int, onBack: () -> Unit, onLeft: () -> Unit)
                 }
             }
 
+            if (current.amAdmin && requests.isNotEmpty()) {
+                item {
+                    Text(
+                        "Bekleyen istekler (${requests.size})",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = NaberColors.Warning,
+                        modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 6.dp)
+                    )
+                }
+                items(requests, key = { "istek-${it.id}" }) { person ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Avatar(person, size = 38.dp)
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(person.displayName, fontSize = 14.5.sp, color = NaberColors.TextPrimary)
+                            Text(
+                                person.naberEmail.ifBlank { "@${person.username}" },
+                                fontSize = 11.5.sp,
+                                color = NaberColors.TextSecondary
+                            )
+                        }
+                        Icon(
+                            Icons.Filled.Check,
+                            contentDescription = "Onayla",
+                            tint = NaberColors.Accent,
+                            modifier = Modifier
+                                .size(22.dp)
+                                .clickable {
+                                    scope.launch {
+                                        runCatching { Naber.api.resolveJoinRequest(conversationId, person.id, true) }
+                                            .onSuccess { (updated, list) ->
+                                                updated?.let { chat = it }
+                                                requests = list
+                                            }
+                                            .onFailure { error = it.message }
+                                    }
+                                }
+                        )
+                        Spacer(Modifier.width(16.dp))
+                        Icon(
+                            Icons.Filled.Close,
+                            contentDescription = "Reddet",
+                            tint = NaberColors.Danger,
+                            modifier = Modifier
+                                .size(22.dp)
+                                .clickable {
+                                    scope.launch {
+                                        runCatching { Naber.api.resolveJoinRequest(conversationId, person.id, false) }
+                                            .onSuccess { (updated, list) ->
+                                                updated?.let { chat = it }
+                                                requests = list
+                                            }
+                                            .onFailure { error = it.message }
+                                    }
+                                }
+                        )
+                    }
+                }
+            }
+
+            stats?.let { summary ->
+                item {
+                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                        Text(
+                            "Grup ozeti",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = NaberColors.TextSecondary
+                        )
+                        Spacer(Modifier.size(4.dp))
+                        Text(
+                            "Toplam ${summary.totalMessages} mesaj, bugun ${summary.todayMessages}.",
+                            fontSize = 13.sp,
+                            color = NaberColors.TextPrimary
+                        )
+                        if (summary.topMember.isNotBlank()) {
+                            Text(
+                                "En cok yazan: ${summary.topMember} (${summary.topMessages})",
+                                fontSize = 13.sp,
+                                color = NaberColors.TextPrimary
+                            )
+                        }
+                    }
+                }
+            }
+
             if (current.amAdmin) {
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Uyelik onayi", fontSize = 14.sp, color = NaberColors.TextPrimary)
+                            Text(
+                                "Acikken davet koduyla gelenler once onayini bekler.",
+                                fontSize = 11.5.sp,
+                                color = NaberColors.TextSecondary
+                            )
+                        }
+                        Switch(
+                            checked = current.requireApproval,
+                            onCheckedChange = { value ->
+                                act { Naber.api.updateGroup(conversationId, null, null, null, null, value) }
+                            }
+                        )
+                    }
+                }
                 item {
                     Row(
                         modifier = Modifier

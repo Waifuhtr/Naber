@@ -249,7 +249,7 @@ Kullanici grup gelistirmesi sirasinda baska onerilerim olup olmadigini
 sordu, asagidakiler eklendi (Ek ozellik onerileri listesindeki
 "Grupta sabitlenmis mesaj/duyuru" ve "Duyuru modu" ile ortusmeyenler):
 
-- [ ] **Uyelik onayi**: davet koduyla katilmak isteyen kisi once bekleme
+- [x] **Uyelik onayi**: davet koduyla katilmak isteyen kisi once bekleme
   listesine dusup yoneticinin onayindan sonra uye olsun (su an kod
   bilen herkes dogrudan katiliyor).
 - [x] **Katilma tarihi gosterimi**: uye satirinda "X tarihinde katildi"
@@ -257,7 +257,7 @@ sordu, asagidakiler eklendi (Ek ozellik onerileri listesindeki
   eklenir).
 - [ ] **Toplu susturma suresi**: "Sureli sessize alma" zaten sohbet
   ekraninda var; grup ayarlarindan da kisayol olarak erisilebilir.
-- [ ] **Grup istatistigi**: en aktif uye, toplam mesaj sayisi gibi kucuk
+- [x] **Grup istatistigi**: en aktif uye, toplam mesaj sayisi gibi kucuk
   bir ozet (dusuk oncelik, eglence amacli).
 
 **Ikinci tur oneriler:**

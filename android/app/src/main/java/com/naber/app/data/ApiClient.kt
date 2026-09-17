@@ -257,9 +257,42 @@ class ApiClient(private val session: Session) {
         Chat.from(call("/chats/$conversationId").optJSONObject("chat")) ?: throw ApiException("Sohbet bulunamadi.")
 
     /** Davet koduyla gruba katilir. */
-    suspend fun joinGroupByCode(code: String): Chat =
-        Chat.from(call("/groups/join", "POST", JSONObject().put("code", code)).optJSONObject("chat"))
+    suspend fun joinGroupByCode(code: String): JoinResult {
+        val json = call("/groups/join", "POST", JSONObject().put("code", code))
+        if (json.optBoolean("pending")) {
+            return JoinResult(
+                pending = true,
+                message = json.optString("message").ifBlank { "Katilma istegin yonetici onayi bekliyor." }
+            )
+        }
+        val chat = Chat.from(json.optJSONObject("chat"))
             ?: throw ApiException("Bu koda sahip bir grup bulunamadi.")
+        return JoinResult(chat = chat)
+    }
+
+    /** Bekleyen katilma istekleri (yalnizca yonetici). */
+    suspend fun joinRequests(conversationId: Int): List<User> =
+        User.listFrom(call("/chats/$conversationId/requests", "GET").optJSONArray("requests"))
+
+    /** Katilma istegini onaylar ya da reddeder; guncel istek listesini doner. */
+    suspend fun resolveJoinRequest(conversationId: Int, userId: Int, approve: Boolean): Pair<Chat?, List<User>> {
+        val json = call(
+            "/chats/$conversationId/requests/$userId", "POST",
+            JSONObject().put("approve", approve)
+        )
+        return Chat.from(json.optJSONObject("chat")) to User.listFrom(json.optJSONArray("requests"))
+    }
+
+    suspend fun groupStats(conversationId: Int): GroupStats {
+        val json = call("/chats/$conversationId/stats", "GET").optJSONObject("stats")
+            ?: return GroupStats(0, 0, "", 0)
+        return GroupStats(
+            totalMessages = json.optInt("total_messages"),
+            todayMessages = json.optInt("today_messages"),
+            topMember = json.optString("top_member"),
+            topMessages = json.optInt("top_messages")
+        )
+    }
 
     /** Grup yoneticisi eski kodu gecersiz kilip yenisini uretir. */
     suspend fun regenerateInviteCode(conversationId: Int): String =
@@ -270,13 +303,15 @@ class ApiClient(private val session: Session) {
         title: String?,
         about: String?,
         avatarMediaId: Int?,
-        mentionAllAdmins: Boolean? = null
+        mentionAllAdmins: Boolean? = null,
+        requireApproval: Boolean? = null
     ): Chat {
         val payload = JSONObject()
         title?.let { payload.put("title", it) }
         about?.let { payload.put("about", it) }
         avatarMediaId?.let { payload.put("avatar_media_id", it) }
         mentionAllAdmins?.let { payload.put("mention_all_admins", it) }
+        requireApproval?.let { payload.put("require_approval", it) }
         return Chat.from(call("/chats/$conversationId", "POST", payload).optJSONObject("chat"))
             ?: throw ApiException("Grup guncellenemedi.")
     }

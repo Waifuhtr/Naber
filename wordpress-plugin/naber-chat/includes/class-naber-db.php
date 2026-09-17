@@ -9,7 +9,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class Naber_DB {
 
-	const DB_VERSION = '1.17.0';
+	const DB_VERSION = '1.18.0';
 
 	public static function table( $name ) {
 		global $wpdb;
@@ -34,6 +34,7 @@ class Naber_DB {
 		$blocks        = self::table( 'blocks' );
 		$polls         = self::table( 'polls' );
 		$poll_votes    = self::table( 'poll_votes' );
+		$join_requests = self::table( 'join_requests' );
 
 		$sql = array();
 
@@ -54,6 +55,7 @@ class Naber_DB {
 			invite_code varchar(10) NOT NULL DEFAULT '',
 			disappear_seconds int(10) unsigned NOT NULL DEFAULT 0,
 			mention_all_admins tinyint(1) NOT NULL DEFAULT 0,
+			require_approval tinyint(1) NOT NULL DEFAULT 0,
 			created_at datetime NOT NULL DEFAULT '0000-00-00 00:00:00',
 			updated_at datetime NOT NULL DEFAULT '0000-00-00 00:00:00',
 			PRIMARY KEY  (id),
@@ -79,6 +81,17 @@ class Naber_DB {
 			joined_at datetime NOT NULL DEFAULT '0000-00-00 00:00:00',
 			PRIMARY KEY  (id),
 			UNIQUE KEY member (conversation_id,user_id),
+			KEY user_id (user_id)
+		) {$charset};";
+
+		// Uyelik onayi acik gruplarda davet koduyla katilmak isteyenler.
+		$sql[] = "CREATE TABLE {$join_requests} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			conversation_id bigint(20) unsigned NOT NULL,
+			user_id bigint(20) unsigned NOT NULL,
+			created_at datetime NOT NULL DEFAULT '0000-00-00 00:00:00',
+			PRIMARY KEY  (id),
+			UNIQUE KEY request (conversation_id,user_id),
 			KEY user_id (user_id)
 		) {$charset};";
 
@@ -331,6 +344,7 @@ class Naber_DB {
 
 		$wpdb->delete( self::table( 'messages' ), array( 'conversation_id' => $conversation_id ), array( '%d' ) );
 		$wpdb->delete( self::table( 'members' ), array( 'conversation_id' => $conversation_id ), array( '%d' ) );
+		$wpdb->delete( self::table( 'join_requests' ), array( 'conversation_id' => $conversation_id ), array( '%d' ) );
 		$wpdb->delete( self::table( 'conversations' ), array( 'id' => $conversation_id ), array( '%d' ) );
 		return true;
 	}
@@ -346,6 +360,7 @@ class Naber_DB {
 		$wpdb->query( $wpdb->prepare( 'DELETE FROM ' . self::table( 'blocks' ) . ' WHERE blocker_id = %d OR blocked_id = %d', $user_id, $user_id ) );
 		$wpdb->delete( self::table( 'poll_votes' ), array( 'user_id' => $user_id ), array( '%d' ) );
 		$wpdb->delete( self::table( 'members' ), array( 'user_id' => $user_id ), array( '%d' ) );
+		$wpdb->delete( self::table( 'join_requests' ), array( 'user_id' => $user_id ), array( '%d' ) );
 		$wpdb->delete( self::table( 'call_participants' ), array( 'user_id' => $user_id ), array( '%d' ) );
 		$wpdb->query( $wpdb->prepare( 'DELETE FROM ' . self::table( 'signals' ) . ' WHERE sender_id = %d OR receiver_id = %d', $user_id, $user_id ) );
 		$wpdb->query( $wpdb->prepare( 'DELETE FROM ' . self::table( 'calls' ) . ' WHERE caller_id = %d OR callee_id = %d', $user_id, $user_id ) );

@@ -419,9 +419,14 @@ fun ChatsTab(
                         joinError = null
                         scope.launch {
                             try {
-                                val joined = Naber.api.joinGroupByCode(code.trim())
-                                joinByCodeOpen = false
-                                onOpenChat(joined.id)
+                                val result = Naber.api.joinGroupByCode(code.trim())
+                                if (result.pending) {
+                                    // Uyelik onayi acik: henuz uye degiliz.
+                                    joinError = result.message
+                                } else {
+                                    joinByCodeOpen = false
+                                    result.chat?.let { onOpenChat(it.id) }
+                                }
                             } catch (e: Exception) {
                                 joinError = e.message
                             } finally {

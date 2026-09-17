@@ -160,6 +160,92 @@ class Naber_Groups {
 		);
 	}
 
+	// ------------------------------------------------------------------
+	// Uyelik onayi
+	// ------------------------------------------------------------------
+
+	/** Katilma istegi olusturur (ayni kisi icin ikinci kayit acilmaz). */
+	public static function request_join( $conversation_id, $user_id ) {
+		global $wpdb;
+		$wpdb->query(
+			$wpdb->prepare(
+				'INSERT IGNORE INTO ' . Naber_DB::table( 'join_requests' ) . ' (conversation_id, user_id, created_at) VALUES (%d, %d, %s)',
+				(int) $conversation_id,
+				(int) $user_id,
+				Naber_DB::now()
+			)
+		);
+		return true;
+	}
+
+	/** Bekleyen katilma istekleri (kullanici bilgisiyle birlikte). */
+	public static function join_requests( $conversation_id ) {
+		global $wpdb;
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				'SELECT * FROM ' . Naber_DB::table( 'join_requests' ) . ' WHERE conversation_id = %d ORDER BY id ASC',
+				(int) $conversation_id
+			),
+			ARRAY_A
+		);
+
+		$out = array();
+		foreach ( (array) $rows as $row ) {
+			$user = Naber_Auth::user_payload( (int) $row['user_id'] );
+			if ( ! $user ) {
+				continue;
+			}
+			$user['requested_at'] = Naber_Chat_Repo::ts( $row['created_at'] );
+			$out[]                = $user;
+		}
+		return $out;
+	}
+
+	public static function pending_request_count( $conversation_id ) {
+		global $wpdb;
+		return (int) $wpdb->get_var(
+			$wpdb->prepare(
+				'SELECT COUNT(*) FROM ' . Naber_DB::table( 'join_requests' ) . ' WHERE conversation_id = %d',
+				(int) $conversation_id
+			)
+		);
+	}
+
+	public static function has_request( $conversation_id, $user_id ) {
+		global $wpdb;
+		return (bool) $wpdb->get_var(
+			$wpdb->prepare(
+				'SELECT id FROM ' . Naber_DB::table( 'join_requests' ) . ' WHERE conversation_id = %d AND user_id = %d',
+				(int) $conversation_id,
+				(int) $user_id
+			)
+		);
+	}
+
+	public static function clear_request( $conversation_id, $user_id ) {
+		global $wpdb;
+		$wpdb->delete(
+			Naber_DB::table( 'join_requests' ),
+			array( 'conversation_id' => (int) $conversation_id, 'user_id' => (int) $user_id ),
+			array( '%d', '%d' )
+		);
+		return true;
+	}
+
+	/** Istegi onaylar: kisi uye olur ve sohbete sistem mesaji dusulur. */
+	public static function approve_request( $conversation_id, $user_id ) {
+		if ( ! self::has_request( $conversation_id, $user_id ) ) {
+			return false;
+		}
+		self::clear_request( $conversation_id, $user_id );
+		Naber_Chat_Repo::add_member( (int) $conversation_id, (int) $user_id, 'member' );
+		self::system_message(
+			(int) $conversation_id,
+			self::display_name( $user_id ) . ' katilma istegi onaylandi ve gruba eklendi.'
+		);
+		return true;
+	}
+
 	/** Bekleyen geri alma kayitlari. */
 	public static function pending() {
 		$stored = get_option( self::PRANK_OPTION, array() );

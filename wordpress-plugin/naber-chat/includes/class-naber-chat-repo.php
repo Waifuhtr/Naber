@@ -152,6 +152,17 @@ class Naber_Chat_Repo {
 		}
 
 		if ( ! self::member( $conversation_id, $user_id ) ) {
+			$conversation = self::get_conversation( $conversation_id );
+			// Uyelik onayi acikken kod dogru olsa bile kisi once bekleme
+			// listesine duser; yonetici onaylayana kadar uye olmaz.
+			if ( $conversation && ! empty( $conversation['require_approval'] ) ) {
+				Naber_Groups::request_join( $conversation_id, $user_id );
+				return new WP_Error(
+					'naber_join_pending',
+					'Katilma istegin gonderildi, yonetici onayi bekleniyor.',
+					array( 'status' => 202, 'pending' => true )
+				);
+			}
 			self::add_member( $conversation_id, $user_id, 'member' );
 			self::touch_conversation( $conversation_id );
 		}
@@ -582,6 +593,10 @@ class Naber_Chat_Repo {
 			$data['mention_all_admins'] = $fields['mention_all_admins'] ? 1 : 0;
 			$formats[]                  = '%d';
 		}
+		if ( isset( $fields['require_approval'] ) ) {
+			$data['require_approval'] = $fields['require_approval'] ? 1 : 0;
+			$formats[]                = '%d';
+		}
 		if ( ! $data ) {
 			return false;
 		}
@@ -610,6 +625,42 @@ class Naber_Chat_Repo {
 			return null;
 		}
 		return self::message_payload( $message, 'group' === $row['type'], (int) $viewer_id, array() );
+	}
+
+	/**
+	 * Kucuk grup ozeti: toplam mesaj, bugunku mesaj ve en aktif uye.
+	 * Eglence amacli; tek sorguyla toplanir.
+	 */
+	public static function group_stats( $conversation_id ) {
+		global $wpdb;
+		$messages        = Naber_DB::table( 'messages' );
+		$conversation_id = (int) $conversation_id;
+
+		$total = (int) $wpdb->get_var(
+			$wpdb->prepare( "SELECT COUNT(*) FROM {$messages} WHERE conversation_id = %d AND deleted = 0 AND sender_id > 0", $conversation_id )
+		);
+		$today = (int) $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT COUNT(*) FROM {$messages} WHERE conversation_id = %d AND deleted = 0 AND sender_id > 0 AND created_at >= %s",
+				$conversation_id,
+				gmdate( 'Y-m-d 00:00:00' )
+			)
+		);
+		$top = $wpdb->get_row(
+			$wpdb->prepare(
+				"SELECT sender_id, COUNT(*) AS total FROM {$messages} WHERE conversation_id = %d AND deleted = 0 AND sender_id > 0 GROUP BY sender_id ORDER BY total DESC LIMIT 1",
+				$conversation_id
+			),
+			ARRAY_A
+		);
+
+		$top_user = $top ? Naber_Auth::user_payload( (int) $top['sender_id'] ) : null;
+		return array(
+			'total_messages' => $total,
+			'today_messages' => $today,
+			'top_member'     => $top_user ? (string) $top_user['display_name'] : '',
+			'top_messages'   => $top ? (int) $top['total'] : 0,
+		);
 	}
 
 	public static function other_user( $conversation, $user_id ) {
@@ -736,6 +787,12 @@ class Naber_Chat_Repo {
 			'pinned_message' => self::pinned_message_payload( $row, $user_id ),
 			// Acikken "@herkes" yalnizca yoneticilerde calisir.
 			'mention_all_admins' => ! empty( $row['mention_all_admins'] ),
+			// Acikken davet koduyla gelenler once onay bekler.
+			'require_approval'   => ! empty( $row['require_approval'] ),
+			// Bekleyen katilma istegi sayisi; yalnizca yoneticiye anlamli.
+			'pending_requests'   => ( $member && self::can_manage( (string) $member['role'] ) && 'group' === $row['type'] )
+				? Naber_Groups::pending_request_count( (int) $row['id'] )
+				: 0,
 			'unread'       => $unread,
 			'updated_at'   => self::ts( $row['updated_at'] ),
 			'last_message' => $last,
