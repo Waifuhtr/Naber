@@ -9,7 +9,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class Naber_DB {
 
-	const DB_VERSION = '1.13.0';
+	const DB_VERSION = '1.14.0';
 
 	public static function table( $name ) {
 		global $wpdb;
@@ -32,6 +32,8 @@ class Naber_DB {
 		$pokes         = self::table( 'pokes' );
 		$reactions     = self::table( 'reactions' );
 		$blocks        = self::table( 'blocks' );
+		$polls         = self::table( 'polls' );
+		$poll_votes    = self::table( 'poll_votes' );
 
 		$sql = array();
 
@@ -190,8 +192,36 @@ class Naber_DB {
 			KEY to_id (to_id,created_at)
 		) {$charset};";
 
-		// Emoji reaksiyonu: kullanici basina mesaj basina en fazla bir emoji
-		// (WhatsApp'taki gibi); ayni emojiye tekrar basmak kaldirir.
+		// Anket: secenekler ayri bir tablo yerine JSON olarak saklanir.
+		// ~10 kisilik bir kurulumda secenek basina satir tutmanin getirisi
+		// yok; oy sayimi zaten oy tablosundan yapiliyor.
+		$sql[] = "CREATE TABLE {$polls} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			message_id bigint(20) unsigned NOT NULL,
+			conversation_id bigint(20) unsigned NOT NULL,
+			question varchar(255) NOT NULL DEFAULT '',
+			options text NOT NULL,
+			multiple tinyint(1) NOT NULL DEFAULT 0,
+			created_by bigint(20) unsigned NOT NULL DEFAULT 0,
+			created_at datetime NOT NULL DEFAULT '0000-00-00 00:00:00',
+			PRIMARY KEY  (id),
+			UNIQUE KEY message_id (message_id),
+			KEY conversation_id (conversation_id)
+		) {$charset};";
+
+		// Oylar secenek sirasina gore tutulur; ayni kisi ayni secenege
+		// iki kez oy veremez.
+		$sql[] = "CREATE TABLE {$poll_votes} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			poll_id bigint(20) unsigned NOT NULL,
+			user_id bigint(20) unsigned NOT NULL,
+			option_index smallint(5) unsigned NOT NULL,
+			created_at datetime NOT NULL DEFAULT '0000-00-00 00:00:00',
+			PRIMARY KEY  (id),
+			UNIQUE KEY vote (poll_id,user_id,option_index),
+			KEY poll_id (poll_id)
+		) {$charset};";
+
 		// Engelleme: A, B'yi engellerse ikisi de birbirine birebir mesaj
 		// gonderemez, arayamaz, durtemez. Gruplar etkilenmez.
 		$sql[] = "CREATE TABLE {$blocks} (
@@ -204,6 +234,8 @@ class Naber_DB {
 			KEY blocked_id (blocked_id)
 		) {$charset};";
 
+		// Emoji reaksiyonu: kullanici basina mesaj basina en fazla bir emoji
+		// (WhatsApp'taki gibi); ayni emojiye tekrar basmak kaldirir.
 		$sql[] = "CREATE TABLE {$reactions} (
 			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
 			message_id bigint(20) unsigned NOT NULL,
@@ -288,6 +320,7 @@ class Naber_DB {
 		$wpdb->query( $wpdb->prepare( 'DELETE FROM ' . self::table( 'pokes' ) . ' WHERE from_id = %d OR to_id = %d', $user_id, $user_id ) );
 		$wpdb->delete( self::table( 'reactions' ), array( 'user_id' => $user_id ), array( '%d' ) );
 		$wpdb->query( $wpdb->prepare( 'DELETE FROM ' . self::table( 'blocks' ) . ' WHERE blocker_id = %d OR blocked_id = %d', $user_id, $user_id ) );
+		$wpdb->delete( self::table( 'poll_votes' ), array( 'user_id' => $user_id ), array( '%d' ) );
 		$wpdb->delete( self::table( 'members' ), array( 'user_id' => $user_id ), array( '%d' ) );
 		$wpdb->delete( self::table( 'call_participants' ), array( 'user_id' => $user_id ), array( '%d' ) );
 		$wpdb->query( $wpdb->prepare( 'DELETE FROM ' . self::table( 'signals' ) . ' WHERE sender_id = %d OR receiver_id = %d', $user_id, $user_id ) );

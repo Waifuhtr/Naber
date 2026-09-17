@@ -1265,7 +1265,12 @@ class Naber_Chat_Repo {
 			'edited'          => ! empty( $row['edited_at'] ) && '0000-00-00 00:00:00' !== $row['edited_at'],
 			'reply'           => null,
 			'reactions'       => array(),
+			'poll'            => null,
 		);
+
+		if ( 'poll' === $payload['type'] && ! $payload['deleted'] ) {
+			$payload['poll'] = Naber_Polls::payload( Naber_Polls::for_message( (int) $row['id'] ), $viewer_id );
+		}
 
 		if ( ! $payload['deleted'] ) {
 			$payload['reactions'] = ( null !== $reactions ) ? $reactions : Naber_Reactions::summary( (int) $row['id'], $viewer_id );

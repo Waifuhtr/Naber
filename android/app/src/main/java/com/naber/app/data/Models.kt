@@ -121,6 +121,52 @@ data class MessageReaction(val emoji: String, val count: Int, val reacted: Boole
     }
 }
 
+/** Anketteki tek bir secenek: metni, oy sayisi ve bu kullanicinin oyu. */
+@Immutable
+data class PollOption(
+    val index: Int,
+    val text: String,
+    val votes: Int,
+    val percent: Int,
+    val mine: Boolean
+) {
+    companion object {
+        fun from(json: JSONObject?): PollOption? {
+            if (json == null) return null
+            return PollOption(
+                index = json.optInt("index"),
+                text = json.optString("text"),
+                votes = json.optInt("votes"),
+                percent = json.optInt("percent"),
+                mine = json.optBoolean("mine")
+            )
+        }
+    }
+}
+
+@Immutable
+data class Poll(
+    val id: Int,
+    val question: String,
+    /** true ise birden fazla secenek isaretlenebilir. */
+    val multiple: Boolean,
+    val total: Int,
+    val options: List<PollOption>
+) {
+    companion object {
+        fun from(json: JSONObject?): Poll? {
+            if (json == null) return null
+            return Poll(
+                id = json.optInt("id"),
+                question = json.optString("question"),
+                multiple = json.optBoolean("multiple"),
+                total = json.optInt("total"),
+                options = json.optJSONArray("options").mapObjects { PollOption.from(it) }
+            )
+        }
+    }
+}
+
 /** Yanitlanan mesajin balonun ustunde gosterilen kisa ozeti. */
 @Immutable
 data class MessageReplySummary(
@@ -170,7 +216,9 @@ data class Message(
     /** Yanitlanan mesajin kisa ozeti; yoksa null. */
     val replyTo: MessageReplySummary? = null,
     /** Emoji basina sayi ve "reacted" (bu kullanicinin kendi reaksiyonu mu). */
-    val reactions: List<MessageReaction> = emptyList()
+    val reactions: List<MessageReaction> = emptyList(),
+    /** Yalnizca type == "poll" olan mesajlarda dolu. */
+    val poll: Poll? = null
 ) {
     val key: String get() = if (id > 0) "id-$id" else "c-$clientId"
 
@@ -200,6 +248,7 @@ data class Message(
                 edited = json.optBoolean("edited"),
                 replyTo = MessageReplySummary.from(json.optJSONObject("reply")),
                 reactions = json.optJSONArray("reactions").mapObjects { MessageReaction.from(it) },
+                poll = Poll.from(json.optJSONObject("poll")),
                 // Sunucu bu alani gondermez; yalnizca cihazdaki kopyada bulunur.
                 localImageUri = json.optString("local_image_uri").ifBlank { null }
             )
@@ -513,7 +562,22 @@ fun Message.toJson(): JSONObject = JSONObject()
     .put("edited", edited)
     .put("reply", replyTo?.toJson())
     .put("reactions", JSONArray(reactions.map { it.toJson() }))
+    .put("poll", poll?.toJson())
     .put("local_image_uri", localImageUri.orEmpty())
+
+fun Poll.toJson(): JSONObject = JSONObject()
+    .put("id", id)
+    .put("question", question)
+    .put("multiple", multiple)
+    .put("total", total)
+    .put("options", JSONArray(options.map { it.toJson() }))
+
+fun PollOption.toJson(): JSONObject = JSONObject()
+    .put("index", index)
+    .put("text", text)
+    .put("votes", votes)
+    .put("percent", percent)
+    .put("mine", mine)
 
 fun MessageReaction.toJson(): JSONObject = JSONObject()
     .put("emoji", emoji)

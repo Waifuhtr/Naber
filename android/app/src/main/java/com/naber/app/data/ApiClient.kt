@@ -268,6 +268,32 @@ class ApiClient(private val session: Session) {
         return Triple(Message.listFrom(json.optJSONArray("messages")), Chat.from(json.optJSONObject("chat")), typing)
     }
 
+    /** Anket mesaji olusturur. */
+    suspend fun sendPoll(
+        conversationId: Int,
+        question: String,
+        options: List<String>,
+        multiple: Boolean,
+        clientId: String
+    ): Message = Message.from(
+        call(
+            "/messages", "POST",
+            JSONObject()
+                .put("conversation_id", conversationId)
+                .put("type", "poll")
+                .put("question", question)
+                .put("options", JSONArray(options))
+                .put("multiple", multiple)
+                .put("client_id", clientId)
+        ).optJSONObject("message")
+    ) ?: throw ApiException("Anket olusturulamadi.")
+
+    /** Ankette oy verir; ayni secenege tekrar basmak oyu geri ceker. */
+    suspend fun votePoll(pollId: Int, optionIndex: Int): Poll =
+        Poll.from(
+            call("/polls/$pollId/vote", "POST", JSONObject().put("option", optionIndex)).optJSONObject("poll")
+        ) ?: throw ApiException("Oy kaydedilemedi.")
+
     /** Konum mesaji; govdesi "enlem,boylam" bicimindedir. */
     suspend fun sendLocation(conversationId: Int, latitude: Double, longitude: Double, clientId: String): Message =
         Message.from(

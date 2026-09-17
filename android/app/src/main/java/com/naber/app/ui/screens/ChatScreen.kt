@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.aspectRatio
@@ -53,6 +54,7 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.Poll
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.MoreVert
@@ -65,6 +67,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -107,6 +110,7 @@ import com.naber.app.data.parseLocation
 import com.naber.app.data.MediaStore
 import com.naber.app.data.Message
 import com.naber.app.data.MessageReplySummary
+import com.naber.app.data.Poll
 import com.naber.app.data.SendState
 import com.naber.app.data.MessageInfo
 import com.naber.app.data.TickState
@@ -134,6 +138,10 @@ private val QUICK_REACTIONS = listOf("👍", "❤️", "😂", "😮", "😢", "
 
 /** Kaybolan mesaj sureleri; sunucudaki DISAPPEAR_OPTIONS ile ayni olmali. */
 private val DISAPPEAR_OPTIONS = listOf(0, 3600, 86400, 604800, 2592000)
+
+/** Anket secenek sinirlari; sunucudaki Naber_Polls sabitleriyle ayni. */
+private const val POLL_MIN_OPTIONS = 2
+private const val POLL_MAX_OPTIONS = 6
 
 /** Grubun tamamini kapsayan bahsetme sozcukleri; sunucu ile ayni olmali. */
 private val MENTION_ALL_TOKENS = listOf("herkes", "hepsi", "everyone")
@@ -203,6 +211,7 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
     var disappearDialogOpen by remember { mutableStateOf(false) }
     var wallpaperDialogOpen by remember { mutableStateOf(false) }
     var locationBusy by remember { mutableStateOf(false) }
+    var pollDialogOpen by remember { mutableStateOf(false) }
     // Izin penceresinden donunce konumu gondermek icin kullanilir; izin
     // sonucu, gondermeyi yapan fonksiyon tanimlanmadan once gelir.
     val sendLocationRequest = remember { mutableStateOf(false) }
@@ -513,6 +522,27 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
         if (sendLocationRequest.value) {
             sendLocationRequest.value = false
             sendLocation()
+        }
+    }
+
+    fun sendPoll(question: String, options: List<String>, multiple: Boolean) {
+        val clientId = UUID.randomUUID().toString()
+        scope.launch {
+            runCatching { Naber.api.sendPoll(conversationId, question, options, multiple, clientId) }
+                .onSuccess { sent -> messages = messages + sent }
+                .onFailure { error = it.message }
+        }
+    }
+
+    fun vote(pollId: Int, optionIndex: Int) {
+        scope.launch {
+            runCatching { Naber.api.votePoll(pollId, optionIndex) }
+                .onSuccess { updated ->
+                    messages = messages.map {
+                        if (it.poll?.id == updated.id) it.copy(poll = updated) else it
+                    }
+                }
+                .onFailure { error = it.message }
         }
     }
 
@@ -877,6 +907,7 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
                             mine = message.senderId == myId,
                             isGroup = current?.isGroup == true,
                             mentionNames = mentionNames,
+                            onVote = { pollId, index -> vote(pollId, index) },
                             tick = tickFor(message, chat?.deliveredWatermark ?: 0, chat?.readWatermark ?: 0),
                             onImageClick = { fullScreen = it },
                             onLongPress = { actionTarget = message },
@@ -1010,6 +1041,14 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
                             onClick = {
                                 attachMenuOpen = false
                                 imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Anket olustur") },
+                            leadingIcon = { Icon(Icons.Filled.Poll, null) },
+                            onClick = {
+                                attachMenuOpen = false
+                                pollDialogOpen = true
                             }
                         )
                         DropdownMenuItem(
@@ -1311,6 +1350,16 @@ fun ChatScreen(conversationId: Int, onBack: () -> Unit, onGroupInfo: (Int) -> Un
         )
     }
 
+    if (pollDialogOpen) {
+        PollDialog(
+            onDismiss = { pollDialogOpen = false },
+            onCreate = { question, options, multiple ->
+                pollDialogOpen = false
+                sendPoll(question, options, multiple)
+            }
+        )
+    }
+
     if (wallpaperDialogOpen) {
         AlertDialog(
             containerColor = NaberColors.Surface,
@@ -1504,6 +1553,7 @@ private fun MessageRow(
     isGroup: Boolean,
     /** Vurgulanacak "@isim"ler; grup disinda bos gelir. */
     mentionNames: List<String>,
+    onVote: (Int, Int) -> Unit,
     tick: TickState,
     onImageClick: (Any) -> Unit,
     onLongPress: () -> Unit,
@@ -1643,6 +1693,10 @@ private fun MessageRow(
                     }
                 }
 
+                message.poll?.let { poll ->
+                    PollBubble(poll = poll, mine = mine, onVote = { index -> onVote(poll.id, index) })
+                }
+
                 val point = if (message.type == "location") parseLocation(message.body) else null
                 if (point != null) {
                     val context = LocalContext.current
@@ -1686,7 +1740,7 @@ private fun MessageRow(
                     }
                 }
 
-                if (message.body.isNotBlank() && message.type != "location") {
+                if (message.body.isNotBlank() && message.type != "location" && message.type != "poll") {
                     Text(
                         mentionText(
                             message.body,
@@ -1792,4 +1846,164 @@ private fun MessageRow(
             }
         }
     }
+}
+
+/** Mesaj balonu icindeki anket: secenekler, oy cubuklari ve sayilar. */
+@Composable
+private fun PollBubble(poll: Poll, mine: Boolean, onVote: (Int) -> Unit) {
+    val textColor = if (mine) Color.White else NaberColors.TextPrimary
+    val secondary = if (mine) Color.White.copy(alpha = 0.75f) else NaberColors.TextSecondary
+    val barColor = if (mine) Color.White.copy(alpha = 0.35f) else NaberColors.Accent.copy(alpha = 0.35f)
+
+    Column(modifier = Modifier.width(250.dp)) {
+        Text(poll.question, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = textColor)
+        Spacer(Modifier.height(2.dp))
+        Text(
+            if (poll.multiple) "Birden fazla secilebilir" else "Tek secim",
+            fontSize = 11.sp,
+            color = secondary
+        )
+        Spacer(Modifier.height(8.dp))
+
+        poll.options.forEach { option ->
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 3.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (mine) Color.White.copy(alpha = 0.12f) else NaberColors.SurfaceHigh)
+                    .clickable { onVote(option.index) }
+            ) {
+                // Oy orani balonun icinde bir cubuk olarak cizilir; ayri bir
+                // ilerleme bileseni yerine arka plan genisligi kullanilir.
+                // Dis kutu matchParentSize ile satirin olcusunu alir, ic kutu
+                // o olcunun yuzdesi kadar genisler; ikisi tek modifier'da
+                // birlestirilemez cunku matchParentSize genisligi de sabitler.
+                Box(modifier = Modifier.matchParentSize()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(option.percent / 100f)
+                            .fillMaxHeight()
+                            .background(barColor)
+                    )
+                }
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (option.mine) {
+                        Icon(
+                            Icons.Filled.Check,
+                            contentDescription = "Oyunuz",
+                            tint = textColor,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    Text(
+                        option.text,
+                        fontSize = 13.5.sp,
+                        color = textColor,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("${option.votes}", fontSize = 12.sp, color = secondary)
+                }
+            }
+        }
+
+        Spacer(Modifier.height(4.dp))
+        Text(
+            if (poll.total == 0) "Henuz oy yok" else "Toplam ${poll.total} oy",
+            fontSize = 11.sp,
+            color = secondary
+        )
+    }
+}
+
+/** Yeni anket penceresi: soru, secenekler ve tek/coklu secim. */
+@Composable
+private fun PollDialog(onDismiss: () -> Unit, onCreate: (String, List<String>, Boolean) -> Unit) {
+    var question by remember { mutableStateOf("") }
+    val options = remember { mutableStateListOf("", "") }
+    var multiple by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        containerColor = NaberColors.Surface,
+        onDismissRequest = onDismiss,
+        title = { Text("Anket olustur") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = question,
+                    onValueChange = { question = it; error = null },
+                    label = { Text("Soru") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(8.dp))
+
+                options.forEachIndexed { index, value ->
+                    OutlinedTextField(
+                        value = value,
+                        onValueChange = { options[index] = it; error = null },
+                        label = { Text("${index + 1}. secenek") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
+                    )
+                }
+
+                if (options.size < POLL_MAX_OPTIONS) {
+                    Text(
+                        "+ Secenek ekle",
+                        color = NaberColors.Accent,
+                        fontSize = 13.sp,
+                        modifier = Modifier
+                            .clickable { options.add("") }
+                            .padding(vertical = 8.dp)
+                    )
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { multiple = !multiple }
+                        .padding(vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        if (multiple) Icons.Filled.Check else Icons.Filled.Close,
+                        contentDescription = null,
+                        tint = if (multiple) NaberColors.Accent else NaberColors.TextSecondary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("Birden fazla secenek isaretlenebilsin", fontSize = 13.sp, color = NaberColors.TextPrimary)
+                }
+
+                val shown = error
+                if (shown != null) {
+                    Text(shown, fontSize = 12.sp, color = NaberColors.Danger)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                // Ayni secenek iki kez yazilirsa oylar bolunur; sunucu da
+                // ayni kurali uyguluyor, burada kullaniciya sebebi soyleniyor.
+                val clean = options.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+                when {
+                    question.isBlank() -> error = "Soru bos olamaz."
+                    clean.size < POLL_MIN_OPTIONS -> error = "En az $POLL_MIN_OPTIONS farkli secenek gerekiyor."
+                    else -> onCreate(question.trim(), clean, multiple)
+                }
+            }) { Text("Olustur", color = NaberColors.Accent) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Vazgec", color = NaberColors.TextSecondary) }
+        }
+    )
 }

@@ -102,7 +102,9 @@ listeden cikarildi, istenmiyor.**
   almis olsa bile bildirim alir. "@herkes" grubun tamamini kapsar).
 - [x] **Grup davet KODU + "Kod ile grup bul"** — tamamlandi (8 haneli
   kod, yoneticinin yenileyebilmesi). commit: "Grup davet kodu".
-- [ ] **Anket (poll)** — henuz yapilmadi.
+- [x] **Anket (poll)** — tamamlandi (ek menuden olusturulur; 2-6
+  secenek, tek ya da coklu secim. Oylar mesaj balonunda cubuk ve
+  yuzde olarak gorunur; ayni secenege tekrar basmak oyu geri ceker).
 
 **Gizlilik / guvenlik:**
 
@@ -153,19 +155,20 @@ duruyor:
 
 Tamamlanan: hata duzeltmesi (1/1), durtme ozelligi, optimizasyonlar
 (9/15 yapildi, 2 kasitli atlandi/ertelendi, 4 kaldi), genel ozellikler
-(17/19 yapildi: yanitla, duzenle, reaksiyon, iletme, kamera, sabitleme,
+(18/19 yapildi: yanitla, duzenle, reaksiyon, iletme, kamera, sabitleme,
 sureli sessize alma, davet kodu, uygulama kilidi, global arama,
 kaybolan mesajlar, engelleme, bahsetme, gizlilik secenekleri,
-acik tema, sohbet arka plani, konum paylasma).
+acik tema, sohbet arka plani, konum paylasma, anket).
 
-Eklenti surumu: 1.16.0. Toplam test: 236, hepsi geciyor.
+Eklenti surumu: 1.17.0. Toplam test: 253, hepsi geciyor.
 
-Kalan buyuk is: sesli mesaj, anket, lazy medya indirme, delta senkronizasyon, WorkManager.
+Kalan buyuk is: sesli mesaj, lazy medya indirme, delta
+senkronizasyon, WorkManager.
 
 ## Kodlamaya gecince siralama
 
 1. [x] Tam ekran gorsel siyah ekran duzeltmesi.
 2. [x] Durtme ozelligi (sunucu + istemci).
 3. Onaylanan optimizasyonlar — 9/15 yapildi, kalanlar surdurulecek.
-4. Onaylanan genel ozellikler — 17/19 yapildi, kalanlar surdurulecek.
+4. Onaylanan genel ozellikler — 18/19 yapildi, kalanlar surdurulecek.
 5. Ek oneriler arasindan kullanicinin sectikleri (henuz baslanmadi).

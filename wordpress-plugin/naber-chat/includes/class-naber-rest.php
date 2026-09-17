@@ -75,6 +75,7 @@ class Naber_REST {
 		$this->route( $ns, '/messages/(?P<id>\d+)/info', 'GET', 'message_info', $user );
 		$this->route( $ns, '/messages/(?P<id>\d+)/react', 'POST', 'react_to_message', $user );
 		$this->route( $ns, '/messages/(?P<id>\d+)/forward', 'POST', 'forward_message', $user );
+		$this->route( $ns, '/polls/(?P<id>\d+)/vote', 'POST', 'vote_poll', $user );
 
 		// --- Medya ---
 		$this->route( $ns, '/media/find', 'POST', 'media_find', $user );
@@ -797,6 +798,27 @@ class Naber_REST {
 		return rest_ensure_response( array( 'seconds' => $seconds, 'chat' => $chat ) );
 	}
 
+	/** Ankette oy verir veya oyu geri ceker. */
+	public function vote_poll( WP_REST_Request $request ) {
+		$poll = Naber_Polls::get( (int) $request['id'] );
+		if ( ! $poll ) {
+			return new WP_Error( 'naber_poll_not_found', 'Anket bulunamadi.', array( 'status' => 404 ) );
+		}
+
+		$conversation = $this->authorized_conversation( (int) $poll['conversation_id'] );
+		if ( is_wp_error( $conversation ) ) {
+			return $conversation;
+		}
+
+		$user_id = get_current_user_id();
+		$result  = Naber_Polls::vote( (int) $poll['id'], $user_id, (int) $request->get_param( 'option' ) );
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		return rest_ensure_response( array( 'poll' => Naber_Polls::payload( Naber_Polls::get( (int) $poll['id'] ), $user_id ) ) );
+	}
+
 	public function list_messages( WP_REST_Request $request ) {
 		$conversation = $this->authorized_conversation( (int) $request['id'] );
 		if ( is_wp_error( $conversation ) ) {
@@ -833,7 +855,7 @@ class Naber_REST {
 	public function send_message( WP_REST_Request $request ) {
 		$user_id  = get_current_user_id();
 		$type     = sanitize_key( (string) $request->get_param( 'type' ) );
-		$type     = in_array( $type, array( 'text', 'image', 'location' ), true ) ? $type : 'text';
+		$type     = in_array( $type, array( 'text', 'image', 'location', 'poll' ), true ) ? $type : 'text';
 		$body     = (string) $request->get_param( 'body' );
 		$media_id = (int) $request->get_param( 'media_id' );
 		$client   = sanitize_text_field( (string) $request->get_param( 'client_id' ) );
@@ -891,6 +913,26 @@ class Naber_REST {
 
 		// Gorselin cok kucuk on izlemesi (base64 JPEG). Mesajla birlikte tasindigi
 		// icin alici, asil dosya inmeden once bulanik bir goruntu gorebilir.
+		if ( 'poll' === $type ) {
+			// Anket govdesi sorunun kendisidir; secenekler ayri gelir ve
+			// mesaj olusmadan once dogrulanir, yoksa sohbette secenegi
+			// olmayan bos bir anket kalirdi.
+			$question = Naber_Polls::sanitize_question( $request->get_param( 'question' ) );
+			$options  = Naber_Polls::sanitize_options( $request->get_param( 'options' ) );
+			if ( '' === $question ) {
+				return new WP_Error( 'naber_poll_question', 'Anket sorusu bos olamaz.', array( 'status' => 400 ) );
+			}
+			if ( ! $options ) {
+				return new WP_Error(
+					'naber_poll_options',
+					sprintf( 'Anket icin en az %d farkli secenek gerekiyor.', Naber_Polls::MIN_OPTIONS ),
+					array( 'status' => 400 )
+				);
+			}
+			$body     = $question;
+			$media_id = 0;
+		}
+
 		if ( 'location' === $type ) {
 			// Konum mesajinin govdesi "enlem,boylam" bicimindedir; bozuk
 			// deger gelirse mesaj hic olusturulmaz.
@@ -908,8 +950,26 @@ class Naber_REST {
 			$message['sender_name'] = Naber_Auth::user_payload( $user_id )['display_name'];
 		}
 
+		if ( 'poll' === $type ) {
+			$poll_id = Naber_Polls::create(
+				(int) $message['id'],
+				$conversation_id,
+				$user_id,
+				$body,
+				$request->get_param( 'options' ),
+				rest_sanitize_boolean( $request->get_param( 'multiple' ) )
+			);
+			if ( is_wp_error( $poll_id ) ) {
+				return $poll_id;
+			}
+			$message['poll'] = Naber_Polls::payload( Naber_Polls::get( $poll_id ), $user_id );
+		}
+
 		$sender  = Naber_Auth::user_payload( $user_id );
 		$preview = 'image' === $type ? 'Fotograf' : ( 'location' === $type ? 'Konum' : wp_trim_words( $body, 12, '...' ) );
+		if ( 'poll' === $type ) {
+			$preview = 'Anket: ' . $preview;
+		}
 		$title   = $is_group ? (string) $conversation['title'] : $sender['display_name'];
 		$text    = $is_group ? $sender['display_name'] . ': ' . $preview : $preview;
 
