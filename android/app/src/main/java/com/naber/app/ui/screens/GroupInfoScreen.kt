@@ -30,6 +30,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MicOff
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -102,6 +104,7 @@ fun GroupInfoScreen(conversationId: Int, onBack: () -> Unit, onLeft: () -> Unit)
     var prankStage by remember { mutableStateOf(0) }
     var confirmDelete by remember { mutableStateOf(false) }
     var photoBusy by remember { mutableStateOf(false) }
+    var muteDialogOpen by remember { mutableStateOf(false) }
     var requests by remember { mutableStateOf<List<User>>(emptyList()) }
     var stats by remember { mutableStateOf<GroupStats?>(null) }
 
@@ -573,6 +576,37 @@ fun GroupInfoScreen(conversationId: Int, onBack: () -> Unit, onLeft: () -> Unit)
                 }
             }
 
+            item {
+                // Sohbet ekranindaki sureli sessize almanin kisayolu;
+                // grup ayarlarindan cikmadan acilip kapatilabilsin.
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            if (current.notifyMuted) {
+                                act { Naber.api.setChatNotifications(conversationId, false) ?: current }
+                            } else {
+                                muteDialogOpen = true
+                            }
+                        }
+                        .padding(horizontal = 16.dp, vertical = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        if (current.notifyMuted) Icons.Filled.Notifications else Icons.Filled.NotificationsOff,
+                        contentDescription = null,
+                        tint = NaberColors.TextSecondary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(Modifier.width(14.dp))
+                    Text(
+                        if (current.notifyMuted) "Bildirimleri ac" else "Bildirimleri sessize al",
+                        color = NaberColors.TextPrimary,
+                        fontSize = 15.sp
+                    )
+                }
+            }
+
             if (current.amOwner) {
                 item {
                     Row(
@@ -709,6 +743,54 @@ fun GroupInfoScreen(conversationId: Int, onBack: () -> Unit, onLeft: () -> Unit)
                     prank = null
                     onLeft()
                 }) { Text("Hak ettim") }
+            }
+        )
+    }
+
+    if (muteDialogOpen) {
+        AlertDialog(
+            containerColor = NaberColors.Surface,
+            onDismissRequest = { muteDialogOpen = false },
+            title = { Text("Bildirimleri sessize al") },
+            text = {
+                Column {
+                    listOf(
+                        "8 saat" to 8 * 3600,
+                        "1 hafta" to 7 * 24 * 3600,
+                        "Surekli" to 0
+                    ).forEach { (label, duration) ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    muteDialogOpen = false
+                                    scope.launch {
+                                        runCatching {
+                                            Naber.api.setChatNotifications(conversationId, true, duration)
+                                        }
+                                            .onSuccess { updated -> updated?.let { chat = it } }
+                                            .onFailure { error = it.message }
+                                    }
+                                }
+                                .padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Filled.NotificationsOff,
+                                contentDescription = null,
+                                tint = NaberColors.TextSecondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Text(label, fontSize = 14.5.sp, color = NaberColors.TextPrimary)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { muteDialogOpen = false }) {
+                    Text("Vazgec", color = NaberColors.TextSecondary)
+                }
             }
         )
     }

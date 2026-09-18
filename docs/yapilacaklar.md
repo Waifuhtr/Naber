@@ -255,7 +255,7 @@ sordu, asagidakiler eklendi (Ek ozellik onerileri listesindeki
 - [x] **Katilma tarihi gosterimi**: uye satirinda "X tarihinde katildi"
   bilgisi (joined_at zaten veritabaninda var, sadece goruntuleme
   eklenir).
-- [ ] **Toplu susturma suresi**: "Sureli sessize alma" zaten sohbet
+- [x] **Toplu susturma suresi**: "Sureli sessize alma" zaten sohbet
   ekraninda var; grup ayarlarindan da kisayol olarak erisilebilir.
 - [x] **Grup istatistigi**: en aktif uye, toplam mesaj sayisi gibi kucuk
   bir ozet (dusuk oncelik, eglence amacli).
